@@ -61,6 +61,12 @@ logger = logging.getLogger("lakehouse_ingestion")
 
 
 def _resolve_source(plan: IngestionPlan) -> Tuple[DataFrame, str]:
+    """Resolve ``plan.source`` em ``(DataFrame, nome_qualificado_para_log)``.
+
+    String é interpretada como nome de tabela; se não tiver pontos, é
+    qualificada com ``catalog.layer.<source>``. DataFrames passam direto e
+    recebem o rótulo ``"dataframe"`` no log.
+    """
     if isinstance(plan.source, str):
         source_full = (
             plan.source
@@ -78,6 +84,13 @@ def _prepare_dataframe(
     run_date: str,
     wm_prev: Optional[str],
 ) -> DataFrame:
+    """Aplica todas as transformações pré-quality em ordem determinística.
+
+    Sequência: ``select_columns`` -> ``filter_expression`` -> ``custom_keys``
+    -> ``apply_watermark`` -> ``deduplicate_by_order`` -> ``fix_encoding`` ->
+    adição das colunas de controle (``ingestion_date``, ``source_system``,
+    ``__run_id``).
+    """
     if plan.select_columns:
         validate_cols(df, plan.select_columns, "select_columns")
         df = df.select(*plan.select_columns)
@@ -102,6 +115,23 @@ def _prepare_dataframe(
 
 
 def _validate_plan(plan: IngestionPlan, df: DataFrame, target: str) -> Dict[str, Any]:
+    """Aplica regras de negócio do plan e valida schema policy.
+
+    Regras de modo por layer:
+        - bronze rejeita ``scd1_upsert``, ``scd2_historical``, ``snapshot_soft_delete``;
+        - SCD1/SCD2/snapshot exigem ``merge_keys``;
+        - hash_diff exige ``hash_keys``;
+        - snapshot + watermark emite warning (incoerente).
+
+    Verifica também que todas as colunas referenciadas no plan existem no
+    DataFrame, e aplica ``validate_schema_policy`` + ``sync_delta_schema``.
+
+    Returns:
+        Dict com ``status``, ``added_columns``, ``removed_columns``, ``type_changes``.
+
+    Raises:
+        ValueError: ao violar restrições de modo/layer ou schema policy.
+    """
     if plan.layer == "bronze" and plan.mode in {
         "scd1_upsert",
         "scd2_historical",
@@ -156,6 +186,11 @@ def _build_dry_run_result(
     started_dt: datetime,
     df: DataFrame,
 ) -> Dict[str, Any]:
+    """Monta o payload de retorno quando ``plan.dry_run=True``.
+
+    Inclui resultado das validações sem efetuar escrita: ``status="DRY_RUN"``,
+    contagens, watermarks, partições afetadas e mudanças de schema previstas.
+    """
     finished_dt = utc_now_ts()
     return {
         "status": "DRY_RUN",
@@ -208,6 +243,10 @@ def _finalize_execution(
     error: Optional[str],
     row_metrics: Dict[str, int],
 ) -> None:
+    """Monta o payload completo e grava em ``ctrl_ingestion_runs`` via ``log_run``.
+
+    Chamado no ``finally`` do orquestrador — sempre executa, mesmo em falha.
+    """
     duration = (finished_dt - started_dt).total_seconds()
     log_run(
         tables,
@@ -252,6 +291,26 @@ def _finalize_execution(
 
 
 def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
+    """Orquestra a execução de um ``IngestionPlan`` completo.
+
+    Fluxo (try/except/finally garante que ctrl tables sempre recebem o registro):
+
+    1. Cria ctrl tables se necessário.
+    2. Adquire lock se ``plan.lock_enabled``.
+    3. Resolve a fonte e lê o watermark anterior.
+    4. Prepara o DataFrame (select, filter, custom keys, watermark, dedup, encoding).
+    5. Valida schema policy e regras do plan.
+    6. Avalia quality gates.
+    7. Em ``dry_run``, retorna sem escrever.
+    8. Executa o motor de escrita correspondente, com retry para conflitos Delta.
+    9. Atualiza ``ctrl_ingestion_state``.
+    10. Em falha, registra ``status=FAILED`` mantendo watermark anterior.
+    11. Sempre: persiste em ``ctrl_ingestion_runs`` e (se habilitado) emite OpenLineage.
+
+    Returns:
+        Dict com status, run_id, contagens, watermarks, mudanças de schema,
+        métricas Delta, evento OpenLineage e mensagem de erro (se houver).
+    """
     run_id = new_run_id()
     run_ts = utc_now_str()
     run_date = today_str()

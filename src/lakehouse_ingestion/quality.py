@@ -29,6 +29,32 @@ def evaluate_quality(
     run_id: str,
     target: str,
 ) -> Tuple[str, List[Dict[str, Any]], DataFrame, DataFrame, int]:
+    """Avalia regras de qualidade em uma única passagem agregada quando possível.
+
+    Regras de coluna (``not_null``, ``accepted_values``, ``max_null_ratio``)
+    são consolidadas em uma única ``df.agg(...)``. Regras estruturais
+    (``required_columns``, ``min_rows``, ``unique_key``) ficam de fora por
+    exigirem semânticas próprias.
+
+    Args:
+        df: DataFrame a avaliar.
+        rules: Regras a aplicar; ``None`` retorna status ``NOT_CONFIGURED``.
+        run_id: Identificador da execução (para futura correlação).
+        target: Nome qualificado do destino (para futura correlação).
+
+    Returns:
+        Tupla ``(status, failed_rules, valid_df, quarantined_df, quarantined_count)``:
+
+        - ``status``: ``"NOT_CONFIGURED"`` | ``"PASSED"`` | ``"FAILED"``.
+        - ``failed_rules``: lista de dicts ``{rule_name, failed_count, details}``.
+        - ``valid_df``: DataFrame sem as linhas quarentenáveis.
+        - ``quarantined_df``: linhas que violaram regras isoláveis.
+        - ``quarantined_count``: tamanho da quarentena.
+
+    Raises:
+        ValueError: se alguma coluna citada não existir, ou se
+            ``accepted_values`` ultrapassar ``CONFIG.max_inline_accepted_values``.
+    """
     if rules is None:
         return "NOT_CONFIGURED", [], df, df.limit(0), 0
 
@@ -164,6 +190,10 @@ def write_quality_results(
     target: str,
     results: List[Dict[str, Any]],
 ) -> None:
+    """Persiste falhas de regras na ctrl table ``ctrl_ingestion_quality``.
+
+    Não escreve nada se ``results`` for vazio (status PASSED ou NOT_CONFIGURED).
+    """
     if not results:
         return
     rows = [
@@ -195,6 +225,12 @@ def write_quarantine(
     rule_name: str,
     reason: str,
 ) -> None:
+    """Persiste linhas quarentenadas em ``ctrl_ingestion_quarantine``.
+
+    Cada linha vira uma entrada com a linha original serializada em
+    ``record_payload`` (JSON) — preserva todos os campos para auditoria
+    independente da evolução do schema do destino.
+    """
     if df.limit(1).count() == 0:
         return
     payload_df = (

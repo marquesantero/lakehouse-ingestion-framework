@@ -1,4 +1,8 @@
-"""Configuração global e tipos compartilhados."""
+"""Configuração global, tipos compartilhados e constantes do framework.
+
+Este módulo é folha (não depende de outros do pacote) e é importado por todos
+os demais. Define ``Literal``s para narrowing estático e a singleton ``CONFIG``.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +10,10 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
+#: Camadas reconhecidas (Medallion Architecture).
 Layer = Literal["bronze", "silver", "gold"]
+
+#: Modos oficiais de escrita; ver ``writers.py`` para a semântica de cada um.
 WriteMode = Literal[
     "scd0_append",
     "scd0_overwrite",
@@ -15,11 +22,20 @@ WriteMode = Literal[
     "scd2_historical",
     "snapshot_soft_delete",
 ]
+
+#: Estratégia do MERGE em ``scd1_upsert``.
 MergeStrategy = Literal["delta", "delta_by_partition", "replace_partitions"]
+
+#: Política de evolução de schema do destino.
 SchemaPolicy = Literal["permissive", "additive_only", "strict"]
+
+#: Ação quando uma regra de qualidade falha.
 QualityFailAction = Literal["fail", "warn", "quarantine"]
+
+#: Fonte aceita pelo plano: nome de tabela ou DataFrame em memória.
 Source = Union[str, DataFrame]
 
+#: Conjunto usado em validação runtime (Literal só faz tipagem estática).
 VALID_WRITE_MODES = {
     "scd0_append",
     "scd0_overwrite",
@@ -29,6 +45,9 @@ VALID_WRITE_MODES = {
     "snapshot_soft_delete",
 }
 
+#: Colunas gerenciadas pelo framework. Excluídas do hash determinístico em
+#: ``schema.hash_columns`` para que mudanças em controle não invalidem
+#: ``row_hash``.
 CONTROL_COLUMNS = {
     "ingestion_date",
     "source_system",
@@ -45,7 +64,29 @@ CONTROL_COLUMNS = {
 
 @dataclass(frozen=True)
 class FrameworkConfig:
-    """Configuração global do framework."""
+    """Configuração global do framework.
+
+    Imutável. A instância padrão é ``CONFIG``. Para sobrescrever defaults em
+    todo o processo, faça monkey-patch antes da primeira chamada:
+
+    >>> import lakehouse_ingestion.config as cfg
+    >>> cfg.CONFIG = cfg.FrameworkConfig(ctrl_schema="my_ops")
+
+    Em prática, prefira passar ``ctrl_schema``/etc. no ``IngestionPlan``.
+
+    Attributes:
+        default_catalog: Catálogo Unity quando não especificado no plan.
+        default_source_system: ``source_system`` quando não informado.
+        default_partition_col: Coluna de partição padrão (``ingestion_date``).
+        ctrl_schema: Schema onde as 7 ctrl tables vivem.
+        ctrl_table_*: Nomes das ctrl tables.
+        max_error_len: Tamanho máximo de ``error_message`` em ctrl tables.
+        default_lock_ttl_minutes: TTL do lock best-effort em ``acquire_lock``.
+        default_retry_attempts: Tentativas em ``with_retry`` para conflitos Delta.
+        default_retry_backoff_seconds: Backoff linear entre tentativas.
+        max_inline_accepted_values: Limite de itens em ``accepted_values``.
+        max_partition_predicate_values: Limite de valores em predicados ``IN``.
+    """
 
     default_catalog: str = "main"
     default_source_system: str = "default"
@@ -66,4 +107,5 @@ class FrameworkConfig:
     max_partition_predicate_values: int = 1000
 
 
+#: Singleton de configuração. Importada por outros módulos.
 CONFIG = FrameworkConfig()

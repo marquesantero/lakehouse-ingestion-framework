@@ -13,10 +13,17 @@ from .schema import table_exists
 
 
 def _data_type_map(df: DataFrame) -> Dict[str, str]:
+    """Mapa coluna -> tipo simples (ex.: ``timestamp``, ``bigint``)."""
     return {field.name: field.dataType.simpleString() for field in df.schema.fields}
 
 
 def encode_watermark(df: DataFrame, values: Dict[str, Any]) -> str:
+    """Serializa um watermark como JSON tipado e estável.
+
+    Cada coluna vira ``{"type": <simpleString>, "value": <str|None>}``. O tipo
+    vem de ``df.schema``, viabilizando reconstrução do literal correto na
+    leitura. ``sort_keys=True`` para diffs determinísticos.
+    """
     type_map = _data_type_map(df)
     payload = {
         col: {
@@ -31,6 +38,14 @@ def encode_watermark(df: DataFrame, values: Dict[str, Any]) -> str:
 def decode_watermark(
     raw: Optional[str], cols: List[str]
 ) -> Optional[Dict[str, Dict[str, Optional[str]]]]:
+    """Decodifica o JSON do watermark e valida a presença das colunas.
+
+    Retorna ``None`` se ``raw`` for vazio. Erra se faltar coluna ou se o JSON
+    estiver mal formado.
+
+    Raises:
+        ValueError: em payload inválido ou colunas ausentes.
+    """
     if not raw:
         return None
     parsed = json.loads(raw)
@@ -49,12 +64,20 @@ def decode_watermark(
 
 
 def _watermark_literal(df: DataFrame, col_name: str, values: Dict[str, Dict[str, Optional[str]]]):
+    """Reconstrói o literal Spark com o tipo da coluna no DataFrame atual."""
     type_map = _data_type_map(df)
     dtype = values[col_name].get("type") or type_map.get(col_name, "string")
     return F.lit(values[col_name].get("value")).cast(dtype)
 
 
 def get_watermark(state_table: str, target_table: str, cols: List[str]) -> Optional[str]:
+    """Recupera o último watermark conhecido com fallback em cascata.
+
+    Ordem de tentativas:
+        1. ``ctrl_ingestion_state.watermark_value``.
+        2. ``MAX(col)`` direto da tabela de destino (resiliente a perda do state).
+        3. ``None`` (primeira execução ou tabela vazia).
+    """
     if not cols:
         return None
     try:
@@ -87,6 +110,12 @@ def get_watermark(state_table: str, target_table: str, cols: List[str]) -> Optio
 
 
 def apply_watermark(df: DataFrame, cols: List[str], last: Optional[str]) -> DataFrame:
+    """Filtra o DataFrame mantendo apenas linhas posteriores ao watermark.
+
+    Para watermark composto, usa comparação lexicográfica:
+    ``(c1 > L1) OR (c1 == L1 AND c2 > L2) OR ...``. Se ``cols`` ou ``last`` for
+    vazio, retorna o DataFrame original sem filtro.
+    """
     if not cols or not last:
         return df
     validate_cols(df, cols, "watermark_columns")
@@ -107,6 +136,12 @@ def apply_watermark(df: DataFrame, cols: List[str], last: Optional[str]) -> Data
 
 
 def compute_watermark(df: DataFrame, cols: List[str]) -> Optional[str]:
+    """Calcula o novo watermark a partir do DataFrame.
+
+    Para watermark simples, usa ``MAX(col)``. Para composto, usa
+    ``MAX(STRUCT(c1, c2, ...))`` que o Spark compara lexicograficamente.
+    Retorna ``None`` se o DataFrame estiver vazio ou todas as linhas forem NULL.
+    """
     if not cols:
         return None
     validate_cols(df, cols, "watermark_columns")

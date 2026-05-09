@@ -14,6 +14,12 @@ from ._sql import qt, safe_truncate, sql_lit, to_json
 
 
 def capture_explain(df: DataFrame, mode: str = "formatted") -> str:
+    """Captura o plano Spark do DataFrame como string.
+
+    Redireciona stdout durante ``df.explain(mode)``. Se a versão do PySpark
+    não aceitar kwarg ``mode``, cai para ``df.explain(True)``. Caro em
+    DataFrames grandes — use só em desenvolvimento ou diagnóstico.
+    """
     buffer = io.StringIO()
     try:
         with redirect_stdout(buffer):
@@ -34,6 +40,7 @@ def write_explain_plan(
     explain_format: str,
     plan_text: str,
 ) -> None:
+    """Persiste o plano em ``ctrl_ingestion_explain``, truncado em 100k chars."""
     if not plan_text:
         return
     spark.sql(f"""
@@ -47,18 +54,21 @@ def write_explain_plan(
 
 
 def openlineage_namespace(plan: IngestionPlan) -> str:
+    """Retorna o namespace OpenLineage do plan ou ``databricks://<catalog>`` por default."""
     if plan.openlineage_namespace:
         return plan.openlineage_namespace
     return f"databricks://{plan.catalog}"
 
 
 def _schema_fields(df: Optional[DataFrame]) -> List[Dict[str, str]]:
+    """Lista de ``{name, type}`` para o facet ``schema`` do OpenLineage."""
     if df is None:
         return []
     return [{"name": field.name, "type": field.dataType.simpleString()} for field in df.schema.fields]
 
 
 def _clean_none(value: Any) -> Any:
+    """Remove recursivamente chaves/itens com valor ``None`` em dicts e listas."""
     if isinstance(value, dict):
         return {k: _clean_none(v) for k, v in value.items() if v is not None}
     if isinstance(value, list):
@@ -82,6 +92,13 @@ def build_openlineage_event(
     delta_version_after: Optional[int],
     operation_metrics: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Constrói um evento OpenLineage 1.0.5 com facets relevantes ao framework.
+
+    Inclui facets ``processing_engine``, ``parent`` (opcional), schema dos
+    inputs/outputs, ``dataQualityMetrics`` (rowCount) e um facet customizado
+    ``lakehouse_ingestion`` com modo, layer, contagens e métricas Delta.
+    ``eventType`` é ``COMPLETE`` em sucesso ou ``FAIL`` em erro.
+    """
     namespace = openlineage_namespace(plan)
     event_type = "COMPLETE" if status == "SUCCESS" else "FAIL"
     parent_facet = (
@@ -189,6 +206,12 @@ def write_openlineage_event(
     delta_version_after: Optional[int],
     operation_metrics: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
+    """Constrói e persiste o evento OpenLineage em ``ctrl_ingestion_lineage``.
+
+    No-op se ``plan.openlineage_enabled=False``. Para um collector externo
+    (Marquez, OpenLineage proxy), use um forwarder que leia desta tabela e
+    publique via HTTP.
+    """
     if not plan.openlineage_enabled:
         return None
     event = _clean_none(

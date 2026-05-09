@@ -19,7 +19,20 @@ from ._sql import as_list
 
 @dataclass(frozen=True)
 class QualityRules:
-    """Regras simples de qualidade executadas antes da escrita."""
+    """Regras de qualidade avaliadas antes da escrita.
+
+    Frozen para passagem segura entre threads. Construtores aceitam dict via
+    ``normalize_quality_rules``.
+
+    Attributes:
+        required_columns: Colunas obrigatórias no schema.
+        not_null: Colunas que não podem ter valores NULL.
+        unique_key: Conjunto de colunas que forma chave única.
+        accepted_values: Mapa coluna -> lista de valores aceitos. Limitado por
+            ``CONFIG.max_inline_accepted_values``.
+        min_rows: Mínimo de linhas no DataFrame após watermark/dedup.
+        max_null_ratio: Mapa coluna -> razão máxima de NULLs (0.0 a 1.0).
+    """
 
     required_columns: List[str] = field(default_factory=list)
     not_null: List[str] = field(default_factory=list)
@@ -31,7 +44,15 @@ class QualityRules:
 
 @dataclass(frozen=True)
 class IngestionPlan:
-    """Contrato declarativo de ingestão de uma tabela."""
+    """Contrato declarativo de ingestão de uma tabela.
+
+    Frozen — todas as decisões da execução ficam fixadas no momento da
+    construção. Uma instância representa uma execução do orquestrador
+    ``ingest_plan``.
+
+    Os campos estão agrupados por finalidade. Veja ``docs/arquitetura.md``
+    para descrição detalhada de cada um.
+    """
 
     source: Source
     target_table: str
@@ -85,6 +106,13 @@ class IngestionPlan:
 
 
 def validate_write_mode(mode: Optional[str]) -> WriteMode:
+    """Valida e normaliza o modo de escrita.
+
+    ``None`` ou string vazia caem para ``scd0_append``.
+
+    Raises:
+        ValueError: se ``mode`` não estiver em ``VALID_WRITE_MODES``.
+    """
     raw = (mode or "scd0_append").strip()
     if raw not in VALID_WRITE_MODES:
         raise ValueError(
@@ -96,6 +124,11 @@ def validate_write_mode(mode: Optional[str]) -> WriteMode:
 def normalize_quality_rules(
     value: Optional[Union[QualityRules, Dict[str, Any]]],
 ) -> Optional[QualityRules]:
+    """Aceita ``None``, ``QualityRules`` ou ``dict`` e devolve ``QualityRules``.
+
+    Conveniência para que YAMLs possam declarar ``quality_rules`` como dict
+    diretamente, sem importar a dataclass.
+    """
     if value is None:
         return None
     if isinstance(value, QualityRules):
@@ -118,6 +151,21 @@ _KNOWN_PARAMS = {
 
 
 def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
+    """Constrói um ``IngestionPlan`` a partir de kwargs estilo notebook.
+
+    Diferente de ``IngestionPlan(**kwargs)`` direto, esta função:
+
+    - Rejeita parâmetros desconhecidos (pega typos como ``merg_keys``).
+    - Aceita listas em string com separador ``|`` (ex.: ``"a|b|c"``).
+    - Aceita ``quality_rules`` como ``dict`` ou ``QualityRules``.
+    - Aceita ``custom_keys`` com listas em string.
+    - Valida ``mode`` via ``validate_write_mode``.
+
+    É a porta de entrada recomendada para uso a partir de YAML/notebook.
+
+    Raises:
+        ValueError: se houver kwargs desconhecidos ou ``mode`` inválido.
+    """
     quality = normalize_quality_rules(kwargs.pop("quality_rules", None))
     custom = kwargs.pop("custom_keys", None) or {}
     normalized_custom = {k: as_list(v) for k, v in custom.items()}

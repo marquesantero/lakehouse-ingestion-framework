@@ -14,6 +14,11 @@ from ._sql import q, qt, validate_cols
 
 
 def hash_columns(df: DataFrame, exclude_cols: Optional[List[str]] = None) -> List[str]:
+    """Devolve as colunas elegiveis para hash, em ordem alfabetica.
+
+    Exclui sempre as ``CONTROL_COLUMNS`` e qualquer coluna em ``exclude_cols``.
+    A ordenacao garante hash estavel se as colunas forem reordenadas.
+    """
     exclude = set(CONTROL_COLUMNS)
     if exclude_cols:
         exclude.update(exclude_cols)
@@ -21,6 +26,12 @@ def hash_columns(df: DataFrame, exclude_cols: Optional[List[str]] = None) -> Lis
 
 
 def hash_from_cols(cols: List[str]):
+    """Constroi expressao Spark que produz SHA-256 das colunas.
+
+    Usa Unit Separator (U+001F) como delimitador e NUL (U+0000) como sentinela
+    de NULL para evitar colisoes entre, por exemplo, ("a|b","c") e ("a","b|c").
+    Resultado e binario de 32 bytes.
+    """
     if not cols:
         return F.unhex(F.sha2(F.lit(""), 256))
     return F.unhex(
@@ -32,10 +43,20 @@ def hash_from_cols(cols: List[str]):
 
 
 def add_row_hash(df: DataFrame, exclude_cols: Optional[List[str]] = None) -> DataFrame:
+    """Adiciona a coluna ``row_hash`` calculada via ``hash_from_cols``."""
     return df.withColumn("row_hash", hash_from_cols(hash_columns(df, exclude_cols)))
 
 
 def deduplicate_by_order(df: DataFrame, keys: List[str], order_expr: str) -> DataFrame:
+    """Mantem apenas a primeira linha por ``keys`` na ordem de ``order_expr``.
+
+    ``order_expr`` aceita multiplas colunas separadas por virgula com qualquer
+    sintaxe valida em ``F.expr`` (ex.: "updated_at DESC NULLS LAST, version DESC").
+    Se ``keys`` for vazio, retorna o DataFrame inalterado.
+
+    Raises:
+        ValueError: se ``order_expr`` nao produzir nenhuma clausula valida.
+    """
     if not keys:
         return df
     validate_cols(df, keys, "dedup keys")
@@ -47,6 +68,11 @@ def deduplicate_by_order(df: DataFrame, keys: List[str], order_expr: str) -> Dat
 
 
 def build_custom_keys(df: DataFrame, custom_keys: Dict[str, List[str]]) -> DataFrame:
+    """Adiciona colunas-chave compostas concatenando outras com separador ``|``.
+
+    Util quando uma chave logica e composta mas a tabela quer uma unica coluna
+    para indexacao ou ``merge_keys`` simples. Valores NULL viram string vazia.
+    """
     for key_name, cols in custom_keys.items():
         validate_cols(df, cols, f"custom_keys.{key_name}")
         df = df.withColumn(
@@ -57,6 +83,12 @@ def build_custom_keys(df: DataFrame, custom_keys: Dict[str, List[str]]) -> DataF
 
 
 def fix_encoding(df: DataFrame, enabled: bool, encoding: str, columns: List[str]) -> DataFrame:
+    """Re-decodifica colunas string com ``encoding`` (ex.: Windows-1252).
+
+    Se ``columns`` for vazio, atua em todas as colunas string.
+    ``enabled=False`` e passthrough. Use so em emergencia - a solucao correta
+    e ler com o charset certo na origem.
+    """
     if not enabled:
         return df
     string_cols = [f.name for f in df.schema.fields if f.dataType.typeName() == "string"]
@@ -68,6 +100,7 @@ def fix_encoding(df: DataFrame, enabled: bool, encoding: str, columns: List[str]
 
 
 def schema_signature(df: DataFrame) -> str:
+    """Serializa o schema do DataFrame como JSON (nome, tipo, nullable)."""
     return json.dumps(
         [(f.name, f.dataType.simpleString(), f.nullable) for f in df.schema.fields],
         ensure_ascii=False,
@@ -75,6 +108,11 @@ def schema_signature(df: DataFrame) -> str:
 
 
 def table_exists(full_name: str) -> bool:
+    """Verifica se ``catalog.schema.table`` existe.
+
+    Usa ``spark.catalog.tableExists`` quando possivel; cai para
+    ``DESCRIBE TABLE`` se o nome nao puder ser dividido em tres partes.
+    """
     try:
         catalog, schema, table = full_name.split(".", 2)
         return spark.catalog.tableExists(f"{catalog}.{schema}.{table}")
@@ -87,6 +125,15 @@ def table_exists(full_name: str) -> bool:
 
 
 def validate_schema_policy(df: DataFrame, target: str, policy: SchemaPolicy) -> Dict[str, Any]:
+    """Compara schema do DataFrame com o do target e aplica a politica.
+
+    Retorna um dict com ``status``, ``added_columns``, ``removed_columns`` e
+    ``type_changes``. Para tabela inexistente devolve ``status="new_table"``.
+
+    Raises:
+        ValueError: se ``policy="strict"`` e houver divergencia, ou se
+            ``policy="additive_only"`` e houver remocoes/mudancas de tipo.
+    """
     if not table_exists(target):
         return {"status": "new_table", "added_columns": [], "removed_columns": [], "type_changes": []}
     target_df = spark.read.table(target)
@@ -125,6 +172,11 @@ def sync_delta_schema(
     schema_changes: Dict[str, Any],
     policy: SchemaPolicy,
 ) -> None:
+    """Aplica ``ALTER TABLE ADD COLUMNS`` para colunas novas, se a politica permitir.
+
+    No-op se a tabela nao existe, se nao ha colunas adicionadas, ou se a
+    politica e ``strict``. Tipos vem do DataFrame fonte.
+    """
     if not table_exists(target):
         return
     added = schema_changes.get("added_columns") or []

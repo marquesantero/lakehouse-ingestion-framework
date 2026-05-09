@@ -15,6 +15,15 @@ _IS_SERVERLESS: Optional[bool] = None
 
 
 def get_spark() -> SparkSession:
+    """Resolve a SparkSession ativa, com fallback explícito.
+
+    Tenta, em ordem: ``databricks.sdk.runtime.spark`` (DBR),
+    ``SparkSession.getActiveSession()`` (PySpark padrão) e
+    ``SparkSession._instantiatedSession`` (fallback).
+
+    Raises:
+        RuntimeError: se nenhuma SparkSession estiver ativa.
+    """
     try:
         from databricks.sdk.runtime import spark as dbx_spark  # type: ignore
 
@@ -48,6 +57,11 @@ spark = _SparkProxy()
 
 
 def detect_serverless() -> bool:
+    """Indica se a sessão está em um cluster Databricks Serverless.
+
+    Lê configurações do Spark e cacheia o resultado a nível de módulo. Em
+    caso de erro de leitura, retorna ``False`` (assume cluster tradicional).
+    """
     global _IS_SERVERLESS
     if _IS_SERVERLESS is not None:
         return _IS_SERVERLESS
@@ -65,6 +79,12 @@ def detect_serverless() -> bool:
 
 
 def safe_cache(df: DataFrame, enabled: bool = True) -> DataFrame:
+    """Cacheia o DataFrame, degradando silenciosamente em serverless.
+
+    Retorna o DataFrame original (sem cache) se ``enabled=False``, se a sessão
+    for serverless, ou se Spark erguer ``NOT_SUPPORTED``/``SERVERLESS``. Outros
+    erros são propagados.
+    """
     if not enabled or detect_serverless():
         return df
     try:
@@ -76,6 +96,7 @@ def safe_cache(df: DataFrame, enabled: bool = True) -> DataFrame:
 
 
 def safe_unpersist(df: DataFrame, enabled: bool = True) -> None:
+    """Libera o cache do DataFrame com a mesma tolerância do ``safe_cache``."""
     if not enabled or detect_serverless():
         return
     try:

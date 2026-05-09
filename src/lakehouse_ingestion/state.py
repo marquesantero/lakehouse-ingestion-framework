@@ -17,6 +17,20 @@ logger = logging.getLogger("lakehouse_ingestion")
 
 
 def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
+    """Cria (idempotente) o schema e as 7 tabelas de controle.
+
+    Retorna um dict com nomes lógicos -> nomes qualificados:
+
+    - ``runs`` (particionada por ``run_date``)
+    - ``state`` (uma linha por ``target_table``, PK)
+    - ``quality`` (uma linha por regra falhada por execução)
+    - ``quarantine`` (uma linha por linha quarentenada)
+    - ``locks`` (uma linha por ``target_table``, PK)
+    - ``explain`` (planos Spark capturados)
+    - ``lineage`` (eventos OpenLineage como JSON)
+
+    Não migra schemas existentes — se o framework atualizar, ajuste manualmente.
+    """
     tables = {
         "runs": full_table_name(catalog, schema, CONFIG.ctrl_table_runs),
         "state": full_table_name(catalog, schema, CONFIG.ctrl_table_state),
@@ -161,6 +175,12 @@ _RUN_INT_COLUMNS = {
 
 
 def log_run(tables: Dict[str, str], payload: Dict[str, Any]) -> None:
+    """Insere uma linha em ``ctrl_ingestion_runs`` com tipos coercidos.
+
+    Aceita um dict com chaves correspondentes a ``_RUN_COLUMNS``. Valores
+    ``None`` viram ``NULL``. Strings de erro são truncadas em
+    ``CONFIG.max_error_len``.
+    """
     values = []
     for c in _RUN_COLUMNS:
         v = payload.get(c)
@@ -197,6 +217,12 @@ def upsert_state(
     write_completed_at: Optional[str] = None,
     watermark_candidate: Optional[str] = None,
 ) -> None:
+    """Atualiza a única linha de ``target_table`` em ``ctrl_ingestion_state``.
+
+    Faz ``MERGE`` com ``WHEN MATCHED UPDATE / WHEN NOT MATCHED INSERT``. Em
+    falha, é chamado com ``status="FAILED"`` e ``watermark_value=wm_prev``
+    (não avança).
+    """
     spark.sql(f"""
         MERGE INTO {qt(tables['state'])} t
         USING (
@@ -245,10 +271,18 @@ def acquire_lock(
     run_id: str,
     ttl_minutes: int = CONFIG.default_lock_ttl_minutes,
 ) -> None:
-    """Reserva operacional best effort para reduzir colisões.
+    """Tenta adquirir lock best-effort em ``target_table``.
 
-    Não substitui a detecção otimista de conflitos do Delta — há janela de corrida
-    entre o MERGE e o read-back; o Delta ainda deve ser a fonte de verdade.
+    Faz MERGE em ``ctrl_ingestion_locks`` e em seguida lê para confirmar que
+    este ``run_id`` ficou como ``ACTIVE``. Locks expirados (TTL vencido) são
+    rompidos automaticamente.
+
+    Não substitui a detecção otimista de conflitos do Delta — há janela de
+    corrida entre MERGE e read-back. Use só para reduzir colisões previsíveis;
+    o Delta continua sendo a fonte de verdade transacional.
+
+    Raises:
+        RuntimeError: se outro ``run_id`` venceu a corrida.
     """
     spark.sql(f"""
         MERGE INTO {qt(tables['locks'])} t
@@ -275,6 +309,7 @@ def acquire_lock(
 
 
 def release_lock(tables: Dict[str, str], target: str, run_id: str) -> None:
+    """Marca o lock como ``RELEASED``. Falhas só logam (nunca propagam)."""
     try:
         spark.sql(f"""
             UPDATE {qt(tables['locks'])}
@@ -290,6 +325,12 @@ def with_retry(
     attempts: int = CONFIG.default_retry_attempts,
     backoff_seconds: int = CONFIG.default_retry_backoff_seconds,
 ):
+    """Executa ``fn()`` com retry para conflitos de concorrência Delta.
+
+    Só retenta erros cuja mensagem contenha ``CONCURRENT``, ``CONFLICT``,
+    ``RETRY`` ou ``DELTA_CONCURRENT``. Outros erros (OOM, schema mismatch,
+    permissão) propagam imediatamente. Backoff linear + jitter.
+    """
     last_exc = None
     for attempt in range(1, attempts + 1):
         try:

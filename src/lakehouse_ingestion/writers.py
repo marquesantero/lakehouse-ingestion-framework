@@ -30,6 +30,13 @@ def ensure_delta_table(
     cluster_cols: List[str],
     partition_col: Optional[str],
 ) -> bool:
+    """Cria a tabela Delta com schema vazio se ainda não existe.
+
+    Usa ``df.limit(0)`` para criar a estrutura sem dados (o motor de escrita
+    insere depois). Aplica ``partitionBy`` ou ``CLUSTER BY``, mutuamente
+    exclusivos (cluster tem prioridade). Retorna ``True`` se criou,
+    ``False`` se já existia.
+    """
     if table_exists(target):
         return False
     writer = df.limit(0).write.format("delta").mode("overwrite").option("mergeSchema", "true")
@@ -47,6 +54,7 @@ def ensure_delta_table(
 
 
 def run_optimize(target: str, zorder_cols: List[str]) -> None:
+    """Executa ``OPTIMIZE``, com ZORDER opcional pelas colunas listadas."""
     if zorder_cols:
         spark.sql(f"OPTIMIZE {qt(target)} ZORDER BY ({', '.join(q(c) for c in zorder_cols)})")
     else:
@@ -54,6 +62,7 @@ def run_optimize(target: str, zorder_cols: List[str]) -> None:
 
 
 def delta_version(target: str) -> Optional[int]:
+    """Versão Delta atual da tabela, ou ``None`` se não existir/erro."""
     try:
         row = spark.sql(f"DESCRIBE HISTORY {qt(target)} LIMIT 1").select("version").first()
         return None if row is None else int(row[0])
@@ -62,6 +71,10 @@ def delta_version(target: str) -> Optional[int]:
 
 
 def latest_operation_metrics(target: str) -> Dict[str, Any]:
+    """Métricas da última operação Delta (``version``, ``operation``, ``operationMetrics``).
+
+    Devolve ``{}`` se a tabela não existe ou a leitura falhar.
+    """
     try:
         row = spark.sql(f"DESCRIBE HISTORY {qt(target)} LIMIT 1").first()
         if row is None:
@@ -102,6 +115,11 @@ def extract_row_metrics(metrics: Dict[str, Any]) -> Dict[str, int]:
 
 
 def affected_partition_values(df: DataFrame, partition_col: Optional[str]) -> List[Any]:
+    """Coleta valores distintos da coluna de partição até o limite configurado.
+
+    Usado em SCD1 hash diff (pré-filtro do target) e em ``replace_partitions``.
+    Loga warning se atingir ``CONFIG.max_partition_predicate_values``.
+    """
     if not partition_col or partition_col not in df.columns:
         return []
     values = [
@@ -120,6 +138,7 @@ def affected_partition_values(df: DataFrame, partition_col: Optional[str]) -> Li
 
 
 def write_strategy(mode: WriteMode) -> str:
+    """Mapa do modo lógico para o rótulo de estratégia (apenas para logs)."""
     return {
         "scd0_append": "APPEND",
         "scd0_overwrite": "OVERWRITE",
@@ -137,6 +156,10 @@ def write_append(
     partition_col: Optional[str],
     expected_count: Optional[int] = None,
 ) -> int:
+    """Modo ``scd0_append``: APPEND simples com ``mergeSchema=true``.
+
+    Cria a tabela se não existe. Retorna número de linhas escritas.
+    """
     ensure_delta_table(df, target, cluster_cols, partition_col)
     count = expected_count if expected_count is not None else df.count()
     if count:
@@ -152,6 +175,11 @@ def write_overwrite(
     cluster_cols: List[str],
     expected_count: Optional[int] = None,
 ) -> int:
+    """Modo ``scd0_overwrite``: OVERWRITE total ou por partição.
+
+    Quando ``partition_col`` e ``partition_value`` são informados (e não há
+    cluster), usa ``replaceWhere`` para sobrescrever só a partição alvo.
+    """
     ensure_delta_table(df, target, cluster_cols, partition_col)
     count = expected_count if expected_count is not None else df.count()
     writer = df.write.format("delta").mode("overwrite").option("mergeSchema", "true")
@@ -175,6 +203,20 @@ def write_upsert(
     strategy: MergeStrategy,
     expected_count: Optional[int] = None,
 ) -> int:
+    """Modo ``scd1_upsert``: estado atual via MERGE.
+
+    Três estratégias:
+
+    - ``delta`` (default): MERGE puro com ``t.k <=> s.k``.
+    - ``delta_by_partition``: MERGE com predicado adicional ``IN (vals)``,
+      reduzindo arquivos varridos.
+    - ``replace_partitions``: OVERWRITE com ``replaceWhere``, mais rápido
+      quando o source contém o estado completo das partições afetadas.
+
+    Raises:
+        ValueError: se ``strategy="replace_partitions"`` sem
+            ``merge_partition_column`` definido.
+    """
     validate_cols(df, keys, "merge_keys")
     ensure_delta_table(df, target, [], partition_col)
     count = expected_count if expected_count is not None else df.count()
@@ -223,6 +265,13 @@ def write_scd1_hash_diff(
     latest_order_expr: Optional[str],
     expected_count: Optional[int] = None,
 ) -> int:
+    """Modo ``scd1_hash_diff``: APPEND apenas de linhas novas ou alteradas.
+
+    Calcula ``row_hash`` da source, deduplica o "atual" do target via
+    ``latest_order_expr`` (default ``"ingestion_date DESC NULLS LAST"`` se a
+    coluna existir) e faz LEFT JOIN para detectar mudanças. Linhas com hash
+    diferente ou sem match no target são escritas.
+    """
     validate_cols(df, hash_keys, "hash_keys")
     df_hashed = add_row_hash(df, hash_exclude)
     ensure_delta_table(df_hashed, target, cluster_cols, partition_col)
@@ -287,6 +336,16 @@ def write_snapshot_soft_delete(
     partition_col: Optional[str],
     expected_count: Optional[int] = None,
 ) -> int:
+    """Modo ``snapshot_soft_delete``: sincronização por snapshot completo.
+
+    Insere novos, atualiza alterados (compara ``row_hash`` ou ``is_active=false``
+    para "ressuscitar") e marca ``is_active=false`` + ``deleted_at=now()`` em
+    linhas presentes no target mas ausentes na source (``WHEN NOT MATCHED BY
+    SOURCE``).
+
+    A source DEVE ser completa — qualquer filtro (incluindo watermark) leva a
+    soft-delete incorreto.
+    """
     validate_cols(df, keys, "merge_keys")
     df_src = (
         add_row_hash(df)
@@ -317,6 +376,7 @@ def write_snapshot_soft_delete(
 
 
 def _changed_columns_expr(change_cols: List[str]) -> str:
+    """Constrói SQL que produz CSV das colunas mudadas em SCD2."""
     parts = [
         f"CASE WHEN NOT (t.{q(c)} <=> s.{q(c)}) THEN '{c}' ELSE NULL END" for c in change_cols
     ]
@@ -332,7 +392,18 @@ def write_scd2(
     cluster_cols: List[str],
     expected_count: Optional[int] = None,
 ) -> int:
-    """Mantém histórico por versões; reaparições de chaves não correntes criam nova versão atual."""
+    """Modo ``scd2_historical``: histórico completo por versões.
+
+    Hash é calculado SOMENTE sobre ``change_cols`` (mudanças fora dessas colunas
+    NÃO geram nova versão). Quando ``change_cols`` é vazio, usa todas as
+    colunas exceto chaves e ``CONTROL_COLUMNS``.
+
+    Trick de staging: cada linha changed gera duas variantes — uma com
+    ``__merge_key_*`` igual à chave (forçando UPDATE da versão atual) e outra
+    com ``__merge_key_*=NULL`` (forçando INSERT da nova versão). Isso permite
+    que o MERGE Delta dispare ambas as ações para a mesma chave, viabilizando
+    versionamento mesmo em chaves reaparecidas.
+    """
     validate_cols(df, keys, "merge_keys")
     if change_cols:
         validate_cols(df, change_cols, "scd2_change_columns")
@@ -417,6 +488,14 @@ def execute_write_mode(
     target: str,
     effective_rows: int,
 ) -> int:
+    """Despacha para o motor de escrita correto a partir de ``plan.mode``.
+
+    Curto-circuita em zero linhas (não chama o motor). Calcula
+    ``affected_partition_values`` apenas se há ``merge_partition_column``.
+
+    Raises:
+        ValueError: se ``plan.mode`` não corresponder a nenhum motor.
+    """
     if effective_rows == 0:
         return 0
     part_vals = affected_partition_values(df, plan.merge_partition_column)
