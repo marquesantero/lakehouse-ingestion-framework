@@ -315,7 +315,7 @@ Características:
 - Insere novos registros.
 - Marca registros ausentes no snapshot como `is_active=false`.
 - Preenche `deleted_at` com o timestamp da execução.
-- Pressupõe snapshot completo da entidade. Não deve ser usado com carga incremental parcial.
+- Pressupõe snapshot completo da entidade. **Não pode ser combinado com `watermark_columns` ou `filter_expression`** — o framework rejeita com `ValueError` no `_validate_plan`. Para sincronização incremental, use `scd1_upsert`.
 
 Exemplo:
 
@@ -587,7 +587,7 @@ Ações:
 |---|---|
 | `fail` | Interrompe a execução e registra falha. |
 | `warn` | Registra falhas, mas continua a escrita. |
-| `quarantine` | Grava registros inválidos em quarentena e escreve apenas registros válidos. |
+| `quarantine` | Grava registros inválidos em quarentena e escreve apenas registros válidos. Vale para regras de linha (`not_null`, `accepted_values`, `max_null_ratio`); regras de conjunto (`unique_key`, `min_rows`, `required_columns`) não isolam linhas e escalam para `fail`. |
 
 Exemplo com dicionário:
 
@@ -607,7 +607,10 @@ ingest(
         "min_rows": 1,
         "max_null_ratio": {"customer_email": 0.20}
     },
-    on_quality_fail="quarantine"
+    # unique_key, min_rows e required_columns são abort-only: a falha aborta
+    # a execução. Para quarentena efetiva, remova-as e use apenas not_null,
+    # accepted_values e max_null_ratio.
+    on_quality_fail="fail"
 )
 ```
 
@@ -639,7 +642,7 @@ ingest(
 
 | Parâmetro | Tipo | Padrão | Descrição |
 |---|---:|---|---|
-| `dry_run` | `bool` | `False` | Prepara e valida a ingestão, mas não escreve no destino. |
+| `dry_run` | `bool` | `False` | Prepara e valida a ingestão sem efeitos colaterais: não cria schemas/ctrl tables, não aplica `ALTER TABLE ADD COLUMNS`, não persiste em `ctrl_ingestion_quality`/`quarantine`/`runs`/`state`/`lineage`. Apenas as validações (schema policy, quality gates, watermark) executam. |
 | `explain_mode` | `bool` | `False` | Captura `df.explain()` e persiste o resultado. |
 | `explain_format` | `str` | `"formatted"` | Formato do explain. Valores comuns: `simple`, `extended`, `formatted`, `cost`, `codegen`. |
 | `openlineage_enabled` | `bool` | `False` | Gera e persiste evento OpenLineage em JSON. |
@@ -1096,7 +1099,10 @@ result = ingest(
         "unique_key": ["order_id"],
         "accepted_values": {"status": ["open", "closed", "cancelled"]}
     },
-    on_quality_fail="quarantine",
+    # unique_key e required_columns são abort-only: a falha aborta a execução.
+    # Para usar quarentena de fato, remova essas regras e mantenha apenas
+    # not_null/accepted_values/max_null_ratio com on_quality_fail="quarantine".
+    on_quality_fail="fail",
     explain_mode=True,
     openlineage_enabled=True
 )
@@ -1178,7 +1184,7 @@ plan = IngestionPlan(
         not_null=["customer_id", "event_id"],
         unique_key=["customer_id", "event_id"]
     ),
-    on_quality_fail="quarantine",
+    on_quality_fail="fail",  # unique_key/required_columns são abort-only
     explain_mode=True,
     openlineage_enabled=True,
     lock_enabled=True
@@ -1431,7 +1437,7 @@ result = ingest(
         "not_null": ["id_nota_fiscal"],
         "unique_key": ["id_nota_fiscal"]
     },
-    on_quality_fail="quarantine",
+    on_quality_fail="fail",  # unique_key/required_columns são abort-only
     explain_mode=False,
     openlineage_enabled=True,
     lock_enabled=True,

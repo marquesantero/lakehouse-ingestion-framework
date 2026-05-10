@@ -65,7 +65,7 @@ result = ingest(
 - `scd1_upsert`: atualização do estado atual por chaves.
 - `scd1_hash_diff`: inserção apenas de versões novas ou alteradas por hash.
 - `scd2_historical`: histórico completo com `valid_from`, `valid_to` e `is_current`. Reaparições de chaves não correntes criam uma nova versão atual.
-- `snapshot_soft_delete`: sincronização por snapshot com marcação de ausentes em `is_active` e `deleted_at`.
+- `snapshot_soft_delete`: sincronização por snapshot com marcação de ausentes em `is_active` e `deleted_at`. Exige source completo — o framework rejeita com `ValueError` quando combinado com `watermark_columns` ou `filter_expression`.
 
 ## Quality gates
 
@@ -76,7 +76,7 @@ Definidas via parâmetro `quality_rules` (dict ou `QualityRules`):
 - A ação em falha (`on_quality_fail`) pode ser:
   - `fail` (padrão): aborta a execução.
   - `warn`: registra mas escreve tudo.
-  - `quarantine`: linhas problemáticas vão para `ctrl_ingestion_quarantine`; o restante é gravado e `effective_rows = rows_read - rows_quarantined`.
+  - `quarantine`: linhas problemáticas vão para `ctrl_ingestion_quarantine`; o restante é gravado e `effective_rows = rows_read - rows_quarantined`. **Vale apenas para regras de linha** (`not_null`, `accepted_values`, `max_null_ratio`). Regras de conjunto (`unique_key`, `min_rows`, `required_columns`) não têm como isolar linhas e escalam automaticamente para `fail`.
 
 ## Schema policy
 
