@@ -16,6 +16,24 @@ from .plan import QualityRules
 from ._spark import spark
 from ._sql import to_json, utc_now_str, validate_cols
 
+#: Regras de qualidade que NÃO são quarentenáveis em nível de linha. Falhas
+#: nessas regras descrevem propriedades do conjunto (chave única, presença de
+#: colunas, contagem mínima) e não conseguem isolar linhas problemáticas. Quando
+#: ``on_quality_fail="quarantine"`` e qualquer dessas regras falhar, o
+#: orquestrador escala a ação para ``"fail"``.
+ABORT_ONLY_RULES = frozenset({"required_columns", "unique_key", "min_rows"})
+
+
+def is_abort_only_failure(rule_name: str) -> bool:
+    """Indica se ``rule_name`` é uma regra abortiva (não quarentenável).
+
+    Os nomes ``not_null:<col>``, ``accepted_values:<col>`` e
+    ``max_null_ratio:<col>`` carregam o nome da coluna depois de ``:`` e são
+    quarentenáveis. As regras abortivas usam o nome puro.
+    """
+    base = rule_name.split(":", 1)[0]
+    return base in ABORT_ONLY_RULES
+
 
 def _safe_agg_alias(prefix: str, key: str) -> str:
     """Cria alias estável e seguro para a agregação (evita caracteres problemáticos)."""

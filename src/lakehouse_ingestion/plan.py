@@ -11,6 +11,11 @@ from .config import (
     QualityFailAction,
     SchemaPolicy,
     Source,
+    VALID_EXPLAIN_FORMATS,
+    VALID_LAYERS,
+    VALID_MERGE_STRATEGIES,
+    VALID_QUALITY_FAIL_ACTIONS,
+    VALID_SCHEMA_POLICIES,
     VALID_WRITE_MODES,
     WriteMode,
 )
@@ -121,6 +126,22 @@ def validate_write_mode(mode: Optional[str]) -> WriteMode:
     return raw  # type: ignore[return-value]
 
 
+def _validate_enum(value: Any, valid: set, param: str, default: Optional[str] = None) -> str:
+    """Valida que ``value`` pertence ao conjunto ``valid`` ou cai para ``default``.
+
+    Raises:
+        ValueError: se ``value`` é truthy mas não está em ``valid``.
+    """
+    if value is None or value == "":
+        if default is None:
+            raise ValueError(f"{param} é obrigatório. Valores válidos: {sorted(valid)}")
+        return default
+    raw = str(value).strip()
+    if raw not in valid:
+        raise ValueError(f"{param}={raw!r} não é suportado. Valores válidos: {sorted(valid)}")
+    return raw
+
+
 def normalize_quality_rules(
     value: Optional[Union[QualityRules, Dict[str, Any]]],
 ) -> Optional[QualityRules]:
@@ -174,11 +195,34 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
     if unexpected:
         raise ValueError(f"Parâmetros não reconhecidos em ingest(): {sorted(unexpected)}")
 
+    layer = _validate_enum(kwargs.get("layer", "bronze"), VALID_LAYERS, "layer", default="bronze")
+    merge_strategy = _validate_enum(
+        kwargs.get("merge_strategy", "delta"), VALID_MERGE_STRATEGIES, "merge_strategy", default="delta"
+    )
+    schema_policy = _validate_enum(
+        kwargs.get("schema_policy", "permissive"),
+        VALID_SCHEMA_POLICIES,
+        "schema_policy",
+        default="permissive",
+    )
+    on_quality_fail = _validate_enum(
+        kwargs.get("on_quality_fail", "fail"),
+        VALID_QUALITY_FAIL_ACTIONS,
+        "on_quality_fail",
+        default="fail",
+    )
+    explain_format = _validate_enum(
+        kwargs.get("explain_format", "formatted"),
+        VALID_EXPLAIN_FORMATS,
+        "explain_format",
+        default="formatted",
+    )
+
     return IngestionPlan(
         source=kwargs["source"],
         target_table=kwargs["target_table"],
         catalog=kwargs.get("catalog", CONFIG.default_catalog),
-        layer=kwargs.get("layer", "bronze"),
+        layer=layer,  # type: ignore[arg-type]
         mode=validate_write_mode(kwargs.get("mode", "scd0_append")),
         source_system=kwargs.get("source_system", CONFIG.default_source_system),
         ctrl_schema=kwargs.get("ctrl_schema", CONFIG.ctrl_schema),
@@ -193,14 +237,14 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         dedup_order_expr=kwargs.get("dedup_order_expr"),
         partition_column=kwargs.get("partition_column"),
         partition_value=kwargs.get("partition_value"),
-        merge_strategy=kwargs.get("merge_strategy", "delta"),
+        merge_strategy=merge_strategy,  # type: ignore[arg-type]
         merge_partition_column=kwargs.get("merge_partition_column"),
         cluster_columns=as_list(kwargs.get("cluster_columns")),
         zorder_columns=as_list(kwargs.get("zorder_columns")),
         optimize_after_write=bool(kwargs.get("optimize_after_write", False)),
-        schema_policy=kwargs.get("schema_policy", "permissive"),
+        schema_policy=schema_policy,  # type: ignore[arg-type]
         quality_rules=quality,
-        on_quality_fail=kwargs.get("on_quality_fail", "fail"),
+        on_quality_fail=on_quality_fail,  # type: ignore[arg-type]
         scd2_change_columns=as_list(kwargs.get("scd2_change_columns")),
         scd2_effective_from_column=kwargs.get("scd2_effective_from_column"),
         fix_encoding=bool(kwargs.get("fix_encoding", False)),
@@ -208,7 +252,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         encoding_columns=as_list(kwargs.get("encoding_columns")),
         dry_run=bool(kwargs.get("dry_run", False)),
         explain_mode=bool(kwargs.get("explain_mode", False)),
-        explain_format=kwargs.get("explain_format", "formatted"),
+        explain_format=explain_format,
         openlineage_enabled=bool(kwargs.get("openlineage_enabled", False)),
         openlineage_namespace=kwargs.get("openlineage_namespace"),
         openlineage_producer=kwargs.get("openlineage_producer", "lakehouse-ingestion-framework"),

@@ -385,9 +385,10 @@ schema_policy: additive_only
 
 quality_rules:
   not_null: [id_pedido, data_atualizacao]
-  unique_key: [id_pedido]      # válido se o source já vier dedup
   accepted_values:
     status: [PENDENTE, PAGO, CANCELADO, ENTREGUE]
+# `quarantine` só isola linhas atingidas por not_null/accepted_values/max_null_ratio.
+# Regras de conjunto (unique_key, min_rows, required_columns) escalam para fail.
 on_quality_fail: quarantine
 ```
 
@@ -1122,6 +1123,14 @@ df_clean = df.join(
 
 Você tentou `scd1_upsert`/`scd2_historical`/`snapshot_soft_delete` em layer bronze. Bronze só aceita `scd0_append`, `scd0_overwrite`, `scd1_hash_diff`. Mude o `mode` ou a `layer`.
 
+### "snapshot_soft_delete exige snapshot completo"
+
+`snapshot_soft_delete` **não aceita** `watermark_columns` nem `filter_expression`: o motor marca como `is_active=false` qualquer chave do target ausente do source, e um source filtrado faria todas as linhas fora do filtro virarem inativas. Para sincronização incremental, troque para `scd1_upsert`. Para snapshot, garanta que a fonte é o estado-fim completo.
+
+### "Regras abortivas {...} não são quarentenáveis"
+
+`unique_key`, `min_rows` e `required_columns` descrevem propriedades do conjunto. Quando alguma falha com `on_quality_fail="quarantine"`, o framework escala para `fail` e aborta — o oposto seria escrever o dataset inteiro com `status=FAILED`. Para tolerar, use `on_quality_fail="warn"`. Para isolar duplicatas, faça `dedup_order_expr` antes do quality gate.
+
 ---
 
 ## 10. Checklist pré-produção
@@ -1174,7 +1183,10 @@ Não, mas costumamos usar o segundo como valor do primeiro (vide YAMLs). `{{job.
 Limites do Databricks: até 1000 iterações por task. Para mais, divida em múltiplos `for_each_task`.
 
 **P: Como testar um YAML sem rodar de fato?**
-`dry_run: true` no YAML. O `ingest_plan` faz validação completa (schema, quality, watermark) e retorna `status="DRY_RUN"` sem escrever.
+`dry_run: true` no YAML. O `ingest_plan` faz validação completa (schema, quality, watermark) e retorna `status="DRY_RUN"` sem escrever. Importante: a partir da versão atual, `dry_run` é **realmente** sem efeitos colaterais — não cria schemas/ctrl tables, não aplica `ALTER TABLE ADD COLUMNS`, não persiste linhas em `ctrl_ingestion_quality`/`quarantine`/`runs`/`state`/`lineage`. É seguro rodar contra ambientes de produção só para validar o plano.
+
+**P: `on_quality_fail="quarantine"` realmente isola todas as falhas?**
+Não. Apenas as regras de linha (`not_null`, `accepted_values`, `max_null_ratio`) podem ser quarentenadas. Regras de conjunto (`unique_key`, `min_rows`, `required_columns`) descrevem propriedades agregadas e não conseguem isolar linhas. Se uma dessas falhar, o framework escala automaticamente para `fail` e aborta a execução — preferindo erro explícito a escrita silenciosa de dados duvidosos.
 
 **P: Posso forçar o framework a usar uma SparkSession específica em testes?**
 Sim. Em `tests/conftest.py` já fazemos:

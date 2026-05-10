@@ -86,3 +86,39 @@ def test_ingest_rejects_unknown_kwargs(monkeypatch):
     """A função pública não deve aceitar parâmetros desconhecidos."""
     with pytest.raises(ValueError):
         ingest(source="x", target_table="t", typo_param=1)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"layer": "platinum"}, "layer"),
+        ({"merge_strategy": "delta_full"}, "merge_strategy"),
+        ({"schema_policy": "loose"}, "schema_policy"),
+        ({"on_quality_fail": "ignore"}, "on_quality_fail"),
+        ({"explain_format": "json"}, "explain_format"),
+    ],
+)
+def test_build_plan_rejects_invalid_enums(kwargs, match):
+    """Typos de enum devem virar ValueError, não silently passar."""
+    with pytest.raises(ValueError, match=match):
+        build_plan_from_kwargs(source="x", target_table="t", **kwargs)
+
+
+def test_build_plan_accepts_all_valid_enums():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        catalog="c1",
+        layer="silver",
+        mode="scd1_upsert",
+        merge_keys="id",
+        merge_strategy="delta_by_partition",
+        schema_policy="strict",
+        on_quality_fail="warn",
+        explain_format="extended",
+    )
+    assert plan.layer == "silver"
+    assert plan.merge_strategy == "delta_by_partition"
+    assert plan.schema_policy == "strict"
+    assert plan.on_quality_fail == "warn"
+    assert plan.explain_format == "extended"

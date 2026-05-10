@@ -16,6 +16,23 @@ from ._sql import full_table_name, q, qt, safe_truncate, sql_int, sql_lit
 logger = logging.getLogger("lakehouse_ingestion")
 
 
+def ctrl_table_names(catalog: str, schema: str) -> Dict[str, str]:
+    """Calcula apenas os nomes qualificados das ctrl tables, sem criar nada.
+
+    Útil em ``dry_run`` para obter o dict de referência sem efeito colateral
+    (sem ``CREATE SCHEMA``/``CREATE TABLE``).
+    """
+    return {
+        "runs": full_table_name(catalog, schema, CONFIG.ctrl_table_runs),
+        "state": full_table_name(catalog, schema, CONFIG.ctrl_table_state),
+        "quality": full_table_name(catalog, schema, CONFIG.ctrl_table_quality),
+        "quarantine": full_table_name(catalog, schema, CONFIG.ctrl_table_quarantine),
+        "locks": full_table_name(catalog, schema, CONFIG.ctrl_table_locks),
+        "explain": full_table_name(catalog, schema, CONFIG.ctrl_table_explain),
+        "lineage": full_table_name(catalog, schema, CONFIG.ctrl_table_lineage),
+    }
+
+
 def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
     """Cria (idempotente) o schema e as 7 tabelas de controle.
 
@@ -31,15 +48,7 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
 
     Não migra schemas existentes — se o framework atualizar, ajuste manualmente.
     """
-    tables = {
-        "runs": full_table_name(catalog, schema, CONFIG.ctrl_table_runs),
-        "state": full_table_name(catalog, schema, CONFIG.ctrl_table_state),
-        "quality": full_table_name(catalog, schema, CONFIG.ctrl_table_quality),
-        "quarantine": full_table_name(catalog, schema, CONFIG.ctrl_table_quarantine),
-        "locks": full_table_name(catalog, schema, CONFIG.ctrl_table_locks),
-        "explain": full_table_name(catalog, schema, CONFIG.ctrl_table_explain),
-        "lineage": full_table_name(catalog, schema, CONFIG.ctrl_table_lineage),
-    }
+    tables = ctrl_table_names(catalog, schema)
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {q(catalog)}.{q(schema)}")
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {qt(tables['runs'])} (

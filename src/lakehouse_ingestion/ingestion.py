@@ -17,7 +17,7 @@ from pyspark.sql import functions as F
 from .config import CONFIG, FrameworkConfig  # noqa: F401
 from .lineage import capture_explain, write_explain_plan, write_openlineage_event
 from .plan import IngestionPlan, QualityRules, build_plan_from_kwargs  # noqa: F401
-from .quality import evaluate_quality, write_quality_results, write_quarantine
+from .quality import evaluate_quality, is_abort_only_failure, write_quality_results, write_quarantine
 from .schema import (
     build_custom_keys,
     deduplicate_by_order,
@@ -39,6 +39,7 @@ from ._sql import (
 )
 from .state import (
     acquire_lock,
+    ctrl_table_names,
     ensure_ctrl_tables,
     log_run,
     release_lock,
@@ -114,17 +115,30 @@ def _prepare_dataframe(
     return df
 
 
-def _validate_plan(plan: IngestionPlan, df: DataFrame, target: str) -> Dict[str, Any]:
+def _validate_plan(
+    plan: IngestionPlan,
+    df: DataFrame,
+    target: str,
+    apply_changes: bool = True,
+) -> Dict[str, Any]:
     """Aplica regras de negócio do plan e valida schema policy.
 
     Regras de modo por layer:
         - bronze rejeita ``scd1_upsert``, ``scd2_historical``, ``snapshot_soft_delete``;
         - SCD1/SCD2/snapshot exigem ``merge_keys``;
         - hash_diff exige ``hash_keys``;
-        - snapshot + watermark emite warning (incoerente).
+        - snapshot_soft_delete rejeita ``watermark_columns`` ou ``filter_expression``
+          (snapshot precisa ser completo para marcar ausentes corretamente).
 
     Verifica também que todas as colunas referenciadas no plan existem no
     DataFrame, e aplica ``validate_schema_policy`` + ``sync_delta_schema``.
+
+    Args:
+        plan: Plano de ingestão.
+        df: DataFrame já preparado.
+        target: Nome qualificado do destino.
+        apply_changes: Quando ``False``, executa apenas validações sem
+            ``sync_delta_schema`` (usado em ``dry_run`` para evitar ALTER TABLE).
 
     Returns:
         Dict com ``status``, ``added_columns``, ``removed_columns``, ``type_changes``.
@@ -145,11 +159,17 @@ def _validate_plan(plan: IngestionPlan, df: DataFrame, target: str) -> Dict[str,
         raise ValueError(f"mode={plan.mode} requer merge_keys")
     if plan.mode == "scd1_hash_diff" and not plan.hash_keys:
         raise ValueError("mode=scd1_hash_diff requer hash_keys")
-    if plan.mode == "snapshot_soft_delete" and plan.watermark_columns:
-        logger.warning(
-            "snapshot_soft_delete exige snapshot completo para marcar ausentes corretamente. "
-            "Watermark pode impedir soft delete correto."
-        )
+    if plan.mode == "snapshot_soft_delete":
+        if plan.watermark_columns:
+            raise ValueError(
+                "snapshot_soft_delete exige snapshot completo. Remova watermark_columns "
+                "ou troque o mode (ex.: scd1_upsert)."
+            )
+        if plan.filter_expression:
+            raise ValueError(
+                "snapshot_soft_delete exige snapshot completo. Remova filter_expression "
+                "ou troque o mode (ex.: scd1_upsert)."
+            )
 
     cols_to_validate = []
     cols_to_validate += plan.watermark_columns
@@ -168,7 +188,8 @@ def _validate_plan(plan: IngestionPlan, df: DataFrame, target: str) -> Dict[str,
     validate_cols(df, sorted(set(cols_to_validate)), "plan columns")
 
     schema_changes = validate_schema_policy(df, target, plan.schema_policy)
-    sync_delta_schema(df, target, schema_changes, plan.schema_policy)
+    if apply_changes:
+        sync_delta_schema(df, target, schema_changes, plan.schema_policy)
     return schema_changes
 
 
@@ -316,7 +337,10 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     run_date = today_str()
     started_dt = utc_now_ts()
     target = full_table_name(plan.catalog, plan.layer, plan.target_table)
-    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
+    if plan.dry_run:
+        tables = ctrl_table_names(plan.catalog, plan.ctrl_schema)
+    else:
+        tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
 
     source_name = "unknown"
     wm_prev: Optional[str] = None
@@ -341,7 +365,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     row_metrics: Dict[str, int] = {"rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
 
     try:
-        if plan.lock_enabled:
+        if plan.lock_enabled and not plan.dry_run:
             acquire_lock(tables, target, run_id)
 
         raw_df, source_name = _resolve_source(plan)
@@ -353,7 +377,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         prepared_df = _prepare_dataframe(raw_df, plan, run_id, run_date, wm_prev)
         prepared_df = safe_cache(prepared_df, plan.use_cache)
 
-        schema_changes = _validate_plan(plan, prepared_df, target)
+        schema_changes = _validate_plan(plan, prepared_df, target, apply_changes=not plan.dry_run)
         rows_read = prepared_df.count()
         wm_candidate = (
             compute_watermark(prepared_df, plan.watermark_columns)
@@ -362,24 +386,37 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         )
         if plan.explain_mode:
             explain_text = capture_explain(prepared_df, plan.explain_format)
-            write_explain_plan(
-                tables, run_id, target, source_name, plan.mode, plan.explain_format, explain_text
-            )
+            if not plan.dry_run:
+                write_explain_plan(
+                    tables, run_id, target, source_name, plan.mode, plan.explain_format, explain_text
+                )
 
         quality_status, quality_results, valid_df, quarantined_df, rows_quarantined = (
             evaluate_quality(prepared_df, plan.quality_rules, run_id, target)
         )
-        write_quality_results(tables, run_id, target, quality_results)
+        if not plan.dry_run:
+            write_quality_results(tables, run_id, target, quality_results)
 
         if quality_status == "FAILED":
-            if plan.on_quality_fail == "fail":
-                raise ValueError(f"Quality gates falharam: {to_json(quality_results)}")
-            if plan.on_quality_fail == "quarantine":
-                write_quarantine(
-                    tables, quarantined_df, run_id, target, "quality_gate", to_json(quality_results)
+            effective_action = plan.on_quality_fail
+            abort_only_failed = [r for r in quality_results if is_abort_only_failure(r["rule_name"])]
+            if effective_action == "quarantine" and abort_only_failed:
+                names = sorted({r["rule_name"] for r in abort_only_failed})
+                logger.warning(
+                    f"Regras abortivas {names} não são quarentenáveis em nível de linha. "
+                    "Escalando on_quality_fail de 'quarantine' para 'fail'."
                 )
+                effective_action = "fail"
+
+            if effective_action == "fail":
+                raise ValueError(f"Quality gates falharam: {to_json(quality_results)}")
+            if effective_action == "quarantine":
+                if not plan.dry_run:
+                    write_quarantine(
+                        tables, quarantined_df, run_id, target, "quality_gate", to_json(quality_results)
+                    )
                 prepared_df = valid_df
-            elif plan.on_quality_fail == "warn":
+            elif effective_action == "warn":
                 logger.warning(
                     f"Quality gates falharam, mas execução continuará: {to_json(quality_results)}"
                 )
@@ -435,50 +472,52 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         status = "FAILED"
         error = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         logger.error(f"Ingestão falhou: {exc}")
-        try:
-            upsert_state(
-                tables,
-                target,
-                "|".join(plan.watermark_columns) if plan.watermark_columns else None,
-                wm_prev,
-                None,
-                run_id,
-                "FAILED",
-                0,
-                error,
-                plan,
-                delta_version=delta_version_after,
-                write_completed_at=write_finished_at,
-                watermark_candidate=wm_candidate,
-            )
-        except Exception as state_exc:
-            logger.error(f"Falha ao atualizar tabela de estado: {state_exc}")
+        if not plan.dry_run:
+            try:
+                upsert_state(
+                    tables,
+                    target,
+                    "|".join(plan.watermark_columns) if plan.watermark_columns else None,
+                    wm_prev,
+                    None,
+                    run_id,
+                    "FAILED",
+                    0,
+                    error,
+                    plan,
+                    delta_version=delta_version_after,
+                    write_completed_at=write_finished_at,
+                    watermark_candidate=wm_candidate,
+                )
+            except Exception as state_exc:
+                logger.error(f"Falha ao atualizar tabela de estado: {state_exc}")
         row_metrics = {"rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
     finally:
         if prepared_df is not None:
             safe_unpersist(prepared_df, plan.use_cache)
-        if plan.lock_enabled:
+        if plan.lock_enabled and not plan.dry_run:
             release_lock(tables, target, run_id)
-        finished_dt = utc_now_ts()
-        try:
-            _finalize_execution(
-                tables, plan, run_id, run_ts, run_date, source_name, target, status, started_dt,
-                finished_dt, rows_read, rows_written, rows_quarantined, wm_prev, wm_current,
-                quality_status, schema_changes, operation_metrics, write_started_at,
-                write_finished_at, delta_version_before, delta_version_after, write_committed,
-                error, row_metrics,
-            )
-        except Exception as log_exc:
-            logger.error(f"Falha ao registrar execução: {log_exc}")
-        try:
-            output_df = spark.read.table(target) if table_exists(target) else None
-            openlineage_event = write_openlineage_event(
-                tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
-                prepared_df, output_df, rows_read, rows_written, delta_version_before,
-                delta_version_after, operation_metrics,
-            )
-        except Exception as lineage_exc:
-            logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
+        if not plan.dry_run:
+            finished_dt = utc_now_ts()
+            try:
+                _finalize_execution(
+                    tables, plan, run_id, run_ts, run_date, source_name, target, status, started_dt,
+                    finished_dt, rows_read, rows_written, rows_quarantined, wm_prev, wm_current,
+                    quality_status, schema_changes, operation_metrics, write_started_at,
+                    write_finished_at, delta_version_before, delta_version_after, write_committed,
+                    error, row_metrics,
+                )
+            except Exception as log_exc:
+                logger.error(f"Falha ao registrar execução: {log_exc}")
+            try:
+                output_df = spark.read.table(target) if table_exists(target) else None
+                openlineage_event = write_openlineage_event(
+                    tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
+                    prepared_df, output_df, rows_read, rows_written, delta_version_before,
+                    delta_version_after, operation_metrics,
+                )
+            except Exception as lineage_exc:
+                logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
 
     return {
         "status": status,

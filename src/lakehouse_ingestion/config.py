@@ -45,6 +45,21 @@ VALID_WRITE_MODES = {
     "snapshot_soft_delete",
 }
 
+#: Camadas válidas para validação runtime.
+VALID_LAYERS = {"bronze", "silver", "gold"}
+
+#: Estratégias de merge válidas para validação runtime.
+VALID_MERGE_STRATEGIES = {"delta", "delta_by_partition", "replace_partitions"}
+
+#: Políticas de schema válidas para validação runtime.
+VALID_SCHEMA_POLICIES = {"permissive", "additive_only", "strict"}
+
+#: Ações válidas em falha de qualidade para validação runtime.
+VALID_QUALITY_FAIL_ACTIONS = {"fail", "warn", "quarantine"}
+
+#: Formatos de explain aceitos por ``DataFrame.explain``.
+VALID_EXPLAIN_FORMATS = {"simple", "extended", "codegen", "cost", "formatted"}
+
 #: Colunas gerenciadas pelo framework. Excluídas do hash determinístico em
 #: ``schema.hash_columns`` para que mudanças em controle não invalidem
 #: ``row_hash``.

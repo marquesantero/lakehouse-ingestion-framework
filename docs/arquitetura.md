@@ -393,7 +393,7 @@ Pontos importantes:
 - **Lista de parâmetros conhecida** (`_KNOWN_PARAMS`): qualquer kwarg fora dela ergue `ValueError("Parâmetros não reconhecidos em ingest(): [...]")`. Isso evita erros silenciosos por typos (ex.: `merg_keys=` em vez de `merge_keys=`).
 - **Listas via `as_list`**: aceita string com `|`, lista, iterável, ou `None`. Padrão de usabilidade vindo do uso em notebooks Databricks (parâmetros vêm como string).
 - **Custom keys**: dict de `nome_da_chave -> lista_de_colunas`; cada lista também passa por `as_list`.
-- **`mode`** é validado via `validate_write_mode`.
+- **Enums validados estritamente** via `_validate_enum` contra `VALID_LAYERS`, `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. Typos em `layer`, `merge_strategy`, `schema_policy`, `on_quality_fail` ou `explain_format` viram `ValueError` com a lista de valores aceitos. `mode` continua passando por `validate_write_mode`.
 - **`quality_rules`** passa por `normalize_quality_rules`, então aceita dict.
 
 ### 4.5 `schema.py` — Hash, dedup, encoding e schema policy
@@ -579,7 +579,13 @@ for c in max_null_ratio_failed: quarantine_condition |= F.col(c).isNull()
 
 Apenas **regras que falham** entram na condição, evitando custo desnecessário quando tudo passa.
 
-`unique_key` **não entra** no quarantine_condition — duplicatas são reportadas mas não isoláveis facilmente sem reprocessamento (qual linha "fica" e qual "vai"?). Decisão: relatar a contagem, não isolar.
+`unique_key`, `required_columns` e `min_rows` **não entram** no quarantine_condition — descrevem propriedades do conjunto, não das linhas isoladas:
+
+- `unique_key`: qual linha "fica" e qual "vai"? Sem reprocessamento, decisão arbitrária.
+- `required_columns`: a coluna inteira está faltando, não há linha a isolar.
+- `min_rows`: contagem mínima é critério agregado.
+
+Por isso o framework as classifica como **abort-only** (`quality.ABORT_ONLY_RULES`). Quando `on_quality_fail="quarantine"` e qualquer dessas regras falha, o orquestrador escala automaticamente para `"fail"` e aborta a execução com `ValueError`. A intenção é evitar o pior caso: hoje quarentena vazia (porque não havia condição de linha) levaria à escrita do dataset inteiro mesmo com `status=FAILED`.
 
 #### 4.7.3 Detalhamento por regra
 
@@ -796,7 +802,7 @@ dt.alias("t").merge(df_src.alias("s"), cond)
 
 `is_active=false → set` na cláusula matched garante "ressuscitar" um registro que voltou a aparecer (deletado e reinserido).
 
-**Aviso explícito:** se o source for parcial (filtrado por watermark, por exemplo), todas as linhas fora do filtro seriam marcadas inativas. O orquestrador loga warning quando `mode=snapshot_soft_delete` E `watermark_columns` está presente.
+**Bloqueio por design:** o orquestrador **rejeita** com `ValueError` a combinação `mode=snapshot_soft_delete` + `watermark_columns` ou `+ filter_expression`. Snapshot parcial faria com que todas as linhas fora do filtro virassem inativas erroneamente. Para sincronização incremental, use `scd1_upsert`.
 
 #### 4.9.10 `write_scd2`
 
@@ -886,7 +892,7 @@ Reduzido de ~1800 linhas (versão original monolítica) para ~430 linhas, manten
 | `scd1_upsert`          | MERGE                            | ✅ (estado atual)         | ❌                              | `merge_keys`                                 | Não disponível em bronze                    |
 | `scd1_hash_diff`       | LEFT JOIN + APPEND diff          | ✅ relativa (hash)        | ❌ (sem versionar)              | `hash_keys`                                  | Default order assume `ingestion_date`       |
 | `scd2_historical`      | MERGE+UNION (staging)            | ✅ (versões)              | ✅                              | `merge_keys`, opc. `scd2_change_columns`     | Não disponível em bronze                    |
-| `snapshot_soft_delete` | MERGE WITH NOT MATCHED BY SOURCE | ✅ (estado + soft-delete) | ✅ via `is_active`/`deleted_at` | `merge_keys`, source completa                | Watermark + snapshot é incoerente           |
+| `snapshot_soft_delete` | MERGE WITH NOT MATCHED BY SOURCE | ✅ (estado + soft-delete) | ✅ via `is_active`/`deleted_at` | `merge_keys`, source completa                | Rejeita `watermark_columns`/`filter_expression` |
 
 ### 5.2 Restrições de camada
 
@@ -906,7 +912,7 @@ Bronze deve preservar a fonte sem reinterpretação. Modos transacionais ficam p
 | `scd1_upsert`          | ✅                     | MERGE incremental; processa só novos                              |
 | `scd1_hash_diff`       | ✅                     | reduz scan da source                                              |
 | `scd2_historical`      | ⚠️                    | watermark precisa garantir "atualidade"; cuidado com out-of-order |
-| `snapshot_soft_delete` | ❌                     | warning emitido; soft-delete exige snapshot completo              |
+| `snapshot_soft_delete` | ❌                     | rejeitado com `ValueError`; snapshot exige source completo        |
 
 ### 5.4 Garantias transacionais
 
@@ -924,18 +930,18 @@ Ver §4.7 para o detalhamento. Resumo dos invariantes:
 2. **Regras de coluna** (`not_null`, `accepted_values`, `max_null_ratio`) são avaliadas em **uma agregação consolidada**.
 3. **Regras estruturais** (`required_columns`, `min_rows`, `unique_key`) ficam fora da agregação consolidada por exigirem semânticas próprias.
 4. **`accepted_values` > 1000 valores** → erro de configuração.
-5. **`quarantine`** isola apenas linhas atingidas por `not_null`/`accepted_values`/`max_null_ratio`. Outras regras (unique_key, min_rows) reportam mas não isolam.
+5. **`quarantine`** isola apenas linhas atingidas por `not_null`/`accepted_values`/`max_null_ratio`. As demais regras (`unique_key`, `min_rows`, `required_columns`) são classificadas como **abort-only** em `quality.ABORT_ONLY_RULES`: relatam falha mas não conseguem isolar linhas. Quando `on_quality_fail="quarantine"` e qualquer dessas regras falha, o orquestrador escala automaticamente para `"fail"`.
 6. Cada `failed_count` é uma contagem real (não amostragem). Em datasets grandes, isso ainda é uma passagem completa, mas única.
 
 ### 6.1 Ações de falha (`on_quality_fail`)
 
 - `fail` (default) — `raise ValueError(json(failed_rules))`. Aborta `ingest_plan`. `status="FAILED"` no return e em `ctrl_ingestion_runs`. Watermark **não** avança (`upsert_state` é chamado com `wm_prev`).
-- `quarantine` — escreve quarentena, `prepared_df = valid_df`, segue para escrita. `effective_rows = rows_read - rows_quarantined`. Watermark avança normalmente.
+- `quarantine` — escreve quarentena, `prepared_df = valid_df`, segue para escrita. `effective_rows = rows_read - rows_quarantined`. Watermark avança normalmente. **Escalado para `fail`** se a falha vier de uma regra abort-only (`unique_key`, `min_rows`, `required_columns`).
 - `warn` — apenas loga warning. Toda a fonte é escrita, incluindo linhas problemáticas. Use só em modo de tolerância controlada.
 
 ### 6.2 Combinação com dry_run
 
-`dry_run=True` aborta logo após avaliar quality gates (e quarentena, se aplicável). O retorno (`status="DRY_RUN"`) inclui `quality_status`, `rows_quarantined`, `affected_partitions`, `watermark_*`, `schema_changes`. Útil para validar antes de subir produção.
+`dry_run=True` é **sem efeitos colaterais**: não cria schemas/ctrl tables (`ctrl_table_names` é usado em vez de `ensure_ctrl_tables`), não aplica `sync_delta_schema` (`_validate_plan(..., apply_changes=False)`), não persiste `write_explain_plan`/`write_quality_results`/`write_quarantine`, não chama `upsert_state` nem `log_run`, não emite OpenLineage. O retorno (`status="DRY_RUN"`) inclui `quality_status`, `rows_quarantined`, `affected_partitions`, `watermark_*`, `schema_changes` — todas as validações rodam, só os escritos são suprimidos.
 
 ---
 
