@@ -346,10 +346,10 @@ def write_scd1_hash_diff(
 
     target_hash = target_latest.select(*hash_keys, F.col("row_hash").alias("__tgt_row_hash"))
     diff = (
-        df_hashed.alias("s")
-        .join(target_hash.alias("t"), on=hash_keys, how="left")
-        .where(F.col("__tgt_row_hash").isNull() | (F.col("s.row_hash") != F.col("__tgt_row_hash")))
-        .select(*[F.col(f"s.{c}").alias(c) for c in df_hashed.columns])
+        df_hashed
+        .join(target_hash, on=hash_keys, how="left")
+        .where(F.col("__tgt_row_hash").isNull() | (F.col("row_hash") != F.col("__tgt_row_hash")))
+        .select(*[F.col(c) for c in df_hashed.columns])
     )
     count = diff.count()
     if count:
@@ -488,10 +488,10 @@ def write_scd2(
         .select(*keys, F.col("row_hash").alias("__tgt_row_hash"))
     )
     changed = (
-        src.alias("s")
-        .join(target_current.alias("t"), on=keys, how="left")
-        .where(F.col("__tgt_row_hash").isNull() | (F.col("s.row_hash") != F.col("__tgt_row_hash")))
-        .select(*[F.col(f"s.{c}").alias(c) for c in src.columns], F.col("__tgt_row_hash"))
+        src
+        .join(target_current, on=keys, how="left")
+        .where(F.col("__tgt_row_hash").isNull() | (F.col("row_hash") != F.col("__tgt_row_hash")))
+        .select(*[F.col(c) for c in src.columns], F.col("__tgt_row_hash"))
     )
     insert_count = changed.count()
     if insert_count == 0:
