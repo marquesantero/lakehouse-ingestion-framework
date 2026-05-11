@@ -1,4 +1,4 @@
-"""Motores de escrita por modo (append, overwrite, upsert, hash diff, snapshot, SCD2)."""
+"""Motores de escrita por modo (scd0_append, scd0_overwrite, scd1_upsert, scd1_hash_diff, scd2_historical, snapshot_soft_delete"""
 from __future__ import annotations
 
 import logging
