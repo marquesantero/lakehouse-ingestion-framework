@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl
+# gera: dist/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.3.0
+print(lakehouse_ingestion.__version__)  # 1.3.1
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.3.0
+%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.3.1
 ```
 
 Em seguida:
@@ -1052,23 +1052,39 @@ Output esperado:
 
 ### 8.3 Em CI (GitHub Actions)
 
-`.github/workflows/test.yml`:
+`.github/workflows/ci.yml`:
 
 ```yaml
-name: tests
-on: [push, pull_request]
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
 
 jobs:
-  unit:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-      - run: pip install -e ".[dev]"
-      - run: pytest -v
+      - run: python -m pip install -e ".[dev]"
+      - run: python scripts/check_release.py
+      - run: ruff check .
+      - run: pytest -q
+        env:
+          SKIP_SPARK_TESTS: "1"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
 ```
 
 ---

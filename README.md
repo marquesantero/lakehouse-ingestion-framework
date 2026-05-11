@@ -24,6 +24,7 @@ pip install -e ".[dev]"
 
 ```bash
 python -m pip install build twine
+python scripts/check_release.py
 python -m build
 twine check dist/*
 ```

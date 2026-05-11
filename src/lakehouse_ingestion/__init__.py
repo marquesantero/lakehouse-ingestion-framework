@@ -18,4 +18,4 @@ __all__ = [
     "validate_plan_shape",
 ]
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"

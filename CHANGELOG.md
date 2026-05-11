@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.3.1 - 2026-05-11
+
+- Adiciona workflow de CI para lint, testes puros e validação de build.
+- Adiciona `scripts/check_release.py` para garantir sincronismo de versão, changelog e metadados do pacote.
+- Expõe URLs do projeto no metadata do wheel.
+
 ## 1.3.0 - 2026-05-11
 
 - Endurece parsing de `quality_rules` com rejeição de campos desconhecidos, thresholds inválidos e expressões malformadas.
