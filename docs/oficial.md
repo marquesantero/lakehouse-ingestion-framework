@@ -1,7 +1,7 @@
 # Lakehouse Ingestion Framework
 
 **Documentação oficial**  
-**Versão da biblioteca:** `1.0.0`  
+**Versão da biblioteca:** `1.0.3`  
 **Pacote:** `lakehouse-ingestion-framework`  
 **Import principal:** `lakehouse_ingestion`  
 **Ambiente-alvo:** Databricks, Unity Catalog e Delta Lake  
@@ -318,7 +318,7 @@ Características:
 - Marca registros ausentes no snapshot como `is_active=false`.
 - Preenche `deleted_at` com o timestamp da execução.
 - Pressupõe snapshot completo da entidade. **Não pode ser combinado com `watermark_columns` ou `filter_expression`** — o framework rejeita com `ValueError` no `_validate_plan`. Para sincronização incremental, use `scd1_upsert`.
-- Em Databricks Serverless, executa `MERGE` SQL para evitar a API Python `DeltaTable`, que pode não estar disponível em Spark Connect.
+- Executa `MERGE` SQL em todos os runtimes para manter comportamento consistente entre classic e serverless.
 
 Exemplo:
 
@@ -1300,7 +1300,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lakehouse-ingestion-framework"
-version = "1.0.0"
+version = "1.0.3"
 description = "Framework de ingestão Delta Lake para Databricks com contratos declarativos, quality gates, SCD, explain mode e eventos OpenLineage."
 readme = "README.md"
 requires-python = ">=3.10"

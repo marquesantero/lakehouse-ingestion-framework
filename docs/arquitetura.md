@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.0.0`
+**Versão do pacote:** `1.0.3`
 **Pacote Python:** `lakehouse-ingestion-framework`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -791,18 +791,18 @@ Append-only, mas **só de mudanças**:
 
 Snapshot completo: source representa o estado-fim. Linhas ausentes ficam marcadas `is_active=false` + `deleted_at=now()`.
 
-Implementação padrão via `DeltaTable.merge` (API Python do Delta). Em Databricks Serverless/Spark Connect, o framework usa `MERGE` SQL equivalente para evitar limitações da API Python:
+Implementação via `MERGE` SQL em todos os runtimes, evitando divergência entre cluster classic e Databricks Serverless/Spark Connect:
 
 ```python
-dt.alias("t").merge(df_src.alias("s"), cond)
-  .whenMatchedUpdate(
-      condition="t.row_hash <> s.row_hash OR t.is_active = false",
-      set=update_cols)
-  .whenNotMatchedInsert(values=insert_cols)
-  .whenNotMatchedBySourceUpdate(
-      condition="t.is_active = true",
-      set={"is_active": "false", "deleted_at": "current_timestamp()"})
-  .execute()
+MERGE INTO target t
+USING source_view s
+ON t.key <=> s.key
+WHEN MATCHED AND (NOT (t.row_hash <=> s.row_hash) OR t.is_active = false)
+  THEN UPDATE SET ...
+WHEN NOT MATCHED THEN INSERT (...)
+WHEN NOT MATCHED BY SOURCE AND t.is_active = true THEN UPDATE SET
+  t.is_active = false,
+  t.deleted_at = current_timestamp()
 ```
 
 `whenNotMatchedBySource` é o que diferencia SCD1 de snapshot: linhas presentes no target **e ausentes** no source são marcadas inativas.
@@ -1301,7 +1301,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/lakehouse_ingestion_framework-1.0.0-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/lakehouse_ingestion_framework-1.0.3-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
