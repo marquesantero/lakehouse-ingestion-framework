@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from pyspark.sql import functions as F
 
-from .config import CONFIG
+from .config import CONFIG, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
 from .plan import IngestionPlan
 from ._spark import spark
 from ._sql import full_table_name, q, qt, safe_truncate, sql_int, sql_lit
@@ -30,7 +30,40 @@ def ctrl_table_names(catalog: str, schema: str) -> Dict[str, str]:
         "locks": full_table_name(catalog, schema, CONFIG.ctrl_table_locks),
         "explain": full_table_name(catalog, schema, CONFIG.ctrl_table_explain),
         "lineage": full_table_name(catalog, schema, CONFIG.ctrl_table_lineage),
+        "metadata": full_table_name(catalog, schema, CONFIG.ctrl_table_metadata),
     }
+
+
+def _table_columns(table: str) -> set[str]:
+    try:
+        return {field.name for field in spark.read.table(table).schema.fields}
+    except Exception:
+        return set()
+
+
+def _add_columns_if_missing(table: str, columns: Dict[str, str]) -> None:
+    existing = _table_columns(table)
+    missing = {name: dtype for name, dtype in columns.items() if name not in existing}
+    if not missing:
+        return
+    cols_sql = ", ".join(f"{q(name)} {dtype}" for name, dtype in missing.items())
+    spark.sql(f"ALTER TABLE {qt(table)} ADD COLUMNS ({cols_sql})")
+
+
+def _record_ctrl_metadata(tables: Dict[str, str]) -> None:
+    spark.sql(f"""
+        MERGE INTO {qt(tables['metadata'])} t
+        USING (
+            SELECT
+                'lakehouse_ingestion' AS component,
+                {sql_lit(FRAMEWORK_VERSION)} AS framework_version,
+                {sql_int(CTRL_SCHEMA_VERSION)} AS ctrl_schema_version,
+                current_timestamp() AS updated_at_utc
+        ) s
+        ON t.component = s.component
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
 
 
 def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
@@ -45,8 +78,9 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
     - ``locks`` (uma linha por ``target_table``, PK)
     - ``explain`` (planos Spark capturados)
     - ``lineage`` (eventos OpenLineage como JSON)
+    - ``metadata`` (versão do framework e do schema de controle)
 
-    Não migra schemas existentes — se o framework atualizar, ajuste manualmente.
+    Migra apenas colunas aditivas conhecidas. Nunca remove colunas automaticamente.
     """
     tables = ctrl_table_names(catalog, schema)
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {q(catalog)}.{q(schema)}")
@@ -86,7 +120,9 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             parent_run_id STRING,
             run_group_id STRING,
             master_job_id STRING,
-            master_run_id STRING
+            master_run_id STRING,
+            idempotency_key STRING,
+            metrics_source STRING
         ) USING DELTA PARTITIONED BY (run_date)
     """)
     spark.sql(f"""
@@ -164,6 +200,23 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             event_json STRING
         ) USING DELTA
     """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {qt(tables['metadata'])} (
+            component STRING NOT NULL,
+            framework_version STRING,
+            ctrl_schema_version BIGINT,
+            updated_at_utc TIMESTAMP,
+            CONSTRAINT pk_metadata PRIMARY KEY (component)
+        ) USING DELTA
+    """)
+    _add_columns_if_missing(
+        tables["runs"],
+        {
+            "idempotency_key": "STRING",
+            "metrics_source": "STRING",
+        },
+    )
+    _record_ctrl_metadata(tables)
     return tables
 
 
@@ -176,6 +229,7 @@ _RUN_COLUMNS = [
     "operation_metrics_json", "write_started_at_utc", "write_finished_at_utc",
     "delta_version_before", "delta_version_after", "write_committed", "error_message",
     "parent_run_id", "run_group_id", "master_job_id", "master_run_id",
+    "idempotency_key", "metrics_source",
 ]
 _RUN_INT_COLUMNS = {
     "rows_read", "rows_written", "rows_inserted", "rows_updated", "rows_deleted",
@@ -209,6 +263,26 @@ def log_run(tables: Dict[str, str], payload: Dict[str, Any]) -> None:
         f"INSERT INTO {qt(tables['runs'])} ({', '.join(_RUN_COLUMNS)}) "
         f"VALUES ({', '.join(values)})"
     )
+
+
+def has_successful_run(tables: Dict[str, str], target: str, idempotency_key: Optional[str]) -> bool:
+    """Indica se uma execução anterior com a mesma chave já terminou com sucesso."""
+    if not idempotency_key:
+        return False
+    try:
+        return (
+            spark.read.table(tables["runs"])
+            .where(
+                (F.col("target_table") == target)
+                & (F.col("idempotency_key") == idempotency_key)
+                & (F.col("status") == "SUCCESS")
+            )
+            .limit(1)
+            .count()
+            > 0
+        )
+    except Exception:
+        return False
 
 
 def upsert_state(

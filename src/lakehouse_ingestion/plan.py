@@ -114,6 +114,8 @@ class IngestionPlan:
     openlineage_producer: str = "lakehouse-ingestion-framework"
     use_cache: bool = True
     lock_enabled: bool = False
+    idempotency_key: Optional[str] = None
+    skip_if_success: bool = False
     parent_run_id: Optional[str] = None
     run_group_id: Optional[str] = None
     master_job_id: Optional[str] = None
@@ -188,7 +190,7 @@ _KNOWN_PARAMS = {
     "quality_rules", "on_quality_fail", "scd2_change_columns", "scd2_effective_from_column",
     "fix_encoding", "encoding", "encoding_columns", "dry_run", "explain_mode",
     "explain_format", "openlineage_enabled", "openlineage_namespace",
-    "openlineage_producer", "use_cache", "lock_enabled",
+    "openlineage_producer", "use_cache", "lock_enabled", "idempotency_key", "skip_if_success",
     "parent_run_id", "run_group_id", "master_job_id", "master_run_id",
 }
 
@@ -280,6 +282,8 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         openlineage_producer=kwargs.get("openlineage_producer", "lakehouse-ingestion-framework"),
         use_cache=bool(kwargs.get("use_cache", True)),
         lock_enabled=bool(kwargs.get("lock_enabled", False)),
+        idempotency_key=kwargs.get("idempotency_key"),
+        skip_if_success=bool(kwargs.get("skip_if_success", False)),
         parent_run_id=kwargs.get("parent_run_id"),
         run_group_id=kwargs.get("run_group_id"),
         master_job_id=kwargs.get("master_job_id"),

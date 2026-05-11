@@ -41,6 +41,7 @@ from .state import (
     acquire_lock,
     ctrl_table_names,
     ensure_ctrl_tables,
+    has_successful_run,
     log_run,
     release_lock,
     upsert_state,
@@ -240,9 +241,11 @@ def _build_dry_run_result(
         "watermark_candidate": wm_candidate,
         "quality_status": quality_status,
         "schema_changes": schema_changes,
+        "metrics_source": "logical",
         "duration_seconds": (finished_dt - started_dt).total_seconds(),
         "explain_captured": plan.explain_mode,
         "openlineage_enabled": plan.openlineage_enabled,
+        "idempotency_key": plan.idempotency_key,
     }
 
 
@@ -272,6 +275,7 @@ def _finalize_execution(
     write_committed: bool,
     error: Optional[str],
     row_metrics: Dict[str, int],
+    metrics_source: str,
 ) -> None:
     """Monta o payload completo e grava em ``ctrl_ingestion_runs`` via ``log_run``.
 
@@ -316,6 +320,8 @@ def _finalize_execution(
             "run_group_id": plan.run_group_id,
             "master_job_id": plan.master_job_id,
             "master_run_id": plan.master_run_id,
+            "idempotency_key": plan.idempotency_key,
+            "metrics_source": metrics_source,
         },
     )
 
@@ -361,6 +367,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     quality_status = "NOT_CONFIGURED"
     schema_changes: Dict[str, Any] = {}
     operation_metrics: Dict[str, Any] = {}
+    metrics_source = "logical"
     explain_text: Optional[str] = None
     openlineage_event: Optional[Dict[str, Any]] = None
     write_started_at: Optional[str] = None
@@ -374,6 +381,36 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     row_metrics: Dict[str, int] = {"rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
 
     try:
+        if plan.skip_if_success and has_successful_run(tables, target, plan.idempotency_key):
+            status = "SKIPPED"
+            quality_status = "SKIPPED"
+            return {
+                "status": status,
+                "run_id": run_id,
+                "target_table": target,
+                "source_table": source_name,
+                "mode": plan.mode,
+                "rows_read": 0,
+                "rows_written": 0,
+                "rows_quarantined": 0,
+                "watermark_previous": None,
+                "watermark_current": None,
+                "quality_status": "SKIPPED",
+                "schema_changes": {},
+                "operation_metrics": {},
+                "metrics_source": metrics_source,
+                "write_committed": False,
+                "delta_version_before": None,
+                "delta_version_after": None,
+                "write_delta_version": None,
+                "explain_captured": False,
+                "openlineage_event_emitted": False,
+                "openlineage_event": None,
+                "error_message": None,
+                "idempotency_key": plan.idempotency_key,
+                "skip_reason": "idempotency_key_already_succeeded",
+            }
+
         if plan.lock_enabled and not plan.dry_run:
             acquire_lock(tables, target, run_id)
 
@@ -460,6 +497,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             else wm_prev
         )
         operation_metrics = latest_operation_metrics(target) if table_exists(target) else {}
+        metrics_source = "mixed" if operation_metrics.get("operationMetrics") else "logical"
         delta_version_after = operation_metrics.get("version", delta_version_after)
         row_metrics = extract_row_metrics(operation_metrics)
         upsert_state(
@@ -515,17 +553,18 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                     finished_dt, rows_read, rows_written, rows_quarantined, wm_prev, wm_current,
                     quality_status, schema_changes, operation_metrics, write_started_at,
                     write_finished_at, delta_version_before, delta_version_after, write_committed,
-                    error, row_metrics,
+                    error, row_metrics, metrics_source,
                 )
             except Exception as log_exc:
                 logger.error(f"Falha ao registrar execução: {log_exc}")
             try:
                 output_df = spark.read.table(target) if table_exists(target) else None
-                openlineage_event = write_openlineage_event(
-                    tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
-                    prepared_df, output_df, rows_read, rows_written, delta_version_before,
-                    delta_version_after, operation_metrics,
-                )
+                if status != "SKIPPED":
+                    openlineage_event = write_openlineage_event(
+                        tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
+                        prepared_df, output_df, rows_read, rows_written, delta_version_before,
+                        delta_version_after, operation_metrics,
+                    )
             except Exception as lineage_exc:
                 logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
 
@@ -543,6 +582,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "quality_status": quality_status,
         "schema_changes": schema_changes,
         "operation_metrics": operation_metrics,
+        "metrics_source": metrics_source,
         "write_committed": write_committed,
         "delta_version_before": delta_version_before,
         "delta_version_after": delta_version_after,
@@ -551,6 +591,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "openlineage_event_emitted": bool(openlineage_event),
         "openlineage_event": openlineage_event,
         "error_message": safe_truncate(error, 2000),
+        "idempotency_key": plan.idempotency_key,
     }
 
 

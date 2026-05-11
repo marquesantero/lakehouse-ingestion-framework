@@ -138,3 +138,14 @@ def test_build_plan_accepts_all_valid_enums():
     assert plan.schema_policy == "strict"
     assert plan.on_quality_fail == "warn"
     assert plan.explain_format == "extended"
+
+
+def test_build_plan_accepts_idempotency_options():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        idempotency_key="job-42:batch-2026-05-11",
+        skip_if_success=True,
+    )
+    assert plan.idempotency_key == "job-42:batch-2026-05-11"
+    assert plan.skip_if_success is True

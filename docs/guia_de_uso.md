@@ -479,6 +479,7 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 
 - `build_plan_from_kwargs` valida campos desconhecidos (pega typos no YAML) e normaliza listas com `|`.
 - Placeholders `{{dt}}` permitem override de runtime sem editar o YAML.
+- `idempotency_key` pode ser preenchido com o identificador do lote/job. Com `skip_if_success: true`, reruns já concluídos retornam `SKIPPED` em vez de reprocessar append.
 - `master_run_id` é propagado para `ctrl_ingestion_runs`, viabilizando summary cross-execução.
 - `raise` em falha garante que a task aparece como failed no Workflow.
 - `dbutils.notebook.exit(json.dumps(result))` permite o master, se houver, capturar o resultado.

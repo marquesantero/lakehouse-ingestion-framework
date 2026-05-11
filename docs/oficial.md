@@ -571,6 +571,8 @@ ingest(
 |---|---:|---|---|
 | `quality_rules` | `QualityRules | Dict | None` | `None` | Regras de qualidade executadas antes da escrita. |
 | `on_quality_fail` | `"fail" | "warn" | "quarantine"` | `"fail"` | Ação quando regras falham. |
+| `idempotency_key` | `str | None` | `None` | Chave lógica opcional do lote. |
+| `skip_if_success` | `bool` | `False` | Se `True`, retorna `SKIPPED` quando já existe execução `SUCCESS` para o mesmo target e `idempotency_key`. |
 
 Campos de `QualityRules`:
 
@@ -732,6 +734,7 @@ A função retorna um dicionário com métricas e metadados.
 | `rows_read` | Quantidade de linhas após preparação. |
 | `rows_written` | Quantidade de linhas consideradas na escrita. |
 | `rows_quarantined` | Quantidade de registros enviados à quarentena. |
+| `metrics_source` | Origem das métricas: `logical` ou `mixed`. |
 | `watermark_previous` | Watermark antes da execução. |
 | `watermark_current` | Watermark após a execução bem-sucedida. |
 | `quality_status` | `PASSED`, `FAILED` ou `NOT_CONFIGURED`. |
@@ -874,6 +877,11 @@ Registros rejeitados quando `on_quality_fail="quarantine"`.
 | `error_reason` | Motivo serializado. |
 | `record_payload` | Registro original em JSON. |
 | `quarantined_at_utc` | Momento da quarentena. |
+
+### 10.5 `ctrl_ingestion_metadata`
+
+Tabela de uma linha por componente para registrar `framework_version`, `ctrl_schema_version` e `updated_at_utc`.
+O framework aplica apenas migrações aditivas conhecidas com `ALTER TABLE ADD COLUMNS`; colunas nunca são removidas automaticamente.
 
 ### 10.5 `ctrl_ingestion_locks`
 

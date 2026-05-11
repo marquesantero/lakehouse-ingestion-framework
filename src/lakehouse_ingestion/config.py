@@ -10,6 +10,9 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
+FRAMEWORK_VERSION = "1.0.0"
+CTRL_SCHEMA_VERSION = 2
+
 #: Camadas reconhecidas (Medallion Architecture).
 Layer = Literal["bronze", "silver", "gold"]
 
@@ -115,6 +118,7 @@ class FrameworkConfig:
     ctrl_table_locks: str = "ctrl_ingestion_locks"
     ctrl_table_explain: str = "ctrl_ingestion_explain"
     ctrl_table_lineage: str = "ctrl_ingestion_lineage"
+    ctrl_table_metadata: str = "ctrl_ingestion_metadata"
     max_error_len: int = 8000
     default_lock_ttl_minutes: int = 120
     default_retry_attempts: int = 3

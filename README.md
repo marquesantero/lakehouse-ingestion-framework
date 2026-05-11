@@ -109,10 +109,29 @@ O framework cria tabelas de controle no schema configurado:
 - `ctrl_ingestion_locks`
 - `ctrl_ingestion_explain`
 - `ctrl_ingestion_lineage`
+- `ctrl_ingestion_metadata`
 
 `explain_mode=True` captura o plano Spark do DataFrame preparado.
 
 `openlineage_enabled=True` grava um evento OpenLineage em JSON na tabela de lineage.
+
+`idempotency_key` permite identificar um lote lógico. Com `skip_if_success=True`, uma nova execução com a mesma chave e `target_table` é retornada como `SKIPPED` se já houver uma execução `SUCCESS`.
+
+O retorno preserva `rows_written` como métrica lógica da biblioteca e inclui `metrics_source`:
+
+- `logical`: apenas contadores calculados pela biblioteca.
+- `mixed`: contadores lógicos com evidência adicional do histórico Delta.
+
+## Matriz de runtime
+
+| Modo | Classic | Serverless / Spark Connect |
+|---|---:|---:|
+| `scd0_append` | suportado | suportado |
+| `scd0_overwrite` | suportado | suportado |
+| `scd1_upsert` | suportado | suportado via SQL `MERGE` |
+| `scd1_hash_diff` | suportado | suportado |
+| `scd2_historical` | suportado | suportado via SQL `MERGE` |
+| `snapshot_soft_delete` | suportado | suportado via SQL `MERGE` |
 
 ## Estrutura do pacote
 
