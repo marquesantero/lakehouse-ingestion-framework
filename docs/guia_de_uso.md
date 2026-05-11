@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/lakehouse_ingestion_framework-1.2.0-py3-none-any.whl
+# gera: dist/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/lakehouse_ingestion_framework-1.2.0-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.2.0-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.2.0
+print(lakehouse_ingestion.__version__)  # 1.3.0
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.2.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.2.0
+%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.3.0
 ```
 
 Em seguida:
@@ -437,7 +437,7 @@ Salve como `/Workspace/.../run_ingestion`:
 # Databricks notebook source
 import yaml
 from pathlib import Path
-from lakehouse_ingestion import ingest_plan
+from lakehouse_ingestion import ingest_plan, validate_plan_shape
 from lakehouse_ingestion.plan import build_plan_from_kwargs
 
 # Widgets — recebidos do orchestrator (for_each_task ou master)
@@ -465,8 +465,9 @@ cfg = {k: _render(v) for k, v in cfg.items()}
 if master_run_id:
     cfg.setdefault("master_run_id", master_run_id)
 
-# 4. Constrói o plan com validação de campos desconhecidos
+# 4. Constrói e valida o plan sem tocar dados
 plan = build_plan_from_kwargs(**cfg)
+validate_plan_shape(plan)
 
 # 5. Executa
 result = ingest_plan(plan)
@@ -486,7 +487,8 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 
 **Características:**
 
-- `build_plan_from_kwargs` valida campos desconhecidos (pega typos no YAML) e normaliza listas com `|`.
+- `build_plan_from_kwargs` valida campos desconhecidos, normaliza listas com `|` e rejeita `quality_rules` malformadas.
+- `validate_plan_shape` é validação pura de contrato; pode rodar em CI sem Spark.
 - Placeholders `{{dt}}` permitem override de runtime sem editar o YAML.
 - `idempotency_key` pode ser preenchido com o identificador do lote/job. Prefira `idempotency_policy: skip_if_success|fail_if_success|rerun_if_failed|always_run`.
 - `master_run_id` é propagado para `ctrl_ingestion_runs`, viabilizando summary cross-execução.

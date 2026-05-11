@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.2.0`
+**Versão do pacote:** `1.3.0`
 **Pacote Python:** `lakehouse-ingestion-framework`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -66,7 +66,7 @@ O `lakehouse-ingestion-framework` padroniza a ingestão de dados em Delta Lake f
 
 ### 1.3 API pública
 
-Apenas cinco símbolos são re-exportados em `lakehouse_ingestion/__init__.py`:
+A API pública re-exportada em `lakehouse_ingestion/__init__.py` inclui:
 
 ```python
 from lakehouse_ingestion import (
@@ -74,7 +74,9 @@ from lakehouse_ingestion import (
     ingest_plan,      # variante recebendo IngestionPlan
     IngestionPlan,    # dataclass do contrato
     QualityRules,     # dataclass das regras
+    QualityExpression,# regra SQL declarativa com severidade
     FrameworkConfig,  # dataclass de configuração global
+    validate_plan_shape, # validação pura de contrato/YAML sem Spark
 )
 ```
 
@@ -94,7 +96,7 @@ lakehouse_ingestion_pkg/
 │   └── arquitetura.md      # ESTE arquivo (referência técnica)
 ├── src/
 │   └── lakehouse_ingestion/
-│       ├── __init__.py     # façade pública (5 símbolos)
+│       ├── __init__.py     # façade pública
 │       ├── _spark.py       # resolução lazy de SparkSession + serverless
 │       ├── _sql.py         # helpers de identificadores, literais, datas
 │       ├── config.py       # FrameworkConfig + tipos (Layer, WriteMode, ...)
@@ -1350,7 +1352,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/lakehouse_ingestion_framework-1.2.0-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/lakehouse_ingestion_framework-1.3.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
