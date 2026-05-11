@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -144,7 +145,44 @@ def table_exists(full_name: str) -> bool:
             return False
 
 
-def validate_schema_policy(df: DataFrame, target: str, policy: SchemaPolicy) -> Dict[str, Any]:
+_INTEGER_ORDER = {"tinyint": 0, "smallint": 1, "int": 2, "bigint": 3}
+_FLOAT_ORDER = {"float": 0, "double": 1}
+
+
+def _decimal_parts(dtype: str) -> Optional[tuple[int, int]]:
+    match = re.fullmatch(r"decimal\((\d+),(\d+)\)", dtype)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def is_type_widening(source_type: str, target_type: str) -> bool:
+    """Retorna se ``target_type`` pode ser alargado para ``source_type`` sem perda esperada."""
+    if source_type == target_type:
+        return True
+    if source_type in _INTEGER_ORDER and target_type in _INTEGER_ORDER:
+        return _INTEGER_ORDER[source_type] >= _INTEGER_ORDER[target_type]
+    if source_type in _FLOAT_ORDER and target_type in _FLOAT_ORDER:
+        return _FLOAT_ORDER[source_type] >= _FLOAT_ORDER[target_type]
+    if source_type == "double" and target_type in _INTEGER_ORDER:
+        return True
+    if source_type == "timestamp" and target_type == "date":
+        return True
+    source_decimal = _decimal_parts(source_type)
+    target_decimal = _decimal_parts(target_type)
+    if source_decimal and target_decimal:
+        source_precision, source_scale = source_decimal
+        target_precision, target_scale = target_decimal
+        return source_precision >= target_precision and source_scale >= target_scale
+    return False
+
+
+def validate_schema_policy(
+    df: DataFrame,
+    target: str,
+    policy: SchemaPolicy,
+    allow_type_widening: bool = False,
+) -> Dict[str, Any]:
     """Compara schema do DataFrame com o do target e aplica a politica.
 
     Retorna um dict com ``status``, ``added_columns``, ``removed_columns`` e
@@ -161,28 +199,41 @@ def validate_schema_policy(df: DataFrame, target: str, policy: SchemaPolicy) -> 
     tgt = {f.name: f.dataType.simpleString() for f in target_df.schema.fields}
     added = sorted([c for c in src if c not in tgt])
     removed = sorted([c for c in tgt if c not in src and c not in CONTROL_COLUMNS])
-    type_changes = sorted(
-        [
-            {"column": c, "source": src[c], "target": tgt[c]}
-            for c in src.keys() & tgt.keys()
-            if src[c] != tgt[c]
-        ],
-        key=lambda x: x["column"],
-    )
+    type_changes = []
+    for c in sorted(src.keys() & tgt.keys()):
+        if src[c] == tgt[c]:
+            continue
+        widening_allowed = allow_type_widening and is_type_widening(src[c], tgt[c])
+        type_changes.append(
+            {
+                "column": c,
+                "source": src[c],
+                "target": tgt[c],
+                "allowed": widening_allowed,
+                "change": "type_widening" if widening_allowed else "type_change",
+            }
+        )
+    blocking_type_changes = [change for change in type_changes if not change.get("allowed")]
 
     if policy == "strict" and (added or removed or type_changes):
         raise ValueError(
             f"Schema policy strict violada: added={added}, removed={removed}, type_changes={type_changes}"
         )
-    if policy == "additive_only" and (removed or type_changes):
+    if policy == "additive_only" and (removed or blocking_type_changes):
         raise ValueError(
-            f"Schema policy additive_only violada: removed={removed}, type_changes={type_changes}"
+            f"Schema policy additive_only violada: removed={removed}, type_changes={blocking_type_changes}"
+        )
+    if policy == "permissive" and blocking_type_changes:
+        raise ValueError(
+            "Schema policy permissive não aplica mudanças de tipo potencialmente destrutivas. "
+            f"Use allow_type_widening=True apenas para alargamentos seguros. type_changes={blocking_type_changes}"
         )
     return {
         "status": "checked",
         "added_columns": added,
         "removed_columns": removed,
         "type_changes": type_changes,
+        "allow_type_widening": allow_type_widening,
     }
 
 
@@ -192,19 +243,24 @@ def sync_delta_schema(
     schema_changes: Dict[str, Any],
     policy: SchemaPolicy,
 ) -> None:
-    """Aplica ``ALTER TABLE ADD COLUMNS`` para colunas novas, se a politica permitir.
+    """Aplica evolução aditiva de schema, se a política permitir.
 
-    No-op se a tabela nao existe, se nao ha colunas adicionadas, ou se a
-    politica e ``strict``. Tipos vem do DataFrame fonte.
+    Adiciona colunas novas e aplica alargamento de tipo quando
+    ``allow_type_widening`` foi validado previamente. Nunca remove colunas.
     """
     if not table_exists(target):
         return
-    added = schema_changes.get("added_columns") or []
-    if not added:
-        return
     if policy not in {"permissive", "additive_only"}:
         return
+    added = schema_changes.get("added_columns") or []
     fields = {f.name: f.dataType.simpleString() for f in df.schema.fields}
     cols_sql = ", ".join(f"{q(c)} {fields[c]}" for c in added if c in fields)
     if cols_sql:
         spark.sql(f"ALTER TABLE {qt(target)} ADD COLUMNS ({cols_sql})")
+    for change in schema_changes.get("type_changes") or []:
+        if not change.get("allowed"):
+            continue
+        column = change["column"]
+        source_type = change["source"]
+        spark.sql(f"ALTER TABLE {qt(target)} ALTER COLUMN {q(column)} TYPE {source_type}")
+        change["applied"] = True

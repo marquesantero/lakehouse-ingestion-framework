@@ -82,6 +82,12 @@ class IngestionPlan:
     source_system: str = "default"
     ctrl_schema: str = "ops"
     notebook_name: str = "unknown"
+    description: Optional[str] = None
+    owner: Optional[str] = None
+    domain: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    sla: Optional[str] = None
+    runtime_parameters: Dict[str, Any] = field(default_factory=dict)
 
     select_columns: List[str] = field(default_factory=list)
     filter_expression: Optional[str] = None
@@ -102,6 +108,7 @@ class IngestionPlan:
     optimize_after_write: bool = False
 
     schema_policy: SchemaPolicy = "permissive"
+    allow_type_widening: bool = False
     quality_rules: Optional[QualityRules] = None
     on_quality_fail: QualityFailAction = "fail"
 
@@ -195,11 +202,13 @@ def normalize_quality_rules(
 
 _KNOWN_PARAMS = {
     "source", "target_table", "catalog", "layer", "mode", "source_system", "ctrl_schema",
-    "notebook_name", "select_columns", "filter_expression", "watermark_columns",
+    "notebook_name", "description", "owner", "domain", "tags", "sla", "runtime_parameters",
+    "select_columns", "filter_expression", "watermark_columns",
     "merge_keys", "hash_keys", "hash_exclude_columns", "custom_keys", "dedup_order_expr",
     "partition_column", "partition_value", "merge_strategy", "merge_partition_column",
-    "replace_partitions_source_complete", "cluster_columns", "zorder_columns", "optimize_after_write", "schema_policy",
-    "quality_rules", "on_quality_fail", "scd2_change_columns", "scd2_effective_from_column",
+    "replace_partitions_source_complete", "cluster_columns", "zorder_columns", "optimize_after_write",
+    "schema_policy", "allow_type_widening", "quality_rules", "on_quality_fail",
+    "scd2_change_columns", "scd2_effective_from_column",
     "fix_encoding", "encoding", "encoding_columns", "dry_run", "explain_mode",
     "explain_format", "openlineage_enabled", "openlineage_namespace",
     "openlineage_producer", "use_cache", "lock_enabled", "idempotency_key",
@@ -269,6 +278,12 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         source_system=kwargs.get("source_system", CONFIG.default_source_system),
         ctrl_schema=kwargs.get("ctrl_schema", CONFIG.ctrl_schema),
         notebook_name=kwargs.get("notebook_name", "unknown"),
+        description=kwargs.get("description"),
+        owner=kwargs.get("owner"),
+        domain=kwargs.get("domain"),
+        tags=as_list(kwargs.get("tags")),
+        sla=kwargs.get("sla"),
+        runtime_parameters=dict(kwargs.get("runtime_parameters") or {}),
         select_columns=as_list(kwargs.get("select_columns")),
         filter_expression=kwargs.get("filter_expression"),
         watermark_columns=as_list(kwargs.get("watermark_columns")),
@@ -286,6 +301,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         zorder_columns=as_list(kwargs.get("zorder_columns")),
         optimize_after_write=bool(kwargs.get("optimize_after_write", False)),
         schema_policy=schema_policy,  # type: ignore[arg-type]
+        allow_type_widening=bool(kwargs.get("allow_type_widening", False)),
         quality_rules=quality,
         on_quality_fail=on_quality_fail,  # type: ignore[arg-type]
         scd2_change_columns=as_list(kwargs.get("scd2_change_columns")),

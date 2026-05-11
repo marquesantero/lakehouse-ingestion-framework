@@ -177,6 +177,27 @@ def test_build_plan_accepts_explicit_idempotency_policy():
     assert plan.idempotency_policy == "fail_if_success"
 
 
+def test_build_plan_accepts_contract_metadata_and_schema_widening():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        description="Customer dimension",
+        owner="data-platform",
+        domain="sales",
+        tags="customer|gold",
+        sla="daily 08:00",
+        runtime_parameters={"env": "dev"},
+        allow_type_widening=True,
+    )
+    assert plan.description == "Customer dimension"
+    assert plan.owner == "data-platform"
+    assert plan.domain == "sales"
+    assert plan.tags == ["customer", "gold"]
+    assert plan.sla == "daily 08:00"
+    assert plan.runtime_parameters == {"env": "dev"}
+    assert plan.allow_type_widening is True
+
+
 def test_build_plan_rejects_invalid_idempotency_policy():
     with pytest.raises(ValueError, match="idempotency_policy"):
         build_plan_from_kwargs(source="x", target_table="t", idempotency_policy="skip_maybe")

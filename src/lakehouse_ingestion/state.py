@@ -11,7 +11,7 @@ from pyspark.sql import functions as F
 from .config import CONFIG, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
 from .plan import IngestionPlan
 from ._spark import spark
-from ._sql import full_table_name, q, qt, safe_truncate, sql_int, sql_lit
+from ._sql import full_table_name, q, qt, safe_truncate, sql_int, sql_lit, to_json
 
 logger = logging.getLogger("lakehouse_ingestion")
 
@@ -32,6 +32,7 @@ def ctrl_table_names(catalog: str, schema: str) -> Dict[str, str]:
         "lineage": full_table_name(catalog, schema, CONFIG.ctrl_table_lineage),
         "metadata": full_table_name(catalog, schema, CONFIG.ctrl_table_metadata),
         "errors": full_table_name(catalog, schema, CONFIG.ctrl_table_errors),
+        "schema_changes": full_table_name(catalog, schema, CONFIG.ctrl_table_schema_changes),
     }
 
 
@@ -112,6 +113,13 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             quality_status STRING,
             schema_policy STRING,
             schema_changes_json STRING,
+            stage_durations_json STRING,
+            contract_description STRING,
+            contract_owner STRING,
+            contract_domain STRING,
+            contract_tags_json STRING,
+            contract_sla STRING,
+            runtime_parameters_json STRING,
             operation_metrics_json STRING,
             write_started_at_utc TIMESTAMP,
             write_finished_at_utc TIMESTAMP,
@@ -243,6 +251,21 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             python_version STRING
         ) USING DELTA PARTITIONED BY (error_date)
     """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {qt(tables['schema_changes'])} (
+            run_id STRING,
+            change_ts_utc TIMESTAMP,
+            target_table STRING,
+            change_type STRING,
+            column_name STRING,
+            source_type STRING,
+            target_type STRING,
+            applied BOOLEAN,
+            details_json STRING,
+            framework_version STRING,
+            ctrl_schema_version BIGINT
+        ) USING DELTA
+    """)
     _add_columns_if_missing(
         tables["runs"],
         {
@@ -256,6 +279,13 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             "runtime_type": "STRING",
             "spark_version": "STRING",
             "python_version": "STRING",
+            "stage_durations_json": "STRING",
+            "contract_description": "STRING",
+            "contract_owner": "STRING",
+            "contract_domain": "STRING",
+            "contract_tags_json": "STRING",
+            "contract_sla": "STRING",
+            "runtime_parameters_json": "STRING",
         },
     )
     _add_columns_if_missing(
@@ -283,12 +313,14 @@ _RUN_COLUMNS = [
     "rows_updated", "rows_deleted", "rows_quarantined", "watermark_column",
     "watermark_previous", "watermark_current", "started_at_utc", "finished_at_utc",
     "duration_seconds", "quality_status", "schema_policy", "schema_changes_json",
-    "operation_metrics_json", "write_started_at_utc", "write_finished_at_utc",
-    "delta_version_before", "delta_version_after", "write_committed", "error_message",
-    "parent_run_id", "run_group_id", "master_job_id", "master_run_id",
-    "idempotency_key", "idempotency_policy", "skip_reason", "skipped_by_run_id",
-    "metrics_source", "framework_version", "ctrl_schema_version", "runtime_type",
-    "spark_version", "python_version",
+    "stage_durations_json", "contract_description", "contract_owner", "contract_domain",
+    "contract_tags_json", "contract_sla", "runtime_parameters_json", "operation_metrics_json",
+    "write_started_at_utc", "write_finished_at_utc", "delta_version_before",
+    "delta_version_after", "write_committed", "error_message", "parent_run_id",
+    "run_group_id", "master_job_id", "master_run_id", "idempotency_key",
+    "idempotency_policy", "skip_reason", "skipped_by_run_id", "metrics_source",
+    "framework_version", "ctrl_schema_version", "runtime_type", "spark_version",
+    "python_version",
 ]
 _RUN_INT_COLUMNS = {
     "rows_read", "rows_written", "rows_inserted", "rows_updated", "rows_deleted",
@@ -329,6 +361,73 @@ _ERROR_COLUMNS = [
     "status", "error_type", "error_message", "stack_trace", "framework_version",
     "ctrl_schema_version", "runtime_type", "spark_version", "python_version",
 ]
+
+
+_SCHEMA_CHANGE_COLUMNS = [
+    "run_id", "change_ts_utc", "target_table", "change_type", "column_name",
+    "source_type", "target_type", "applied", "details_json", "framework_version",
+    "ctrl_schema_version",
+]
+
+
+def log_schema_changes(
+    tables: Dict[str, str],
+    run_id: str,
+    target: str,
+    schema_changes: Dict[str, Any],
+) -> None:
+    """Persiste mudanças de schema detectadas/aplicadas na ctrl table dedicada."""
+    rows = []
+    for column in schema_changes.get("added_columns") or []:
+        rows.append(
+            {
+                "change_type": "add_column",
+                "column_name": column,
+                "source_type": None,
+                "target_type": None,
+                "applied": True,
+                "details": {},
+            }
+        )
+    for change in schema_changes.get("type_changes") or []:
+        rows.append(
+            {
+                "change_type": change.get("change", "type_change"),
+                "column_name": change.get("column"),
+                "source_type": change.get("source"),
+                "target_type": change.get("target"),
+                "applied": bool(change.get("applied")),
+                "details": change,
+            }
+        )
+    if not rows:
+        return
+
+    values_sql = []
+    for row in rows:
+        values_sql.append(
+            "("
+            + ", ".join(
+                [
+                    sql_lit(run_id),
+                    "current_timestamp()",
+                    sql_lit(target),
+                    sql_lit(row["change_type"]),
+                    sql_lit(row["column_name"]),
+                    sql_lit(row["source_type"]),
+                    sql_lit(row["target_type"]),
+                    str(bool(row["applied"])).lower(),
+                    sql_lit(to_json(row["details"])),
+                    sql_lit(FRAMEWORK_VERSION),
+                    sql_int(CTRL_SCHEMA_VERSION),
+                ]
+            )
+            + ")"
+        )
+    spark.sql(
+        f"INSERT INTO {qt(tables['schema_changes'])} ({', '.join(_SCHEMA_CHANGE_COLUMNS)}) "
+        f"VALUES {', '.join(values_sql)}"
+    )
 
 
 def log_error(tables: Dict[str, str], payload: Dict[str, Any]) -> None:

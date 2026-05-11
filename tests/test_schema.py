@@ -9,10 +9,24 @@ from lakehouse_ingestion.schema import (
     deduplicate_by_order,
     fix_encoding,
     hash_columns,
+    is_type_widening,
     sync_delta_schema,
     table_exists,
     validate_schema_policy,
 )
+
+
+def test_is_type_widening_accepts_safe_widening():
+    assert is_type_widening("bigint", "int") is True
+    assert is_type_widening("double", "float") is True
+    assert is_type_widening("decimal(12,2)", "decimal(10,2)") is True
+    assert is_type_widening("timestamp", "date") is True
+
+
+def test_is_type_widening_rejects_narrowing_or_unsafe_changes():
+    assert is_type_widening("int", "bigint") is False
+    assert is_type_widening("decimal(10,2)", "decimal(12,2)") is False
+    assert is_type_widening("string", "int") is False
 
 
 def test_hash_columns_excludes_control(make_df):

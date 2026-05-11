@@ -44,6 +44,7 @@ from .state import (
     find_idempotent_run,
     log_error,
     log_run,
+    log_schema_changes,
     release_lock,
     upsert_state,
     with_retry,
@@ -76,6 +77,18 @@ def _lock_owner(plan: IngestionPlan) -> str:
     return plan.master_run_id or plan.run_group_id or plan.parent_run_id or plan.notebook_name
 
 
+def _contract_metadata(plan: IngestionPlan) -> Dict[str, Any]:
+    """Metadados declarativos do contrato de ingestão."""
+    return {
+        "description": plan.description,
+        "owner": plan.owner,
+        "domain": plan.domain,
+        "tags": plan.tags,
+        "sla": plan.sla,
+        "runtime_parameters": plan.runtime_parameters,
+    }
+
+
 def _skip_result(
     plan: IngestionPlan,
     run_id: str,
@@ -85,6 +98,7 @@ def _skip_result(
     runtime_meta: Dict[str, Optional[str]],
     skip_reason: str,
     skipped_by_run_id: Optional[str],
+    stage_durations: Dict[str, float],
 ) -> Dict[str, Any]:
     """Payload padronizado para execuções puladas por idempotência."""
     return {
@@ -105,6 +119,7 @@ def _skip_result(
         "schema_changes": {},
         "operation_metrics": {},
         "metrics_source": metrics_source,
+        "stage_durations": stage_durations,
         "write_committed": False,
         "delta_version_before": None,
         "delta_version_after": None,
@@ -117,6 +132,7 @@ def _skip_result(
         "idempotency_policy": plan.idempotency_policy,
         "skip_reason": skip_reason,
         "skipped_by_run_id": skipped_by_run_id,
+        "contract_metadata": _contract_metadata(plan),
         "framework_version": FRAMEWORK_VERSION,
         "ctrl_schema_version": CTRL_SCHEMA_VERSION,
         **runtime_meta,
@@ -228,7 +244,12 @@ def _validate_plan(
         cols_to_validate.append(plan.scd2_effective_from_column)
     validate_cols(df, sorted(set(cols_to_validate)), "plan columns")
 
-    schema_changes = validate_schema_policy(df, target, plan.schema_policy)
+    schema_changes = validate_schema_policy(
+        df,
+        target,
+        plan.schema_policy,
+        allow_type_widening=plan.allow_type_widening,
+    )
     if apply_changes:
         sync_delta_schema(df, target, schema_changes, plan.schema_policy)
     return schema_changes
@@ -298,6 +319,7 @@ def _build_dry_run_result(
     started_dt: datetime,
     df: DataFrame,
     runtime_meta: Dict[str, Optional[str]],
+    stage_durations: Dict[str, float],
 ) -> Dict[str, Any]:
     """Monta o payload de retorno quando ``plan.dry_run=True``.
 
@@ -327,11 +349,13 @@ def _build_dry_run_result(
         "quality_status": quality_status,
         "schema_changes": schema_changes,
         "metrics_source": "logical",
+        "stage_durations": stage_durations,
         "duration_seconds": (finished_dt - started_dt).total_seconds(),
         "explain_captured": plan.explain_mode,
         "openlineage_enabled": plan.openlineage_enabled,
         "idempotency_key": plan.idempotency_key,
         "idempotency_policy": plan.idempotency_policy,
+        "contract_metadata": _contract_metadata(plan),
         "framework_version": FRAMEWORK_VERSION,
         "ctrl_schema_version": CTRL_SCHEMA_VERSION,
         **runtime_meta,
@@ -368,6 +392,7 @@ def _finalize_execution(
     runtime_meta: Dict[str, Optional[str]],
     skip_reason: Optional[str],
     skipped_by_run_id: Optional[str],
+    stage_durations: Dict[str, float],
 ) -> None:
     """Monta o payload completo e grava em ``ctrl_ingestion_runs`` via ``log_run``.
 
@@ -401,6 +426,13 @@ def _finalize_execution(
             "quality_status": quality_status,
             "schema_policy": plan.schema_policy,
             "schema_changes_json": to_json(schema_changes),
+            "stage_durations_json": to_json(stage_durations),
+            "contract_description": plan.description,
+            "contract_owner": plan.owner,
+            "contract_domain": plan.domain,
+            "contract_tags_json": to_json(plan.tags),
+            "contract_sla": plan.sla,
+            "runtime_parameters_json": to_json(plan.runtime_parameters),
             "operation_metrics_json": to_json(operation_metrics),
             "write_started_at_utc": write_started_at,
             "write_finished_at_utc": write_finished_at,
@@ -451,10 +483,13 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     started_dt = utc_now_ts()
     target = full_table_name(plan.catalog, plan.layer, plan.target_table)
     runtime_meta = runtime_info()
+    stage_durations: Dict[str, float] = {}
     if plan.dry_run:
         tables = ctrl_table_names(plan.catalog, plan.ctrl_schema)
     else:
+        stage_started = utc_now_ts()
         tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
+        stage_durations["control_setup"] = (utc_now_ts() - stage_started).total_seconds()
 
     source_name = "unknown"
     wm_prev: Optional[str] = None
@@ -483,9 +518,11 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     row_metrics: Dict[str, int] = {"rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
 
     try:
+        stage_started = utc_now_ts()
         previous_success = find_idempotent_run(
             tables, target, plan.idempotency_key, status="SUCCESS"
         )
+        stage_durations["idempotency"] = (utc_now_ts() - stage_started).total_seconds()
         previous_status = previous_success.get("status") if previous_success else None
         previous_run_id = previous_success.get("run_id") if previous_success else None
         if (
@@ -498,7 +535,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             skipped_by_run_id = previous_run_id
             return _skip_result(
                 plan, run_id, target, source_name, metrics_source, runtime_meta,
-                skip_reason, skipped_by_run_id,
+                skip_reason, skipped_by_run_id, stage_durations,
             )
         if plan.idempotency_policy == "fail_if_success" and previous_status == "SUCCESS":
             raise RuntimeError(
@@ -507,37 +544,56 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             )
 
         if plan.lock_enabled and not plan.dry_run:
+            stage_started = utc_now_ts()
             acquire_lock(tables, target, run_id, owner=_lock_owner(plan))
+            stage_durations["lock_acquire"] = (utc_now_ts() - stage_started).total_seconds()
 
+        stage_started = utc_now_ts()
         raw_df, source_name = _resolve_source(plan)
         wm_prev = (
             get_watermark(tables["state"], target, plan.watermark_columns)
             if plan.watermark_columns
             else None
         )
+        stage_durations["read"] = (utc_now_ts() - stage_started).total_seconds()
+
+        stage_started = utc_now_ts()
         ingestion_ts = started_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
         prepared_df = _prepare_dataframe(raw_df, plan, run_id, run_date, ingestion_ts, wm_prev)
         prepared_df = safe_cache(prepared_df, plan.use_cache)
+        stage_durations["prepare"] = (utc_now_ts() - stage_started).total_seconds()
 
+        stage_started = utc_now_ts()
         schema_changes = _validate_plan(plan, prepared_df, target, apply_changes=not plan.dry_run)
+        if not plan.dry_run:
+            log_schema_changes(tables, run_id, target, schema_changes)
+        stage_durations["schema"] = (utc_now_ts() - stage_started).total_seconds()
+
+        stage_started = utc_now_ts()
         rows_read = prepared_df.count()
         wm_candidate = (
             compute_watermark(prepared_df, plan.watermark_columns)
             if plan.watermark_columns and rows_read > 0
             else wm_prev
         )
+        stage_durations["watermark"] = (utc_now_ts() - stage_started).total_seconds()
+
         if plan.explain_mode:
+            stage_started = utc_now_ts()
             explain_text = capture_explain(prepared_df, plan.explain_format)
             if not plan.dry_run:
                 write_explain_plan(
                     tables, run_id, target, source_name, plan.mode, plan.explain_format, explain_text
                 )
+            stage_durations["explain"] = (utc_now_ts() - stage_started).total_seconds()
 
+        stage_started = utc_now_ts()
         quality_status, quality_results, valid_df, quarantined_df, rows_quarantined = (
             evaluate_quality(prepared_df, plan.quality_rules, run_id, target)
         )
         if not plan.dry_run:
             write_quality_results(tables, run_id, target, quality_results)
+        stage_durations["quality"] = (utc_now_ts() - stage_started).total_seconds()
 
         if quality_status in {"FAILED", "WARNED"}:
             effective_action = plan.on_quality_fail
@@ -577,6 +633,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             return _build_dry_run_result(
                 plan, run_id, target, source_name, rows_read, rows_quarantined, wm_prev,
                 wm_candidate, quality_status, schema_changes, started_dt, prepared_df, runtime_meta,
+                stage_durations,
             )
 
         effective_rows = (
@@ -585,6 +642,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             else rows_read
         )
         delta_version_before = delta_version(target) if table_exists(target) else None
+        stage_started = utc_now_ts()
         write_started_at = utc_now_str()
         rows_written = with_retry(
             lambda: execute_write_mode(plan, prepared_df, target, effective_rows)
@@ -592,10 +650,14 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         write_finished_at = utc_now_str()
         delta_version_after = delta_version(target) if table_exists(target) else None
         write_committed = rows_written > 0 and delta_version_after != delta_version_before
+        stage_durations["write"] = (utc_now_ts() - stage_started).total_seconds()
 
         if rows_written > 0 and plan.optimize_after_write:
+            stage_started = utc_now_ts()
             run_optimize(target, plan.zorder_columns)
+            stage_durations["optimize"] = (utc_now_ts() - stage_started).total_seconds()
 
+        stage_started = utc_now_ts()
         wm_current = (
             compute_watermark(prepared_df, plan.watermark_columns)
             if plan.watermark_columns and rows_read > 0
@@ -621,6 +683,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             write_completed_at=write_finished_at,
             watermark_candidate=wm_candidate,
         )
+        stage_durations["state_update"] = (utc_now_ts() - stage_started).total_seconds()
 
     except Exception as exc:
         status = "FAILED"
@@ -655,13 +718,25 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         if not plan.dry_run:
             finished_dt = utc_now_ts()
             try:
+                stage_started = utc_now_ts()
+                output_df = spark.read.table(target) if table_exists(target) else None
+                if status != "SKIPPED":
+                    openlineage_event = write_openlineage_event(
+                        tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
+                        prepared_df, output_df, rows_read, rows_written, delta_version_before,
+                        delta_version_after, operation_metrics,
+                    )
+                stage_durations["lineage"] = (utc_now_ts() - stage_started).total_seconds()
+            except Exception as lineage_exc:
+                logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
+            try:
                 _finalize_execution(
                     tables, plan, run_id, run_ts, run_date, source_name, target, status, started_dt,
                     finished_dt, rows_read, rows_written, rows_quarantined, wm_prev, wm_current,
                     quality_status, schema_changes, operation_metrics, write_started_at,
                     write_finished_at, delta_version_before, delta_version_after, write_committed,
                     error, row_metrics, metrics_source, runtime_meta,
-                    skip_reason, skipped_by_run_id,
+                    skip_reason, skipped_by_run_id, stage_durations,
                 )
             except Exception as log_exc:
                 logger.error(f"Falha ao registrar execução: {log_exc}")
@@ -687,16 +762,6 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                     )
                 except Exception as error_log_exc:
                     logger.error(f"Falha ao registrar erro completo: {error_log_exc}")
-            try:
-                output_df = spark.read.table(target) if table_exists(target) else None
-                if status != "SKIPPED":
-                    openlineage_event = write_openlineage_event(
-                        tables, plan, run_id, target, source_name, status, started_dt, finished_dt,
-                        prepared_df, output_df, rows_read, rows_written, delta_version_before,
-                        delta_version_after, operation_metrics,
-                    )
-            except Exception as lineage_exc:
-                logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
 
     return {
         "status": status,
@@ -716,6 +781,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "schema_changes": schema_changes,
         "operation_metrics": operation_metrics,
         "metrics_source": metrics_source,
+        "stage_durations": stage_durations,
         "write_committed": write_committed,
         "delta_version_before": delta_version_before,
         "delta_version_after": delta_version_after,
@@ -728,6 +794,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "idempotency_policy": plan.idempotency_policy,
         "skip_reason": skip_reason,
         "skipped_by_run_id": skipped_by_run_id,
+        "contract_metadata": _contract_metadata(plan),
         "framework_version": FRAMEWORK_VERSION,
         "ctrl_schema_version": CTRL_SCHEMA_VERSION,
         **runtime_meta,
