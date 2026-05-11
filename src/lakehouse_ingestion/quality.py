@@ -114,7 +114,6 @@ def evaluate_quality(
     agg_exprs = [F.count(F.lit(1)).alias("__total_rows")]
     null_alias_map: Dict[str, str] = {}
     accepted_alias_map: Dict[str, str] = {}
-    null_ratio_alias_map: Dict[str, str] = {}
 
     null_cols_needed = set(rules.not_null) | set(rules.max_null_ratio.keys())
     for c in null_cols_needed:

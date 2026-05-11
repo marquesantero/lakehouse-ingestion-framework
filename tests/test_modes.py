@@ -1,8 +1,6 @@
 """Testes ponta-a-ponta dos 6 modos de escrita via ``ingest``."""
 from __future__ import annotations
 
-import pytest
-
 from lakehouse_ingestion import ingest
 
 
