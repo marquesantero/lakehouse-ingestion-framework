@@ -433,13 +433,20 @@ def hash_from_cols(cols):
 
 ```python
 def deduplicate_by_order(df, keys, order_expr):
-    sort_cols = [F.expr(part.strip()) for part in order_expr.split(",") if part.strip()]
-    w = Window.partitionBy(*[F.col(k) for k in keys]).orderBy(*sort_cols)
-    return df.withColumn("__rn", F.row_number().over(w)).where(F.col("__rn") == 1).drop("__rn")
+    df.createOrReplaceTempView(source_view)
+    return spark.sql("""
+        SELECT original_cols
+        FROM (
+            SELECT original_cols,
+                   ROW_NUMBER() OVER (PARTITION BY keys ORDER BY order_expr) AS __rn
+            FROM source_view
+        )
+        WHERE __rn = 1
+    """)
 ```
 
-- Usa `row_number` com `partitionBy(keys)` + `orderBy(order_expr)`; mantém a primeira (ordem do `order_expr`).
-- `order_expr` aceita `"col DESC NULLS LAST, other ASC"`: cada parte vai para `F.expr`.
+- Usa `ROW_NUMBER() OVER (PARTITION BY keys ORDER BY order_expr)` via SQL temp view; mantém a primeira linha pela ordem declarada.
+- `order_expr` aceita `"col DESC NULLS LAST, other ASC"` como SQL de `ORDER BY`. Isso evita incompatibilidade de `F.expr("... DESC NULLS LAST")` em Spark Connect/serverless.
 - Erra se o `order_expr` for vazio/só vírgulas.
 
 **Quando entra no fluxo:** se `dedup_order_expr` é informado E há `merge_keys` ou `hash_keys`, `_prepare_dataframe` chama isso após `apply_watermark`.

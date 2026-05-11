@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Dict, List, Optional
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.window import Window
 
 from .config import CONTROL_COLUMNS, SchemaPolicy
 from ._spark import spark
@@ -51,7 +51,7 @@ def deduplicate_by_order(df: DataFrame, keys: List[str], order_expr: str) -> Dat
     """Mantem apenas a primeira linha por ``keys`` na ordem de ``order_expr``.
 
     ``order_expr`` aceita multiplas colunas separadas por virgula com qualquer
-    sintaxe valida em ``F.expr`` (ex.: "updated_at DESC NULLS LAST, version DESC").
+    sintaxe SQL valida em ``ORDER BY`` (ex.: "updated_at DESC NULLS LAST, version DESC").
     Se ``keys`` for vazio, retorna o DataFrame inalterado.
 
     Raises:
@@ -60,11 +60,31 @@ def deduplicate_by_order(df: DataFrame, keys: List[str], order_expr: str) -> Dat
     if not keys:
         return df
     validate_cols(df, keys, "dedup keys")
-    sort_cols = [F.expr(part.strip()) for part in order_expr.split(",") if part.strip()]
-    if not sort_cols:
+    order_parts = [part.strip() for part in order_expr.split(",") if part.strip()]
+    if not order_parts:
         raise ValueError("dedup_order_expr informado, mas nenhuma ordenação válida foi encontrada")
-    w = Window.partitionBy(*[F.col(k) for k in keys]).orderBy(*sort_cols)
-    return df.withColumn("__rn", F.row_number().over(w)).where(F.col("__rn") == 1).drop("__rn")
+
+    source_view = f"__ingest_dedup_src_{uuid.uuid4().hex}"
+    rn_col = f"__ingest_dedup_rn_{uuid.uuid4().hex}"
+    select_cols = ", ".join(q(c) for c in df.columns)
+    partition_clause = ", ".join(q(k) for k in keys)
+    order_clause = ", ".join(order_parts)
+    df.createOrReplaceTempView(source_view)
+    # O DataFrame retornado é lazy; em Spark Connect a view pode ser resolvida
+    # apenas na ação posterior. Por isso não removemos a temp view aqui.
+    return spark.sql(f"""
+        SELECT {select_cols}
+        FROM (
+            SELECT
+                {select_cols},
+                ROW_NUMBER() OVER (
+                    PARTITION BY {partition_clause}
+                    ORDER BY {order_clause}
+                ) AS {q(rn_col)}
+            FROM {q(source_view)}
+        ) __dedup
+        WHERE {q(rn_col)} = 1
+    """)
 
 
 def build_custom_keys(df: DataFrame, custom_keys: Dict[str, List[str]]) -> DataFrame:
