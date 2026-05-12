@@ -1,7 +1,7 @@
 """Testes ponta-a-ponta dos 6 modos de escrita via ``ingest``."""
 from __future__ import annotations
 
-from lakehouse_ingestion import ingest
+from lakehouse_ingestion import IngestionHooks, ingest
 
 
 def _common(target: str, layer: str = "silver"):
@@ -52,6 +52,77 @@ def test_scd1_upsert_updates_existing_rows(spark, make_df, unique_name):
     final = spark.table(f"spark_catalog.silver.{table}")
     by_id = {r["id"]: r["val"] for r in final.collect()}
     assert by_id == {1: "a", 2: "B_NEW", 3: "c"}
+
+
+def test_column_mapping_renames_source_columns_before_write(spark, make_df, unique_name):
+    table = f"{unique_name}_mapping"
+    df = make_df([(1, "a"), (2, "b")], "src_id long, src_val string")
+    res = ingest(
+        source=df,
+        mode="scd1_upsert",
+        merge_keys="id",
+        column_mapping={"src_id": "id", "src_val": "val"},
+        **_common(table),
+    )
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    assert {"id", "val"}.issubset(set(final.columns))
+    assert sorted((r["id"], r["val"]) for r in final.select("id", "val").collect()) == [(1, "a"), (2, "b")]
+
+
+def test_reserved_source_columns_fail_before_silent_overwrite(spark, make_df, unique_name):
+    table = f"{unique_name}_reserved"
+    df = make_df([(1, "2026-05-12")], "id long, ingestion_date string")
+    res = ingest(source=df, mode="scd0_append", **_common(table, "bronze"))
+    assert res["status"] == "FAILED"
+    assert "colunas técnicas reservadas" in (res["error_message"] or "")
+
+
+def test_merge_keys_all_null_fail_before_merge(spark, make_df, unique_name):
+    table = f"{unique_name}_nullkeys"
+    df = make_df([(None, "a"), (None, "b")], "id long, val string")
+    res = ingest(source=df, mode="scd1_upsert", merge_keys="id", **_common(table))
+    assert res["status"] == "FAILED"
+    assert "merge_keys totalmente nulas" in (res["error_message"] or "")
+
+
+def test_delta_properties_are_applied_on_table_creation(spark, make_df, unique_name):
+    table = f"{unique_name}_props"
+    full = f"spark_catalog.bronze.{table}"
+    df = make_df([(1, "a")], "id long, val string")
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        delta_properties={"ingest.testProperty": "enabled"},
+        **_common(table, "bronze"),
+    )
+    assert res["status"] == "SUCCESS"
+    prop = spark.sql(f"SHOW TBLPROPERTIES {full} ('ingest.testProperty')").first()
+    assert prop is not None
+    assert prop["value"] == "enabled"
+
+
+def test_hooks_can_transform_dataframe_and_observe_write(spark, make_df, unique_name):
+    table = f"{unique_name}_hooks"
+    observed = {}
+
+    def after_prepare(df, plan):
+        return df.withColumnRenamed("src_val", "val")
+
+    def after_write(result, plan):
+        observed["rows_written"] = result["rows_written"]
+
+    hooks = IngestionHooks(after_prepare=after_prepare, after_write=after_write)
+    df = make_df([(1, "a")], "id long, src_val string")
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        hooks=hooks,
+        **_common(table, "bronze"),
+    )
+    assert res["status"] == "SUCCESS"
+    assert observed["rows_written"] == 1
+    assert "val" in spark.table(f"spark_catalog.bronze.{table}").columns
 
 
 def test_scd1_hash_diff_only_inserts_changes(spark, make_df, unique_name):

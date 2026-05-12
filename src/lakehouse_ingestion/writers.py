@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from .config import CONFIG, MergeStrategy, WriteMode
+from .config import CONFIG, VALID_WRITE_MODES, MergeStrategy, WriteMode
 from .plan import IngestionPlan
 from .schema import (
     add_row_hash,
@@ -22,12 +22,15 @@ from ._sql import q, qt, sql_lit, validate_cols
 
 logger = logging.getLogger("lakehouse_ingestion")
 
+WriteHandler = Callable[[IngestionPlan, DataFrame, str, int], int]
+
 
 def ensure_delta_table(
     df: DataFrame,
     target: str,
     cluster_cols: List[str],
     partition_col: Optional[str],
+    delta_properties: Optional[Dict[str, str]] = None,
 ) -> bool:
     """Cria a tabela Delta com schema vazio se ainda não existe.
 
@@ -49,7 +52,19 @@ def ensure_delta_table(
             spark.sql(
                 f"ALTER TABLE {qt(target)} CLUSTER BY ({', '.join(q(c) for c in cluster_cols)})"
             )
+    apply_delta_properties(target, delta_properties)
     return True
+
+
+def apply_delta_properties(target: str, delta_properties: Optional[Dict[str, str]]) -> None:
+    """Aplica TBLPROPERTIES Delta na criação da tabela."""
+    if not delta_properties:
+        return
+    properties_sql = ", ".join(
+        f"{sql_lit(key)} = {sql_lit(value)}"
+        for key, value in sorted(delta_properties.items())
+    )
+    spark.sql(f"ALTER TABLE {qt(target)} SET TBLPROPERTIES ({properties_sql})")
 
 
 def run_optimize(target: str, zorder_cols: List[str]) -> None:
@@ -183,7 +198,7 @@ def write_strategy(mode: WriteMode) -> str:
         "scd1_hash_diff": "HASH_DIFF_APPEND",
         "scd2_historical": "SCD2_MERGE",
         "snapshot_soft_delete": "SNAPSHOT_MERGE",
-    }[mode]
+    }.get(mode, f"CUSTOM:{mode}")
 
 
 def write_append(
@@ -191,13 +206,14 @@ def write_append(
     target: str,
     cluster_cols: List[str],
     partition_col: Optional[str],
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``scd0_append``: APPEND simples com ``mergeSchema=true``.
 
     Cria a tabela se não existe. Retorna número de linhas escritas.
     """
-    ensure_delta_table(df, target, cluster_cols, partition_col)
+    ensure_delta_table(df, target, cluster_cols, partition_col, delta_properties)
     count = expected_count if expected_count is not None else df.count()
     if count:
         df.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(target)
@@ -210,6 +226,7 @@ def write_overwrite(
     partition_col: Optional[str],
     partition_value: Optional[str],
     cluster_cols: List[str],
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``scd0_overwrite``: OVERWRITE total ou por partição.
@@ -217,7 +234,7 @@ def write_overwrite(
     Quando ``partition_col`` e ``partition_value`` são informados (e não há
     cluster), usa ``replaceWhere`` para sobrescrever só a partição alvo.
     """
-    ensure_delta_table(df, target, cluster_cols, partition_col)
+    ensure_delta_table(df, target, cluster_cols, partition_col, delta_properties)
     count = expected_count if expected_count is not None else df.count()
     writer = df.write.format("delta").mode("overwrite").option("mergeSchema", "true")
     if partition_col and partition_value and not cluster_cols:
@@ -238,6 +255,7 @@ def write_upsert(
     partition_col: Optional[str],
     partition_values: Optional[List[Any]],
     strategy: MergeStrategy,
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``scd1_upsert``: estado atual via MERGE.
@@ -255,7 +273,7 @@ def write_upsert(
             ``merge_partition_column`` definido.
     """
     validate_cols(df, keys, "merge_keys")
-    ensure_delta_table(df, target, [], partition_col)
+    ensure_delta_table(df, target, [], partition_col, delta_properties)
     count = expected_count if expected_count is not None else df.count()
     if count == 0:
         return 0
@@ -300,6 +318,7 @@ def write_scd1_hash_diff(
     cluster_cols: List[str],
     partition_col: Optional[str],
     latest_order_expr: Optional[str],
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``scd1_hash_diff``: APPEND apenas de linhas novas ou alteradas.
@@ -312,7 +331,7 @@ def write_scd1_hash_diff(
     """
     validate_cols(df, hash_keys, "hash_keys")
     df_hashed = add_row_hash(df, hash_exclude)
-    ensure_delta_table(df_hashed, target, cluster_cols, partition_col)
+    ensure_delta_table(df_hashed, target, cluster_cols, partition_col, delta_properties)
 
     if not table_exists(target) or spark.read.table(target).limit(1).count() == 0:
         count = expected_count if expected_count is not None else df_hashed.count()
@@ -400,6 +419,7 @@ def write_snapshot_soft_delete(
     keys: List[str],
     cluster_cols: List[str],
     partition_col: Optional[str],
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``snapshot_soft_delete``: sincronização por snapshot completo.
@@ -418,7 +438,7 @@ def write_snapshot_soft_delete(
         .withColumn("is_active", F.lit(True))
         .withColumn("deleted_at", F.lit(None).cast("timestamp"))
     )
-    ensure_delta_table(df_src, target, cluster_cols, partition_col)
+    ensure_delta_table(df_src, target, cluster_cols, partition_col, delta_properties)
     count = expected_count if expected_count is not None else df_src.count()
     if count == 0:
         return 0
@@ -461,6 +481,7 @@ def write_scd2(
     change_cols: List[str],
     effective_from_col: Optional[str],
     cluster_cols: List[str],
+    delta_properties: Optional[Dict[str, str]] = None,
     expected_count: Optional[int] = None,
 ) -> int:
     """Modo ``scd2_historical``: histórico completo por versões.
@@ -493,7 +514,7 @@ def write_scd2(
         .withColumn("row_hash", hash_from_cols(change_cols))
         .withColumn("changed_columns", F.lit(None).cast("string"))
     )
-    ensure_delta_table(src, target, cluster_cols, None)
+    ensure_delta_table(src, target, cluster_cols, None, delta_properties)
     incoming_count = expected_count if expected_count is not None else src.count()
     if incoming_count == 0:
         return 0
@@ -553,6 +574,104 @@ def write_scd2(
     return insert_count
 
 
+def _write_append_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    return write_append(
+        df, target, plan.cluster_columns, plan.partition_column, plan.delta_properties, effective_rows
+    )
+
+
+def _write_overwrite_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    return write_overwrite(
+        df,
+        target,
+        plan.partition_column,
+        plan.partition_value,
+        plan.cluster_columns,
+        plan.delta_properties,
+        effective_rows,
+    )
+
+
+def _write_upsert_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    merge_partition_col = plan.merge_partition_column or plan.partition_column
+    return write_upsert(
+        df,
+        target,
+        plan.merge_keys,
+        merge_partition_col,
+        affected_partition_values(df, merge_partition_col),
+        plan.merge_strategy,
+        plan.delta_properties,
+        effective_rows,
+    )
+
+
+def _write_hash_diff_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    return write_scd1_hash_diff(
+        df,
+        target,
+        plan.hash_keys,
+        plan.hash_exclude_columns,
+        plan.cluster_columns,
+        plan.partition_column,
+        plan.dedup_order_expr,
+        plan.delta_properties,
+        effective_rows,
+    )
+
+
+def _write_snapshot_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    return write_snapshot_soft_delete(
+        df,
+        target,
+        plan.merge_keys,
+        plan.cluster_columns,
+        plan.partition_column,
+        plan.delta_properties,
+        effective_rows,
+    )
+
+
+def _write_scd2_handler(plan: IngestionPlan, df: DataFrame, target: str, effective_rows: int) -> int:
+    return write_scd2(
+        df,
+        target,
+        plan.merge_keys,
+        plan.scd2_change_columns,
+        plan.scd2_effective_from_column,
+        plan.cluster_columns,
+        plan.delta_properties,
+        effective_rows,
+    )
+
+
+WRITE_MODE_REGISTRY: Dict[str, WriteHandler] = {
+    "scd0_append": _write_append_handler,
+    "scd0_overwrite": _write_overwrite_handler,
+    "scd1_upsert": _write_upsert_handler,
+    "scd1_hash_diff": _write_hash_diff_handler,
+    "snapshot_soft_delete": _write_snapshot_handler,
+    "scd2_historical": _write_scd2_handler,
+}
+
+
+def register_write_mode(mode: str, handler: WriteHandler, *, overwrite: bool = False) -> None:
+    """Registra um motor de escrita customizado.
+
+    O handler recebe ``(plan, df, target, effective_rows)`` e deve retornar o
+    número lógico de linhas escritas/afetadas.
+    """
+    normalized = str(mode or "").strip()
+    if not normalized:
+        raise ValueError("mode customizado não pode ser vazio")
+    if not callable(handler):
+        raise ValueError("handler de write mode deve ser callable")
+    if normalized in WRITE_MODE_REGISTRY and not overwrite:
+        raise ValueError(f"write mode já registrado: {normalized}")
+    WRITE_MODE_REGISTRY[normalized] = handler
+    VALID_WRITE_MODES.add(normalized)
+
+
 def execute_write_mode(
     plan: IngestionPlan,
     df: DataFrame,
@@ -569,41 +688,7 @@ def execute_write_mode(
     """
     if effective_rows == 0:
         return 0
-    merge_partition_col = plan.merge_partition_column or plan.partition_column
-    part_vals = affected_partition_values(df, merge_partition_col)
-    if plan.mode == "scd0_append":
-        return write_append(df, target, plan.cluster_columns, plan.partition_column, effective_rows)
-    if plan.mode == "scd0_overwrite":
-        return write_overwrite(
-            df, target, plan.partition_column, plan.partition_value, plan.cluster_columns, effective_rows
-        )
-    if plan.mode == "scd1_upsert":
-        return write_upsert(
-            df, target, plan.merge_keys, merge_partition_col, part_vals, plan.merge_strategy, effective_rows
-        )
-    if plan.mode == "scd1_hash_diff":
-        return write_scd1_hash_diff(
-            df,
-            target,
-            plan.hash_keys,
-            plan.hash_exclude_columns,
-            plan.cluster_columns,
-            plan.partition_column,
-            plan.dedup_order_expr,
-            effective_rows,
-        )
-    if plan.mode == "snapshot_soft_delete":
-        return write_snapshot_soft_delete(
-            df, target, plan.merge_keys, plan.cluster_columns, plan.partition_column, effective_rows
-        )
-    if plan.mode == "scd2_historical":
-        return write_scd2(
-            df,
-            target,
-            plan.merge_keys,
-            plan.scd2_change_columns,
-            plan.scd2_effective_from_column,
-            plan.cluster_columns,
-            effective_rows,
-        )
+    handler = WRITE_MODE_REGISTRY.get(plan.mode)
+    if handler:
+        return handler(plan, df, target, effective_rows)
     raise ValueError(f"Modo não suportado: {plan.mode}")

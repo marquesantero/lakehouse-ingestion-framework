@@ -10,6 +10,7 @@ from lakehouse_ingestion.plan import (
     validate_plan_shape,
     validate_write_mode,
 )
+from lakehouse_ingestion.hooks import IngestionHooks
 from lakehouse_ingestion.ingestion import _validate_static_plan_options
 
 
@@ -88,6 +89,46 @@ def test_build_plan_normalizes_pipe_separated_lists():
     assert plan.watermark_columns == ["updated_at"]
 
 
+def test_build_plan_accepts_mapping_delta_properties_and_retry_options():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        column_mapping={"src_id": "id", "src_name": "name"},
+        delta_properties={"delta.enableChangeDataFeed": True},
+        retry_attempts="5",
+        retry_backoff_seconds="0",
+    )
+    assert plan.column_mapping == {"src_id": "id", "src_name": "name"}
+    assert plan.delta_properties == {"delta.enableChangeDataFeed": "true"}
+    assert plan.retry_attempts == 5
+    assert plan.retry_backoff_seconds == 0
+
+
+def test_build_plan_rejects_invalid_mapping_and_retry_options():
+    with pytest.raises(ValueError, match="mesmo destino"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            column_mapping={"a": "id", "b": "id"},
+        )
+    with pytest.raises(ValueError, match="colunas técnicas reservadas"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            column_mapping={"src_run": "__run_id"},
+        )
+    with pytest.raises(ValueError, match="retry_attempts"):
+        build_plan_from_kwargs(source="x", target_table="t", retry_attempts=0)
+    with pytest.raises(ValueError, match="retry_backoff_seconds"):
+        build_plan_from_kwargs(source="x", target_table="t", retry_backoff_seconds=-1)
+
+
+def test_build_plan_accepts_programmatic_hooks():
+    hooks = IngestionHooks(before_read=lambda plan: None)
+    plan = build_plan_from_kwargs(source="x", target_table="t", hooks=hooks)
+    assert plan.hooks is hooks
+
+
 def test_build_plan_rejects_unknown_kwargs():
     with pytest.raises(ValueError, match="não reconhecidos"):
         build_plan_from_kwargs(source="x", target_table="t", invalid_param=True)
@@ -123,6 +164,34 @@ def test_build_plan_quality_rules_expressions_dict():
     assert plan.quality_rules.expressions[0].severity == "quarantine"
     assert plan.quality_rules.expressions[1].severity == "abort"
     assert plan.quality_rules.expressions[1].message == "Período inválido."
+
+
+def test_build_plan_quality_rules_custom_dict():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        quality_rules={
+            "custom": {
+                "freshness": {
+                    "type": "freshness",
+                    "column": "updated_at",
+                    "max_age_hours": 24,
+                    "severity": "warn",
+                }
+            }
+        },
+    )
+    assert plan.quality_rules.custom["freshness"]["type"] == "freshness"
+    assert plan.quality_rules.custom["freshness"]["severity"] == "warn"
+
+
+def test_build_plan_rejects_invalid_custom_quality_rule():
+    with pytest.raises(ValueError, match="type"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            quality_rules={"custom": {"freshness": {"column": "updated_at"}}},
+        )
 
 
 def test_build_plan_rejects_invalid_quality_expression_severity():

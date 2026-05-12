@@ -6,12 +6,12 @@ separado por exigir contagem por grupo.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from .config import CONFIG
+from .config import CONFIG, VALID_QUALITY_RULE_SEVERITIES
 from .plan import QualityRules
 from ._spark import spark
 from ._sql import to_json, utc_now_str, validate_cols
@@ -22,6 +22,25 @@ from ._sql import to_json, utc_now_str, validate_cols
 #: ``on_quality_fail="quarantine"`` e qualquer dessas regras falhar, o
 #: orquestrador escala a ação para ``"fail"``.
 ABORT_ONLY_RULES = frozenset({"required_columns", "unique_key", "min_rows"})
+QualityRuleEvaluator = Callable[[DataFrame, str, Dict[str, Any]], Dict[str, Any]]
+QUALITY_RULE_REGISTRY: Dict[str, QualityRuleEvaluator] = {}
+
+
+def register_quality_rule(rule_type: str, evaluator: QualityRuleEvaluator, *, overwrite: bool = False) -> None:
+    """Registra uma regra de qualidade customizada.
+
+    O evaluator recebe ``(df, rule_name, config)`` e retorna um dict com:
+    ``failed_count`` (obrigatório), ``details``/``message`` opcionais e
+    ``condition`` opcional para severidade ``quarantine``.
+    """
+    normalized = str(rule_type or "").strip()
+    if not normalized:
+        raise ValueError("quality rule type não pode ser vazio")
+    if not callable(evaluator):
+        raise ValueError("quality rule evaluator deve ser callable")
+    if normalized in QUALITY_RULE_REGISTRY and not overwrite:
+        raise ValueError(f"quality rule já registrada: {normalized}")
+    QUALITY_RULE_REGISTRY[normalized] = evaluator
 
 
 def is_abort_only_failure(rule_name: str) -> bool:
@@ -39,6 +58,13 @@ def _safe_agg_alias(prefix: str, key: str) -> str:
     """Cria alias estável e seguro para a agregação (evita caracteres problemáticos)."""
     safe = "".join(ch if ch.isalnum() else "_" for ch in key)
     return f"{prefix}__{safe}"
+
+
+def _row_int(row: Any, field: str) -> int:
+    """Lê inteiro de uma Row agregada tratando NULL como zero."""
+    if row is None:
+        return 0
+    return int(row[field] or 0)
 
 
 def evaluate_quality(
@@ -114,6 +140,8 @@ def evaluate_quality(
     agg_exprs = [F.count(F.lit(1)).alias("__total_rows")]
     null_alias_map: Dict[str, str] = {}
     accepted_alias_map: Dict[str, str] = {}
+    expression_alias_map: Dict[str, str] = {}
+    expression_condition_map: Dict[str, Any] = {}
 
     null_cols_needed = set(rules.not_null) | set(rules.max_null_ratio.keys())
     for c in null_cols_needed:
@@ -130,17 +158,25 @@ def evaluate_quality(
             ).alias(alias)
         )
 
+    for rule in rules.expressions:
+        expr_col = F.expr(rule.expression)
+        invalid_condition = expr_col.isNull() | (expr_col == F.lit(False))
+        alias = _safe_agg_alias("expression_invalid", rule.name)
+        expression_alias_map[rule.name] = alias
+        expression_condition_map[rule.name] = invalid_condition
+        agg_exprs.append(F.sum(invalid_condition.cast("long")).alias(alias))
+
     if len(agg_exprs) > 1 or rules.min_rows is not None:
         agg_row = df.agg(*agg_exprs).collect()[0]
     else:
         agg_row = None
 
-    row_count = int(agg_row["__total_rows"]) if agg_row is not None else df.count()
+    row_count = _row_int(agg_row, "__total_rows") if agg_row is not None else df.count()
 
     quarantine_condition = F.lit(False)
 
     for c in rules.not_null:
-        cnt = int(agg_row[null_alias_map[c]]) if agg_row is not None else 0
+        cnt = _row_int(agg_row, null_alias_map[c])
         if cnt:
             failed_rules.append(
                 {
@@ -155,7 +191,7 @@ def evaluate_quality(
             quarantine_condition = quarantine_condition | F.col(c).isNull()
 
     for c, values in rules.accepted_values.items():
-        cnt = int(agg_row[accepted_alias_map[c]]) if agg_row is not None else 0
+        cnt = _row_int(agg_row, accepted_alias_map[c])
         if cnt:
             failed_rules.append(
                 {
@@ -172,7 +208,7 @@ def evaluate_quality(
             )
 
     for c, max_ratio in rules.max_null_ratio.items():
-        null_count = int(agg_row[null_alias_map[c]]) if agg_row is not None else 0
+        null_count = _row_int(agg_row, null_alias_map[c])
         ratio = 0.0 if row_count == 0 else null_count / row_count
         if ratio > max_ratio:
             failed_rules.append(
@@ -188,9 +224,7 @@ def evaluate_quality(
             quarantine_condition = quarantine_condition | F.col(c).isNull()
 
     for rule in rules.expressions:
-        expr_col = F.expr(rule.expression)
-        invalid_condition = expr_col.isNull() | (expr_col == F.lit(False))
-        invalid_count = df.where(invalid_condition).count()
+        invalid_count = _row_int(agg_row, expression_alias_map[rule.name])
         if invalid_count:
             failed_rules.append(
                 {
@@ -207,7 +241,43 @@ def evaluate_quality(
                 }
             )
             if rule.severity == "quarantine":
-                quarantine_condition = quarantine_condition | invalid_condition
+                quarantine_condition = quarantine_condition | expression_condition_map[rule.name]
+
+    for rule_name, rule_config in rules.custom.items():
+        rule_type = str(rule_config.get("type") or "").strip()
+        evaluator = QUALITY_RULE_REGISTRY.get(rule_type)
+        if evaluator is None:
+            raise ValueError(f"quality_rules.custom.{rule_name} usa type não registrado: {rule_type}")
+        result = evaluator(df, rule_name, dict(rule_config))
+        failed_count = int(result.get("failed_count", 0) or 0)
+        severity = str(result.get("severity") or rule_config.get("severity") or "abort").strip()
+        if severity not in VALID_QUALITY_RULE_SEVERITIES:
+            raise ValueError(
+                f"quality_rules.custom.{rule_name}.severity={severity!r} não é suportado. "
+                f"Valores válidos: {sorted(VALID_QUALITY_RULE_SEVERITIES)}"
+            )
+        if failed_count:
+            failed_rules.append(
+                {
+                    "rule_name": f"custom:{rule_name}",
+                    "severity": severity,
+                    "status": "WARNED" if severity == "warn" else "FAILED",
+                    "failed_count": failed_count,
+                    "details": {
+                        "name": rule_name,
+                        "type": rule_type,
+                        **dict(result.get("details") or {}),
+                    },
+                    "message": result.get("message") or rule_config.get("message"),
+                }
+            )
+            if severity == "quarantine":
+                condition = result.get("condition")
+                if condition is None:
+                    raise ValueError(
+                        f"quality_rules.custom.{rule_name} com severity=quarantine deve retornar condition"
+                    )
+                quarantine_condition = quarantine_condition | condition
 
     if rules.unique_key:
         validate_cols(df, rules.unique_key, "quality.unique_key")

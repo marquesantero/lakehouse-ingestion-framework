@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from .config import (
     CONFIG,
+    CONTROL_COLUMNS,
     IdempotencyPolicy,
     Layer,
     MergeStrategy,
@@ -24,6 +25,7 @@ from .config import (
     VALID_WRITE_MODES,
     WriteMode,
 )
+from .hooks import IngestionHooks, normalize_hooks
 from ._sql import as_list
 
 
@@ -35,6 +37,7 @@ _QUALITY_RULE_FIELDS = {
     "min_rows",
     "max_null_ratio",
     "expressions",
+    "custom",
 }
 
 
@@ -51,6 +54,16 @@ def _require_positive_int(value: Any, field: str) -> int:
         raise ValueError(f"{field} deve ser inteiro positivo") from exc
     if parsed <= 0:
         raise ValueError(f"{field} deve ser inteiro positivo")
+    return parsed
+
+
+def _require_non_negative_int(value: Any, field: str) -> int:
+    try:
+        parsed = int(value)
+    except Exception as exc:
+        raise ValueError(f"{field} deve ser inteiro não negativo") from exc
+    if parsed < 0:
+        raise ValueError(f"{field} deve ser inteiro não negativo")
     return parsed
 
 
@@ -85,6 +98,34 @@ def _normalize_value_list(value: Any, field: str) -> List[Any]:
     if not values:
         raise ValueError(f"{field} não pode ser vazio")
     return values
+
+
+def _normalize_string_mapping(value: Any, field: str) -> Dict[str, str]:
+    if value is None:
+        return {}
+    raw = _require_mapping(value, field)
+    normalized = {}
+    for key, val in raw.items():
+        source = str(key).strip()
+        target = str(val).strip()
+        if not source or not target:
+            raise ValueError(f"{field} não pode conter chave ou valor vazio")
+        normalized[source] = target
+    return normalized
+
+
+def _normalize_delta_properties(value: Any) -> Dict[str, str]:
+    if value is None:
+        return {}
+    raw = _require_mapping(value, "delta_properties")
+    normalized = {}
+    for key, val in raw.items():
+        prop = str(key).strip()
+        prop_value = str(val).lower().strip() if isinstance(val, bool) else str(val).strip()
+        if not prop or not prop_value:
+            raise ValueError("delta_properties não pode conter chave ou valor vazio")
+        normalized[prop] = prop_value
+    return normalized
 
 
 def _normalize_quality_expression(item: Any) -> QualityExpression:
@@ -140,6 +181,7 @@ class QualityRules:
     min_rows: Optional[int] = None
     max_null_ratio: Dict[str, float] = field(default_factory=dict)
     expressions: List[QualityExpression] = field(default_factory=list)
+    custom: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -170,6 +212,7 @@ class IngestionPlan:
     runtime_parameters: Dict[str, Any] = field(default_factory=dict)
 
     select_columns: List[str] = field(default_factory=list)
+    column_mapping: Dict[str, str] = field(default_factory=dict)
     filter_expression: Optional[str] = None
     watermark_columns: List[str] = field(default_factory=list)
     merge_keys: List[str] = field(default_factory=list)
@@ -186,6 +229,7 @@ class IngestionPlan:
     cluster_columns: List[str] = field(default_factory=list)
     zorder_columns: List[str] = field(default_factory=list)
     optimize_after_write: bool = False
+    delta_properties: Dict[str, str] = field(default_factory=dict)
 
     schema_policy: SchemaPolicy = "permissive"
     allow_type_widening: bool = False
@@ -209,6 +253,9 @@ class IngestionPlan:
     lock_enabled: bool = False
     idempotency_key: Optional[str] = None
     idempotency_policy: IdempotencyPolicy = "always_run"
+    retry_attempts: Optional[int] = None
+    retry_backoff_seconds: Optional[int] = None
+    hooks: Optional[IngestionHooks] = None
     parent_run_id: Optional[str] = None
     run_group_id: Optional[str] = None
     master_job_id: Optional[str] = None
@@ -272,6 +319,7 @@ def normalize_quality_rules(
         "min_rows": None,
         "max_null_ratio": {},
         "expressions": [],
+        "custom": {},
     }
 
     accepted_values = {} if raw.get("accepted_values") is None else raw["accepted_values"]
@@ -308,22 +356,40 @@ def normalize_quality_rules(
         if rule.name in expression_names:
             raise ValueError(f"quality_rules.expressions possui name duplicado: {rule.name}")
         expression_names.add(rule.name)
+
+    raw_custom = {} if raw.get("custom") is None else raw["custom"]
+    for rule_name, rule_config in _require_mapping(raw_custom, "quality_rules.custom").items():
+        name = str(rule_name).strip()
+        if not name:
+            raise ValueError("quality_rules.custom possui nome vazio")
+        config = dict(_require_mapping(rule_config, f"quality_rules.custom.{name}"))
+        rule_type = str(config.get("type") or "").strip()
+        if not rule_type:
+            raise ValueError(f"quality_rules.custom.{name}.type é obrigatório")
+        if "severity" in config:
+            config["severity"] = _validate_enum(
+                config["severity"],
+                VALID_QUALITY_RULE_SEVERITIES,
+                f"quality_rules.custom.{name}.severity",
+                default="abort",
+            )
+        normalized["custom"][name] = config
     return QualityRules(**normalized)
 
 
 _KNOWN_PARAMS = {
     "source", "target_table", "catalog", "layer", "mode", "source_system", "ctrl_schema",
     "notebook_name", "description", "owner", "domain", "tags", "sla", "runtime_parameters",
-    "select_columns", "filter_expression", "watermark_columns",
+    "select_columns", "column_mapping", "filter_expression", "watermark_columns",
     "merge_keys", "hash_keys", "hash_exclude_columns", "custom_keys", "dedup_order_expr",
     "partition_column", "partition_value", "merge_strategy", "merge_partition_column",
     "replace_partitions_source_complete", "cluster_columns", "zorder_columns", "optimize_after_write",
-    "schema_policy", "allow_type_widening", "quality_rules", "on_quality_fail",
+    "delta_properties", "schema_policy", "allow_type_widening", "quality_rules", "on_quality_fail",
     "scd2_change_columns", "scd2_effective_from_column",
     "fix_encoding", "encoding", "encoding_columns", "dry_run", "explain_mode",
     "explain_format", "openlineage_enabled", "openlineage_namespace",
     "openlineage_producer", "use_cache", "lock_enabled", "idempotency_key",
-    "idempotency_policy", "parent_run_id", "run_group_id",
+    "idempotency_policy", "retry_attempts", "retry_backoff_seconds", "hooks", "parent_run_id", "run_group_id",
     "master_job_id", "master_run_id",
 }
 
@@ -352,8 +418,19 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
         raise ValueError("tags não pode conter valores vazios")
     if plan.idempotency_policy != "always_run" and not plan.idempotency_key:
         raise ValueError("idempotency_policy diferente de always_run requer idempotency_key")
+    if plan.retry_attempts is not None and plan.retry_attempts <= 0:
+        raise ValueError("retry_attempts deve ser inteiro positivo")
+    if plan.retry_backoff_seconds is not None and plan.retry_backoff_seconds < 0:
+        raise ValueError("retry_backoff_seconds deve ser inteiro não negativo")
     if plan.allow_type_widening and plan.schema_policy == "strict":
         raise ValueError("allow_type_widening=True é incompatível com schema_policy=strict")
+    if len(set(plan.column_mapping.values())) != len(plan.column_mapping):
+        raise ValueError("column_mapping não pode mapear múltiplas colunas para o mesmo destino")
+    reserved_mapping_targets = sorted(set(plan.column_mapping.values()) & CONTROL_COLUMNS)
+    if reserved_mapping_targets:
+        raise ValueError(
+            f"column_mapping não pode produzir colunas técnicas reservadas: {reserved_mapping_targets}"
+        )
     if plan.quality_rules:
         if plan.quality_rules.min_rows is not None and plan.quality_rules.min_rows <= 0:
             raise ValueError("quality_rules.min_rows deve ser inteiro positivo")
@@ -430,6 +507,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         sla=kwargs.get("sla"),
         runtime_parameters=dict(kwargs.get("runtime_parameters") or {}),
         select_columns=as_list(kwargs.get("select_columns")),
+        column_mapping=_normalize_string_mapping(kwargs.get("column_mapping"), "column_mapping"),
         filter_expression=kwargs.get("filter_expression"),
         watermark_columns=as_list(kwargs.get("watermark_columns")),
         merge_keys=as_list(kwargs.get("merge_keys")),
@@ -445,6 +523,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         cluster_columns=as_list(kwargs.get("cluster_columns")),
         zorder_columns=as_list(kwargs.get("zorder_columns")),
         optimize_after_write=bool(kwargs.get("optimize_after_write", False)),
+        delta_properties=_normalize_delta_properties(kwargs.get("delta_properties")),
         schema_policy=schema_policy,  # type: ignore[arg-type]
         allow_type_widening=bool(kwargs.get("allow_type_widening", False)),
         quality_rules=quality,
@@ -464,6 +543,20 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         lock_enabled=bool(kwargs.get("lock_enabled", False)),
         idempotency_key=kwargs.get("idempotency_key"),
         idempotency_policy=idempotency_policy,  # type: ignore[arg-type]
+        retry_attempts=(
+            None
+            if kwargs.get("retry_attempts") is None
+            else _require_positive_int(kwargs.get("retry_attempts"), "retry_attempts")
+        ),
+        retry_backoff_seconds=(
+            None
+            if kwargs.get("retry_backoff_seconds") is None
+            else _require_non_negative_int(
+                kwargs.get("retry_backoff_seconds"),
+                "retry_backoff_seconds",
+            )
+        ),
+        hooks=normalize_hooks(kwargs.get("hooks")),
         parent_run_id=kwargs.get("parent_run_id"),
         run_group_id=kwargs.get("run_group_id"),
         master_job_id=kwargs.get("master_job_id"),

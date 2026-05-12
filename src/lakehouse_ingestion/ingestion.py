@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from .config import CONFIG, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION, FrameworkConfig  # noqa: F401
+from .config import CONFIG, CONTROL_COLUMNS, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION, FrameworkConfig  # noqa: F401
 from .lineage import capture_explain, write_explain_plan, write_openlineage_event
 from .plan import (  # noqa: F401
     IngestionPlan,
@@ -180,6 +180,10 @@ def _prepare_dataframe(
     if plan.select_columns:
         validate_cols(df, plan.select_columns, "select_columns")
         df = df.select(*plan.select_columns)
+    if plan.column_mapping:
+        _validate_column_mapping(df, plan)
+        for source_col, target_col in plan.column_mapping.items():
+            df = df.withColumnRenamed(source_col, target_col)
     if plan.filter_expression:
         df = df.where(plan.filter_expression)
     if plan.custom_keys:
@@ -192,6 +196,7 @@ def _prepare_dataframe(
         df = deduplicate_by_order(df, dedup_keys, plan.dedup_order_expr)
 
     df = fix_encoding(df, plan.fix_encoding, plan.encoding, plan.encoding_columns)
+    _validate_no_reserved_source_columns(df)
     df = (
         df.withColumn("ingestion_date", F.to_date(F.lit(run_date)))
         .withColumn("ingestion_ts_utc", F.lit(run_ts).cast("timestamp"))
@@ -199,6 +204,69 @@ def _prepare_dataframe(
         .withColumn("__run_id", F.lit(run_id))
     )
     return df
+
+
+def _validate_column_mapping(df: DataFrame, plan: IngestionPlan) -> None:
+    """Valida renomeação declarativa source -> target antes de aplicar mapping."""
+    validate_cols(df, list(plan.column_mapping.keys()), "column_mapping")
+    existing = set(df.columns)
+    targets = list(plan.column_mapping.values())
+    duplicate_targets = sorted({target for target in targets if targets.count(target) > 1})
+    if duplicate_targets:
+        raise ValueError(f"column_mapping possui destinos duplicados: {duplicate_targets}")
+    reserved_targets = sorted(set(targets) & CONTROL_COLUMNS)
+    if reserved_targets:
+        raise ValueError(f"column_mapping não pode produzir colunas técnicas reservadas: {reserved_targets}")
+    collisions = sorted(
+        target
+        for source, target in plan.column_mapping.items()
+        if target in existing and target != source
+    )
+    if collisions:
+        raise ValueError(f"column_mapping produziria colisão com colunas existentes: {collisions}")
+
+
+def _validate_no_reserved_source_columns(df: DataFrame) -> None:
+    """Impede sobrescrita silenciosa de colunas técnicas vindas da origem."""
+    reserved = sorted(set(df.columns) & CONTROL_COLUMNS)
+    if reserved:
+        raise ValueError(
+            "Origem contém colunas técnicas reservadas pelo framework. "
+            f"Renomeie/remova antes da ingestão ou use column_mapping: {reserved}"
+        )
+
+
+def _validate_merge_key_nulls(df: DataFrame, keys: list[str], row_count: int, mode: str) -> None:
+    """Protege MERGE contra chaves naturais totalmente nulas."""
+    if not keys or row_count <= 0:
+        return
+    null_exprs = [
+        F.sum(F.col(key).isNull().cast("long")).alias(f"__nulls_{idx}")
+        for idx, key in enumerate(keys)
+    ]
+    all_keys_null = None
+    for key in keys:
+        condition = F.col(key).isNull()
+        all_keys_null = condition if all_keys_null is None else (all_keys_null & condition)
+    row = df.agg(
+        *null_exprs,
+        F.sum(all_keys_null.cast("long")).alias("__all_keys_null"),
+    ).first()
+    if row is None:
+        return
+    per_key_nulls = {key: int(row[f"__nulls_{idx}"] or 0) for idx, key in enumerate(keys)}
+    all_null_count = int(row["__all_keys_null"] or 0)
+    if all_null_count == row_count:
+        raise ValueError(
+            f"mode={mode} recebeu {row_count} linhas com merge_keys totalmente nulas. "
+            f"keys={keys}. Corrija a origem ou adicione quality_rules.not_null."
+        )
+    nullable_keys = {key: count for key, count in per_key_nulls.items() if count > 0}
+    if nullable_keys:
+        logger.warning(
+            "merge_keys contém valores nulos; revise quality_rules.not_null para evitar matches inesperados. "
+            f"mode={mode}, null_counts={nullable_keys}, rows={row_count}"
+        )
 
 
 def _validate_plan(
@@ -555,6 +623,11 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             acquire_lock(tables, target, run_id, owner=_lock_owner(plan))
             stage_durations["lock_acquire"] = (utc_now_ts() - stage_started).total_seconds()
 
+        if plan.hooks and plan.hooks.before_read:
+            stage_started = utc_now_ts()
+            plan.hooks.before_read(plan)
+            stage_durations["hook_before_read"] = (utc_now_ts() - stage_started).total_seconds()
+
         stage_started = utc_now_ts()
         raw_df, source_name = _resolve_source(plan)
         wm_prev = (
@@ -567,6 +640,10 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         stage_started = utc_now_ts()
         ingestion_ts = started_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
         prepared_df = _prepare_dataframe(raw_df, plan, run_id, run_date, ingestion_ts, wm_prev)
+        if plan.hooks and plan.hooks.after_prepare:
+            prepared_df = plan.hooks.after_prepare(prepared_df, plan)
+            if not isinstance(prepared_df, DataFrame):
+                raise ValueError("hooks.after_prepare deve retornar um DataFrame")
         prepared_df = safe_cache(prepared_df, plan.use_cache)
         stage_durations["prepare"] = (utc_now_ts() - stage_started).total_seconds()
 
@@ -636,6 +713,14 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                     f"Quality gates falharam, mas execução continuará: {to_json(quality_results)}"
                 )
 
+        effective_rows = (
+            rows_read - rows_quarantined
+            if quality_status == "FAILED" and plan.on_quality_fail == "quarantine"
+            else rows_read
+        )
+        if plan.mode in {"scd1_upsert", "snapshot_soft_delete", "scd2_historical"}:
+            _validate_merge_key_nulls(prepared_df, plan.merge_keys, effective_rows, plan.mode)
+
         if plan.dry_run:
             return _build_dry_run_result(
                 plan, run_id, target, source_name, rows_read, rows_quarantined, wm_prev,
@@ -643,16 +728,22 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 stage_durations,
             )
 
-        effective_rows = (
-            rows_read - rows_quarantined
-            if quality_status == "FAILED" and plan.on_quality_fail == "quarantine"
-            else rows_read
-        )
         delta_version_before = delta_version(target) if table_exists(target) else None
         stage_started = utc_now_ts()
         write_started_at = utc_now_str()
+        if plan.hooks and plan.hooks.before_write:
+            prepared_df = plan.hooks.before_write(prepared_df, plan)
+            if not isinstance(prepared_df, DataFrame):
+                raise ValueError("hooks.before_write deve retornar um DataFrame")
+            effective_rows = prepared_df.count()
         rows_written = with_retry(
-            lambda: execute_write_mode(plan, prepared_df, target, effective_rows)
+            lambda: execute_write_mode(plan, prepared_df, target, effective_rows),
+            attempts=plan.retry_attempts or CONFIG.default_retry_attempts,
+            backoff_seconds=(
+                CONFIG.default_retry_backoff_seconds
+                if plan.retry_backoff_seconds is None
+                else plan.retry_backoff_seconds
+            ),
         )
         write_finished_at = utc_now_str()
         delta_version_after = delta_version(target) if table_exists(target) else None
@@ -674,6 +765,17 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         row_metrics, operation_metrics, metrics_source = resolve_write_metrics(
             plan, rows_written, delta_metrics
         )
+        if plan.hooks and plan.hooks.after_write:
+            plan.hooks.after_write(
+                {
+                    "run_id": run_id,
+                    "target_table": target,
+                    "rows_written": rows_written,
+                    "operation_metrics": operation_metrics,
+                    "metrics_source": metrics_source,
+                },
+                plan,
+            )
         delta_version_after = operation_metrics.get("version", delta_version_after)
         upsert_state(
             tables,
