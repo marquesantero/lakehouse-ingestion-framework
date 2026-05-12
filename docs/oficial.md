@@ -1,7 +1,7 @@
 # Lakehouse Ingestion Framework
 
 **Documentação oficial**  
-**Versão da biblioteca:** `1.3.1`
+**Versão da biblioteca:** `1.4.0`
 **Pacote:** `lakehouse-ingestion-framework`  
 **Import principal:** `lakehouse_ingestion`  
 **Ambiente-alvo:** Databricks, Unity Catalog e Delta Lake  
@@ -570,6 +570,20 @@ ingest(
 )
 ```
 
+### 8.6.1 Preparação, Delta e retry por plano
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---:|---|---|
+| `column_mapping` | `Dict[str, str]` | `{}` | Renomeia colunas source -> target antes de filtros, watermark, quality e escrita. Destinos duplicados, colisões e colunas técnicas reservadas são rejeitados. |
+| `delta_properties` | `Dict[str, str]` | `{}` | Aplica `TBLPROPERTIES` na criação da tabela Delta. Útil para `delta.enableChangeDataFeed`, optimize write e retenção. |
+| `retry_attempts` | `int | None` | `None` | Sobrescreve `CONFIG.default_retry_attempts` somente neste plano. |
+| `retry_backoff_seconds` | `int | None` | `None` | Sobrescreve `CONFIG.default_retry_backoff_seconds` somente neste plano. |
+
+Guardrails adicionais:
+
+- A origem não pode trazer colunas técnicas gerenciadas (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, etc.).
+- `MERGE` aborta quando todas as `merge_keys` vierem nulas e emite warning para nulos parciais.
+
 ### 8.7 Quality gates
 
 | Parâmetro | Tipo | Padrão | Descrição |
@@ -589,7 +603,8 @@ Campos de `QualityRules`:
 | `accepted_values` | `Dict[str, List[Any]]` | Valores permitidos por coluna. Limitado por `CONFIG.max_inline_accepted_values`. |
 | `min_rows` | `int | None` | Quantidade mínima de registros após preparação. |
 | `max_null_ratio` | `Dict[str, float]` | Percentual máximo de nulos por coluna, entre 0 e 1. |
-| `expressions` | `List[QualityExpression]` | Expressões SQL booleanas nomeadas com `severity` (`warn`, `quarantine`, `abort`) e `message` opcional. Valores `false` ou `NULL` falham. |
+| `expressions` | `List[QualityExpression]` | Expressões SQL booleanas nomeadas com `severity` (`warn`, `quarantine`, `abort`) e `message` opcional. Valores `false` ou `NULL` falham. Entram na mesma agregação single-pass das regras de coluna. |
+| `custom` | `Dict[str, Dict]` | Regras customizadas por nome lógico. Cada item exige `type` registrado via `register_quality_rule(type, evaluator)`. |
 
 Ações:
 
@@ -1365,7 +1380,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lakehouse-ingestion-framework"
-version = "1.3.1"
+version = "1.4.0"
 description = "Framework de ingestão Delta Lake para Databricks com contratos declarativos, quality gates, SCD, explain mode e eventos OpenLineage."
 readme = "README.md"
 requires-python = ">=3.10"

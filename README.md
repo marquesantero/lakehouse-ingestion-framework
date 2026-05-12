@@ -51,14 +51,26 @@ result = ingest(
     layer="silver",
     mode="scd1_upsert",
     merge_keys="id_cliente",
+    column_mapping={"src_cliente_id": "id_cliente"},
     watermark_columns="updated_at",
     dedup_order_expr="updated_at DESC NULLS LAST",
+    delta_properties={"delta.enableChangeDataFeed": "true"},
+    retry_attempts=5,
+    retry_backoff_seconds=10,
     schema_policy="additive_only",
     quality_rules={"not_null": ["id_cliente"], "unique_key": ["id_cliente"]},
     explain_mode=True,
     openlineage_enabled=True,
 )
 ```
+
+## Contrato declarativo
+
+- `column_mapping` renomeia colunas source -> target antes de filtros, watermarks, quality e escrita. Destinos duplicados, colisões com colunas existentes e nomes técnicos reservados são rejeitados.
+- `delta_properties` aplica `TBLPROPERTIES` na criação da tabela Delta, por exemplo `delta.enableChangeDataFeed`, `delta.autoOptimize.optimizeWrite` ou propriedades de retenção.
+- `retry_attempts` e `retry_backoff_seconds` sobrescrevem a política global de retry por plano.
+- A origem não pode trazer colunas técnicas gerenciadas pelo framework (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, etc.), evitando sobrescrita silenciosa.
+- Modos baseados em `MERGE` abortam se todas as `merge_keys` vierem nulas e emitem warning quando houver nulos parciais.
 
 ## Modos oficiais
 
@@ -75,7 +87,7 @@ result = ingest(
 Definidas via parâmetro `quality_rules` (dict ou `QualityRules`):
 
 - `required_columns`, `not_null`, `unique_key`, `accepted_values`, `min_rows`, `max_null_ratio`, `expressions`.
-- A avaliação consolida regras de coluna numa única agregação para reduzir I/O em datasets grandes.
+- A avaliação consolida regras de coluna e `expressions` numa única agregação para reduzir I/O em datasets grandes.
 - A ação em falha (`on_quality_fail`) pode ser:
   - `fail` (padrão): aborta a execução.
   - `warn`: registra mas escreve tudo.
@@ -136,6 +148,14 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `logical`: apenas contadores calculados pela biblioteca.
 - `mixed`: contadores lógicos com evidência adicional do histórico Delta.
 
+## Extensibilidade e DX
+
+- `IngestionHooks` permite callbacks programáticos `before_read`, `after_prepare`, `before_write` e `after_write`. Hooks que recebem DataFrame devem retornar DataFrame.
+- `register_write_mode(mode, handler)` registra motores de escrita customizados quando houver necessidade real de extensão.
+- `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
+- `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
+- A CLI `lakehouse-ingest validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `lakehouse-ingest schema` imprime o schema.
+
 ## Matriz de runtime
 
 | Modo | Classic | Serverless / Spark Connect |
@@ -152,6 +172,9 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 ```
 src/lakehouse_ingestion/
 ├── __init__.py        # Façade pública (ingest, ingest_plan, IngestionPlan, QualityRules, FrameworkConfig)
+├── cli.py             # CLI lakehouse-ingest validate/schema
+├── contract_schema.py # JSON Schema do contrato declarativo
+├── hooks.py           # IngestionHooks
 ├── _spark.py          # Resolução de SparkSession + safe_cache/serverless
 ├── _sql.py            # Helpers de identificadores e literais SQL
 ├── config.py          # FrameworkConfig, tipos e constantes

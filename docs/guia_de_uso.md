@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl
+# gera: dist/lakehouse_ingestion_framework-1.4.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.4.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.4.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.3.1
+print(lakehouse_ingestion.__version__)  # 1.4.0
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.4.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.3.1
+%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.4.0
 ```
 
 Em seguida:
@@ -488,6 +488,9 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 **Características:**
 
 - `build_plan_from_kwargs` valida campos desconhecidos, normaliza listas com `|` e rejeita `quality_rules` malformadas.
+- `column_mapping` permite contratos com nomes source/target diferentes; colisões e colunas técnicas reservadas são bloqueadas.
+- `delta_properties` aplica TBLPROPERTIES na criação da tabela Delta.
+- `retry_attempts` e `retry_backoff_seconds` podem ser definidos por YAML quando um plano precisar de política própria.
 - `validate_plan_shape` é validação pura de contrato; pode rodar em CI sem Spark.
 - Placeholders `{{dt}}` permitem override de runtime sem editar o YAML.
 - `idempotency_key` pode ser preenchido com o identificador do lote/job. Prefira `idempotency_policy: skip_if_success|fail_if_success|rerun_if_failed|always_run`.
@@ -498,6 +501,11 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 ### 4.4 Validação local do YAML
 
 Antes de subir um YAML, valide localmente que ele é parseável e produz um `IngestionPlan` válido:
+
+```bash
+lakehouse-ingest validate contracts/silver/c_pedidos.yaml
+lakehouse-ingest schema > lakehouse_ingestion.schema.json
+```
 
 ```python
 # tests/test_contracts.py

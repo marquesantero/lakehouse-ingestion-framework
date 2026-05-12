@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.3.1`
+**Versão do pacote:** `1.4.0`
 **Pacote Python:** `lakehouse-ingestion-framework`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -75,6 +75,7 @@ from lakehouse_ingestion import (
     IngestionPlan,    # dataclass do contrato
     QualityRules,     # dataclass das regras
     QualityExpression,# regra SQL declarativa com severidade
+    IngestionHooks,   # callbacks programáticos controlados
     FrameworkConfig,  # dataclass de configuração global
     validate_plan_shape, # validação pura de contrato/YAML sem Spark
 )
@@ -400,6 +401,9 @@ Pontos importantes:
 - **Custom keys**: dict de `nome_da_chave -> lista_de_colunas`; cada lista também passa por `as_list`.
 - **Enums validados estritamente** via `_validate_enum` contra `VALID_LAYERS`, `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. Typos em `layer`, `merge_strategy`, `schema_policy`, `on_quality_fail` ou `explain_format` viram `ValueError` com a lista de valores aceitos. `mode` continua passando por `validate_write_mode`.
 - **`quality_rules`** passa por `normalize_quality_rules`, então aceita dict.
+- **`column_mapping`** renomeia colunas source -> target antes da validação do plano; colisões, destinos duplicados e nomes técnicos reservados são bloqueados.
+- **`delta_properties`** aplica TBLPROPERTIES na criação da tabela Delta.
+- **`retry_attempts`/`retry_backoff_seconds`** sobrescrevem retry global por plano.
 
 ### 4.5 `schema.py` — Hash, dedup, encoding e schema policy
 
@@ -1352,7 +1356,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/lakehouse_ingestion_framework-1.3.1-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/lakehouse_ingestion_framework-1.4.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
