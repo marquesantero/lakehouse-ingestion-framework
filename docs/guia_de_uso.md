@@ -2,7 +2,7 @@
 
 Guia prático passo a passo para testar e operar o framework. Cobre dois modos de uso (**pacote** instalado e **script** colado no notebook), padrão YAML + notebook genérico, e duas opções de orquestração no Databricks Workflows (**`for_each_task`** e **master notebook**).
 
-> Para a referência técnica completa de cada submódulo, fluxo interno e decisões de design, ver [arquitetura.md](./arquitetura.md). Para a documentação original do framework, ver [oficial.md](./oficial.md).
+> Para a referência técnica completa de cada submódulo, fluxo interno e decisões de design, ver [arquitetura.md](./arquitetura.md). Para a documentação oficial completa de uso e contratos, ver [oficial.md](./oficial.md).
 
 ---
 

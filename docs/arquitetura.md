@@ -93,7 +93,7 @@ lakehouse_ingestion_pkg/
 ├── README.md               # guia rápido + estrutura do pacote
 ├── .gitignore              # build artifacts, venv, caches, derby.log
 ├── docs/
-│   ├── oficial.md          # documentação de uso (45 KB)
+│   ├── oficial.md          # documentação oficial completa de uso
 │   └── arquitetura.md      # ESTE arquivo (referência técnica)
 ├── src/
 │   └── lakehouse_ingestion/

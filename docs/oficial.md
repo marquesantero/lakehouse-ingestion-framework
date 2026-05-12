@@ -1,644 +1,1020 @@
-# Lakehouse Ingestion Framework
+# Lakehouse Ingestion Framework — Documentação Oficial
 
-**Documentação oficial**  
-**Versão da biblioteca:** `1.5.0`
-**Pacote:** `lakehouse-ingestion-framework`  
-**Import principal:** `lakehouse_ingestion`  
-**Ambiente-alvo:** Databricks, Unity Catalog e Delta Lake  
-**Licença:** MIT
+**Versão:** 1.5.0 | **Licença:** MIT | **Python:** >= 3.10
+
+Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
 ---
 
-## 1. Finalidade
+## Índice
 
-O Lakehouse Ingestion Framework é uma biblioteca Python para padronizar ingestões em Delta Lake no Databricks. A biblioteca organiza padrões recorrentes de ingestão, escrita, controle operacional, qualidade, evolução de schema, watermarks, histórico SCD, snapshot com soft delete, planos de execução e eventos de linhagem.
-
-O objetivo não é substituir orquestradores como Databricks Workflows, Airflow ou Databricks Asset Bundles. O framework atua dentro do job ou notebook, fornecendo um contrato único de execução para tabelas Bronze, Silver e Gold.
-
-A biblioteca foi desenhada para cenários em que múltiplos pipelines precisam seguir o mesmo comportamento operacional, evitando variações de implementação entre analistas, engenheiros e projetos.
-
----
-
-## 2. Escopo
-
-O framework cobre:
-
-- Leitura de origem a partir de tabela Unity Catalog ou `DataFrame` Spark.
-- Escrita Delta nos modos `scd0_append`, `scd0_overwrite`, `scd1_upsert`, `scd1_hash_diff`, `scd2_historical` e `snapshot_soft_delete`.
-- Controle de execução em tabelas Delta no schema operacional.
-- Watermarks simples ou compostos com preservação de tipo.
-- Validação de schema com políticas `permissive`, `additive_only` e `strict`.
-- Quality gates com ação `fail`, `warn` ou `quarantine`.
-- Quarentena de registros inválidos.
-- Retry para conflitos concorrentes do Delta.
-- Lock operacional best-effort.
-- Captura de plano físico/lógico via `explain_mode`.
-- Emissão de evento OpenLineage em JSON.
-- Métricas lógicas padronizadas por modo, com histórico Delta como evidência adicional quando disponível.
-- Otimização Delta opcional via `OPTIMIZE` e `ZORDER`.
-
-O framework não cobre nativamente, nesta versão:
-
-- Structured Streaming.
-- CDC baseado em Change Data Feed como origem primária.
-- Lock distribuído pessimista com garantia absoluta.
-- Orquestração de DAGs.
-- Gerenciamento de permissões Unity Catalog.
-- Catálogo corporativo de regras de qualidade além do contrato da ingestão.
+1. [Visão Geral e Conceitos](#1-visão-geral-e-conceitos)
+2. [Instalação](#2-instalação)
+3. [Quick Start](#3-quick-start)
+4. [API Pública](#4-api-pública)
+5. [Referência Completa de Parâmetros do IngestionPlan](#5-referência-completa-de-parâmetros-do-ingestionplan)
+5C. [Fontes Declarativas com SourceSpec](#5c-fontes-declarativas-com-sourcespec)
+6. [Modos de Escrita — Guia Detalhado](#6-modos-de-escrita--guia-detalhado)
+7. [Quality Gates — Guia Completo](#7-quality-gates--guia-completo)
+8. [Schema Policy — Evolução de Schema](#8-schema-policy--evolução-de-schema)
+9. [Watermarks — Carga Incremental](#9-watermarks--carga-incremental)
+10. [Estratégias de Merge (scd1_upsert)](#10-estratégias-de-merge-scd1_upsert)
+11. [Locks, Idempotência, Retry e Concorrência](#11-locks-idempotência-retry-e-concorrência)
+12. [Observabilidade — Tabelas de Controle](#12-observabilidade--tabelas-de-controle)
+13. [OpenLineage e Explain Mode](#13-openlineage-e-explain-mode)
+14. [Linhagem Operacional (parent/master)](#14-linhagem-operacional-parentmaster)
+15. [Metadados de Contrato](#15-metadados-de-contrato)
+16. [FrameworkConfig — Configuração Global](#16-frameworkconfig--configuração-global)
+16B. [Extensões Programáticas](#16b-extensões-programáticas)
+17. [Padrões e Recomendações por Camada](#17-padrões-e-recomendações-por-camada)
+18. [Exemplos Completos](#18-exemplos-completos)
+19. [Orquestração com Databricks Workflows](#19-orquestração-com-databricks-workflows)
+20. [Troubleshooting](#20-troubleshooting)
+21. [FAQ](#21-faq)
+22. [Checklist Pré-Produção](#22-checklist-pré-produção)
+23. [Matriz de Compatibilidade](#23-matriz-de-compatibilidade)
+24. [Licença e Contribuição](#24-licença-e-contribuição)
 
 ---
 
-## 3. Instalação
+## 1. Visão Geral e Conceitos
 
-### 3.1 Instalação via PyPI
+### 1.1 O que é
+
+O **Lakehouse Ingestion Framework** é uma biblioteca Python que encapsula padrões recorrentes de ingestão em Delta Lake, fornecendo uma interface declarativa. Em vez de escrever scripts ad-hoc com `MERGE INTO`, `INSERT`, `OVERWRITE`, Autoloader e controle operacional manual, você descreve **o que** quer fazer via um **contrato declarativo** (`IngestionPlan`), e o framework executa **como** fazer de forma padronizada, com observabilidade completa.
+
+### 1.2 O que ele NÃO faz
+
+- **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
+- **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
+- **Não faz streaming contínuo** — a versão 1.5.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não gerencia permissões** Unity Catalog.
+- **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
+
+### 1.3 Arquitetura Medallion
+
+O framework adota o modelo de camadas:
+
+| Camada | Valor `layer` | Modos típicos | Propósito |
+|--------|---------------|---------------|-----------|
+| **Bronze** | `"bronze"` | `scd0_append`, `scd0_overwrite`, `scd1_hash_diff` | Captura bruta, preservação, rastreabilidade |
+| **Silver** | `"silver"` | `scd1_upsert`, `scd1_hash_diff`, `scd2_historical`, `snapshot_soft_delete` | Padronização, qualidade, consolidação, histórico |
+| **Gold** | `"gold"` | `scd0_overwrite`, `scd1_upsert` | Consumo, agregações, modelos semânticos |
+
+> **Restrição:** Bronze rejeita `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete` — a camada bronze deve ser orientada a captura, não a modelagem histórica.
+
+### 1.4 Fluxo de Execução
+
+Cada chamada `ingest()` ou `ingest_plan()` segue este pipeline determinístico:
+
+```
+1. Resolve a fonte (tabela ou DataFrame)
+2. Lê watermark anterior do ctrl_ingestion_state
+3. Prepara o DataFrame:
+   → select_columns → filter_expression → custom_keys
+   → apply_watermark → deduplicate_by_order → fix_encoding
+   → adiciona colunas técnicas (ingestion_date, source_system, __run_id)
+4. Valida schema policy + regras de modo
+5. Avalia quality gates (single-pass aggregation)
+6. Se dry_run: retorna sem escrever
+7. Executa o motor de escrita (append/overwrite/merge/hash-diff/scd2/snapshot)
+8. Atualiza ctrl_ingestion_state (watermark, status)
+9. Registra execução em ctrl_ingestion_runs
+10. Emite evento OpenLineage (se habilitado)
+```
+
+Quando `source` é um `SourceSpec`, `ingest_plan()` despacha para `ingest_stream_plan()`: o framework abre um `readStream` Autoloader, executa `trigger(availableNow=True)` e processa cada micro-batch chamando `ingest_plan()` internamente com `source=batch_df`.
+
+O fluxo usa `try/except/finally` — mesmo em falha, as tabelas de controle recebem o registro com `status=FAILED` e stack trace completo em `ctrl_ingestion_errors`.
+
+### 1.5 Nomenclatura de Destino
+
+A tabela alvo é sempre montada como:
+
+```
+{catalog}.{layer}.{target_table}
+```
+
+Exemplo: `ingest(catalog="main", layer="silver", target_table="c_cliente")` → `main.silver.c_cliente`
+
+---
+
+## 2. Instalação
+
+### 2.1 Via PyPI
 
 ```bash
 pip install lakehouse-ingestion-framework
 ```
 
-### 3.2 Instalação em Databricks
+### 2.2 Via Wheel no Databricks
 
-Opções comuns:
+```bash
+# Build local
+pip install build
+python -m build
+# → dist/lakehouse_ingestion_framework-1.5.0-py3-none-any.whl
 
-1. Instalar o pacote como biblioteca de cluster.
-2. Instalar o pacote como biblioteca de job.
-3. Instalar o wheel gerado em um workspace ou volume acessível pelo job.
-4. Usar `%pip install lakehouse-ingestion-framework` no início do notebook.
+# Upload para UC Volume
+databricks fs cp dist/lakehouse_ingestion_framework-1.5.0-py3-none-any.whl \
+  dbfs:/Volumes/<catalog>/<schema>/libs/
 
-Exemplo em notebook Databricks:
-
-```python
-%pip install lakehouse-ingestion-framework
+# No notebook Databricks:
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.5.0-py3-none-any.whl
+dbutils.library.restartPython()
 ```
 
-Após a instalação:
+### 2.3 Desenvolvimento Local
 
-```python
-from lakehouse_ingestion import ingest, ingest_plan, IngestionPlan, QualityRules, FrameworkConfig
+```bash
+git clone https://github.com/marquesantero/lakehouse-ingestion-framework.git
+cd lakehouse-ingestion-framework
+python -m venv .venv
+source .venv/bin/activate  # ou .venv\Scripts\Activate.ps1 no Windows
+pip install -e ".[dev]"
+pytest tests/test_plan.py -v  # testes puros (rápidos, sem Spark)
+pytest -v                      # suite completa (requer Java 11+)
 ```
+
+### 2.4 Pré-requisitos
+
+| Item | Requisito |
+|------|-----------|
+| Python | >= 3.10 |
+| PySpark | >= 3.4 |
+| delta-spark | >= 3.0 |
+| Databricks Runtime | DBR 13.3 LTS+ (recomendado 14+) |
+| Java (fora Databricks) | 11+ |
+| Permissões UC | `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE` no catálogo e schema `ops` |
 
 ---
 
-## 4. Pré-requisitos
+## 3. Quick Start
 
-| Item | Recomendação |
-|---|---|
-| Python | `>= 3.10` |
-| PySpark | `>= 3.4` |
-| Delta Lake | `>= 3.0` |
-| Databricks Runtime | DBR 13.3 LTS ou superior. DBR 14+ recomendado. |
-| Unity Catalog | Recomendado para catálogo, schema, permissões e governança. |
-| Permissões | `USE CATALOG`, `USE SCHEMA`, `CREATE SCHEMA`, `CREATE TABLE`, `SELECT`, `MODIFY` conforme o destino. |
-
-A biblioteca assume execução em ambiente Spark com sessão `spark` disponível. Em Databricks, isso normalmente é fornecido pelo runtime.
-
----
-
-## 5. Modelo conceitual
-
-### 5.1 Arquitetura Medallion
-
-A biblioteca usa o parâmetro `layer` para definir a camada lógica:
-
-| Camada | Finalidade | Modos comuns |
-|---|---|---|
-| `bronze` | Captura da origem, preservação, rastreabilidade e baixa intervenção. | `scd0_append`, `scd0_overwrite`, `scd1_hash_diff` quando houver contrato explícito. |
-| `silver` | Padronização, deduplicação, qualidade, consolidação e histórico. | `scd1_upsert`, `scd1_hash_diff`, `scd2_historical`, `snapshot_soft_delete`. |
-| `gold` | Tabelas de consumo, agregações, métricas e modelos semânticos. | `scd0_overwrite`, `scd1_upsert`, eventualmente `scd0_append` para fatos. |
-
-A validação interna restringe o uso de `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete` na Bronze. Bronze deve ser orientada a captura, não a modelagem histórica.
-
-### 5.2 Nome completo da tabela alvo
-
-A tabela alvo é montada como:
-
-```text
-{catalog}.{layer}.{target_table}
-```
-
-Exemplo:
+### 3.1 Via Python (`ingest`)
 
 ```python
-ingest(
+from lakehouse_ingestion import ingest
+
+# DataFrame de exemplo
+df = spark.createDataFrame(
+    [(1, "Alice", "2024-01-01"), (2, "Bob", "2024-01-02")],
+    "id long, nome string, updated_at string"
+)
+
+result = ingest(
     source=df,
-    catalog="sandbox_catalog1",
-    layer="silver",
-    target_table="c_cliente",
-    mode="scd1_upsert",
-    merge_keys="id_cliente"
+    target_table="b_clientes",
+    catalog="main",
+    layer="bronze",
+    mode="scd0_append",
+    notebook_name="hello_ingest",
+    explain_mode=True,
+)
+
+print(f"Status: {result['status']}")         # SUCCESS
+print(f"Linhas escritas: {result['rows_written']}")  # 2
+print(f"Run ID: {result['run_id']}")          # UUID
+```
+
+### 3.2 Via YAML (contrato declarativo)
+
+Arquivo `contracts/bronze/b_clientes.yaml`:
+
+```yaml
+# Identificação
+source: raw_clientes
+target_table: b_clientes
+catalog: main
+layer: bronze
+mode: scd0_append
+source_system: crm
+notebook_name: bronze_clientes
+
+# Incremental
+watermark_columns: updated_at
+
+# Schema
+schema_policy: permissive
+
+# Metadados
+description: "Captura bruta de clientes do CRM"
+owner: data-platform
+domain: comercial
+tags: [bronze, cliente, crm]
+```
+
+Notebook genérico que carrega o YAML:
+
+```python
+import yaml
+from lakehouse_ingestion import ingest_plan
+from lakehouse_ingestion.plan import build_plan_from_kwargs
+
+with open("contracts/bronze/b_clientes.yaml") as f:
+    cfg = yaml.safe_load(f)
+
+plan = build_plan_from_kwargs(**cfg)
+result = ingest_plan(plan)
+
+print(f"Status: {result['status']}")
+print(f"Linhas escritas: {result['rows_written']}")
+print(f"Run ID: {result['run_id']}")
+```
+
+---
+
+## 4. API Pública
+
+```python
+from lakehouse_ingestion import (
+    ingest,              # Função procedural (kwargs)
+    ingest_plan,         # Função recebendo IngestionPlan
+    ingest_stream_plan,  # Execução de SourceSpec Autoloader available_now
+    IngestionPlan,       # Dataclass do contrato
+    SourceSpec,          # Source declarativo
+    QualityRules,        # Dataclass das regras de qualidade
+    QualityExpression,   # Regra SQL declarativa com severidade
+    FrameworkConfig,     # Configuração global (monkey-patch)
+    IngestionHooks,      # Hooks opcionais de execução
+    register_write_mode, # Registro de motores de escrita customizados
+    register_quality_rule, # Registro de regras de qualidade customizadas
+    register_source_resolver, # Registro de resolvers de source customizados
+    validate_plan_shape, # Validação pura de contrato sem Spark
 )
 ```
 
-Destino final:
+### 4.1 `ingest(**kwargs)` vs `ingest_plan(plan)`
 
-```text
-sandbox_catalog1.silver.c_cliente
+| Cenário | Use `ingest()` | Use `ingest_plan()` |
+|---------|----------------|---------------------|
+| Notebook exploratório / ad-hoc | ✅ | |
+| Job padronizado com YAML | | ✅ |
+| Configuração gerada programaticamente | | ✅ |
+| Testes unitários | | ✅ |
+| Migração de notebooks existentes | ✅ | |
+
+**`ingest(**kwargs)`** — recebe parâmetros como keyword arguments e constrói internamente um `IngestionPlan`. Aceita strings com `|` como separador de listas (conveniente para widgets Databricks). Rejeita parâmetros desconhecidos (protege contra typos).
+
+**`ingest_plan(plan)`** — recebe uma instância de `IngestionPlan` já construída. Ideal quando o plano vem de YAML, JSON ou é construído programaticamente.
+
+### 4.2 Retorno da Execução
+
+Ambas as funções retornam um `dict` com a seguinte estrutura:
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `status` | `str` | `"SUCCESS"`, `"FAILED"`, `"DRY_RUN"` ou `"SKIPPED"` |
+| `run_id` | `str` | UUID v4 identificador único da execução |
+| `target_table` | `str` | Nome completo da tabela alvo (`cat.layer.tbl`) |
+| `source_table` | `str` | Nome da fonte ou `"dataframe"` |
+| `mode` | `str` | Modo de escrita usado |
+| `rows_read` | `int` | Linhas lidas após preparação |
+| `rows_written` | `int` | Linhas consideradas na escrita |
+| `rows_inserted` | `int` | Linhas inseridas |
+| `rows_updated` | `int` | Linhas atualizadas |
+| `rows_deleted` | `int` | Linhas removidas/marcadas |
+| `rows_quarantined` | `int` | Linhas enviadas à quarentena |
+| `watermark_previous` | `str` or `None` | Watermark antes da execução |
+| `watermark_current` | `str` or `None` | Watermark após execução |
+| `quality_status` | `str` | `"PASSED"`, `"FAILED"`, `"WARNED"`, `"NOT_CONFIGURED"`, `"SKIPPED"` |
+| `schema_changes` | `dict` | `{status, added_columns, removed_columns, type_changes}` |
+| `operation_metrics` | `dict` | Métricas do histórico Delta |
+| `metrics_source` | `str` | `"logical"` (calculado) ou `"mixed"` (Delta + library) |
+| `stage_durations` | `dict` | Duração por etapa (`"read"`, `"prepare"`, `"schema"`, `"quality"`, `"write"`, etc.) |
+| `write_committed` | `bool` | Indica se houve commit Delta |
+| `delta_version_before` | `int` or `None` | Versão Delta antes da escrita |
+| `delta_version_after` | `int` or `None` | Versão Delta após a escrita |
+| `write_delta_version` | `int` or `None` | Versão Delta do commit de escrita |
+| `explain_captured` | `bool` | Se o explain foi capturado |
+| `openlineage_event_emitted` | `bool` | Se o evento OpenLineage foi persistido |
+| `openlineage_event` | `dict` or `None` | Evento OpenLineage completo |
+| `error_message` | `str` or `None` | Mensagem curta de erro |
+| `idempotency_key` | `str` or `None` | Chave de idempotência usada |
+| `idempotency_policy` | `str` | Política de idempotência |
+| `skip_reason` | `str` or `None` | Motivo do skip (idempotência) |
+| `skipped_by_run_id` | `str` or `None` | Run que causou o skip |
+| `contract_metadata` | `dict` | `{description, owner, domain, tags, sla, runtime_parameters}` |
+| `framework_version` | `str` | Versão da biblioteca |
+| `ctrl_schema_version` | `int` | Versão do schema das ctrl tables |
+| `runtime_type` | `str` | `"classic"` ou `"serverless"` |
+| `spark_version` | `str` or `None` | Versão do Spark |
+| `python_version` | `str` | Versão do Python |
+
+Para `SourceSpec`/Autoloader, o retorno externo usa `stream_run_id` em vez de `run_id`, inclui `batches_processed`, `total_rows_read`, `total_rows_written`, `total_rows_quarantined` e `batch_results`. Cada item em `batch_results` é o retorno normal de `ingest_plan()` de um micro-batch.
+
+**Consumo típico:**
+
+```python
+result = ingest(...)
+if result["status"] != "SUCCESS":
+    raise RuntimeError(f"Ingestão falhou: {result.get('error_message', 'desconhecido')}")
+print(f"Escritas: {result['rows_written']}, Quarentena: {result['rows_quarantined']}")
 ```
 
 ---
 
-## 6. Modos de escrita
+## 5. Referência Completa de Parâmetros do IngestionPlan
 
-### 6.1 Resumo
+O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). Todos os parâmetros são opcionais exceto `source` e `target_table`. A função `ingest()` aceita os mesmos parâmetros como kwargs e os normaliza automaticamente.
 
-| Modo | Tipo | Comportamento | Chaves obrigatórias | Colunas técnicas adicionadas |
-|---|---|---|---|---|
-| `scd0_append` | SCD0 | Insere dados sem atualizar registros anteriores. | Não | `ingestion_date`, `source_system`, `__run_id` |
-| `scd0_overwrite` | SCD0 | Substitui a tabela ou uma partição. | Não | `ingestion_date`, `source_system`, `__run_id` |
-| `scd1_upsert` | SCD1 | Atualiza o estado atual por chave natural. | `merge_keys` | `ingestion_date`, `source_system`, `__run_id` |
-| `scd1_hash_diff` | SCD1 append-oriented | Insere apenas registros novos ou alterados por comparação de hash. | `hash_keys` | `row_hash`, `ingestion_date`, `source_system`, `__run_id` |
-| `scd2_historical` | SCD2 | Mantém versões históricas com intervalo de validade. | `merge_keys` | `row_hash`, `valid_from`, `valid_to`, `is_current`, `changed_columns` |
-| `snapshot_soft_delete` | Snapshot CDC | Sincroniza snapshot completo e marca ausentes como inativos. | `merge_keys` | `row_hash`, `is_active`, `deleted_at` |
+### 5.1 Identificação da Execução
 
-### 6.2 `scd0_append`
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `source` | `str \| DataFrame \| SourceSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark ou source declarativo Autoloader `available_now` |
+| `target_table` | `str` | (obrigatório) | Nome da tabela alvo **sem** catálogo/schema. Ex.: `"c_cliente"` |
+| `catalog` | `str` | `"main"` | Catálogo Unity Catalog onde alvo e ctrl tables residem |
+| `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion (usada como schema do alvo) |
+| `mode` | `WriteMode` | `"scd0_append"` | Estratégia de escrita (ver §6) |
+| `source_system` | `str` | `"default"` | Identificador da origem, gravado como metadado técnico |
+| `ctrl_schema` | `str` | `"ops"` | Schema onde as tabelas de controle são criadas |
+| `notebook_name` | `str` | `"unknown"` | Nome lógico do notebook/job para auditoria e OpenLineage |
 
-Uso indicado para eventos, logs, fatos transacionais e cargas append-only.
+### 5.2 Seleção, Filtro e Preparação
 
-Características:
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `select_columns` | `str \| List[str]` | `[]` | Colunas a selecionar da origem. Como string, usa `\|` como separador |
+| `column_mapping` | `Dict[str, str]` | `{}` | Renomeia colunas da origem para o alvo após seleção. Ex.: `{src_id: id}` |
+| `filter_expression` | `str \| None` | `None` | Expressão SQL aplicada com `.where()` (ex.: `"status != 'CANCELADO'"`) |
+| `custom_keys` | `Dict[str, str \| List[str]]` | `{}` | Cria colunas derivadas por concatenação. Ex.: `{"id_item": ["empresa", "filial", "item"]}` → `"empresa|filial|item"` |
 
-- Não faz comparação com destino.
-- Não atualiza registros existentes.
-- Permite evolução de schema conforme `schema_policy`.
-- É o modo padrão da biblioteca.
+### 5.3 Chaves e Deduplicação
 
-Exemplo:
+| Parâmetro | Tipo | Default | Usado por | Descrição |
+|-----------|------|---------|-----------|-----------|
+| `merge_keys` | `str \| List[str]` | `[]` | `scd1_upsert`, `scd2_historical`, `snapshot_soft_delete` | Chave(s) natural(is) do MERGE |
+| `hash_keys` | `str \| List[str]` | `[]` | `scd1_hash_diff` | Chave(s) para comparar versão mais recente no target |
+| `hash_exclude_columns` | `str \| List[str]` | `[]` | `scd1_hash_diff` | Colunas ignoradas no cálculo de hash (ex.: timestamps voláteis) |
+| `dedup_order_expr` | `str \| None` | `None` | Todos com chave | Expressão SQL de `ORDER BY` para desempate. Ex.: `"updated_at DESC NULLS LAST"` |
 
+### 5.4 Watermark
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `watermark_columns` | `str \| List[str]` | `[]` | Coluna(s) para carga incremental. Suporta watermark composto (múltiplas colunas) |
+
+### 5.5 Particionamento, Cluster e Otimização
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `partition_column` | `str \| None` | `None` | Coluna de partição física Delta |
+| `partition_value` | `str \| None` | `None` | Valor da partição para overwrite parcial |
+| `merge_strategy` | `"delta" \| "delta_by_partition" \| "replace_partitions"` | `"delta"` | Estratégia do MERGE em `scd1_upsert` (ver §10) |
+| `merge_partition_column` | `str \| None` | `None` | Coluna usada para limitar escopo do merge por partições afetadas |
+| `replace_partitions_source_complete` | `bool` | `False` | Confirma que source contém estado completo das partições (obrigatório em `replace_partitions`) |
+| `cluster_columns` | `str \| List[str]` | `[]` | Colunas para Delta Liquid Clustering (mutuamente exclusivo com `partition_column`) |
+| `zorder_columns` | `str \| List[str]` | `[]` | Colunas para `OPTIMIZE ZORDER BY` |
+| `optimize_after_write` | `bool` | `False` | Executa `OPTIMIZE` após escrita com linhas > 0 |
+| `delta_properties` | `Dict[str, str]` | `{}` | Propriedades aplicadas na criação da tabela Delta. Ex.: `delta.enableChangeDataFeed=true` |
+
+### 5.6 Schema
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `schema_policy` | `"permissive" \| "additive_only" \| "strict"` | `"permissive"` | Política de evolução de schema (ver §8) |
+| `allow_type_widening` | `bool` | `False` | Permite alargamento seguro de tipos (`int→bigint`, `float→double`, etc.) |
+
+### 5.7 Quality Gates
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `quality_rules` | `QualityRules \| dict \| None` | `None` | Regras de qualidade avaliadas antes da escrita (ver §7) |
+| `on_quality_fail` | `"fail" \| "warn" \| "quarantine"` | `"fail"` | Ação quando regras de qualidade falham |
+
+### 5.8 SCD2 — Histórico
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `scd2_change_columns` | `str \| List[str]` | `[]` | Colunas cuja mudança gera nova versão histórica. Se vazio: todas exceto chaves e controle |
+| `scd2_effective_from_column` | `str \| None` | `None` | Coluna da origem usada como `valid_from`. Se omitida: `current_timestamp()` |
+
+### 5.9 Encoding
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `fix_encoding` | `bool` | `False` | Ativa correção de encoding em colunas string |
+| `encoding` | `str` | `"Windows-1252"` | Encoding de origem para correção |
+| `encoding_columns` | `str \| List[str]` | `[]` | Colunas a corrigir. Se vazio: todas as colunas string |
+
+### 5.10 Diagnóstico e Observabilidade
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `dry_run` | `bool` | `False` | Valida tudo sem escrever nem criar ctrl tables. Retorna `status="DRY_RUN"` |
+| `explain_mode` | `bool` | `False` | Captura `df.explain()` e persiste em `ctrl_ingestion_explain` |
+| `explain_format` | `str` | `"formatted"` | Formato do explain: `"simple"`, `"extended"`, `"formatted"`, `"cost"`, `"codegen"` |
+| `openlineage_enabled` | `bool` | `False` | Gera e persiste evento OpenLineage em JSON |
+| `openlineage_namespace` | `str \| None` | `None` | Namespace OpenLineage. Default: `databricks://<catalog>` |
+| `openlineage_producer` | `str` | `"lakehouse-ingestion-framework"` | Identificador do produtor no evento OpenLineage |
+
+### 5.11 Performance e Concorrência
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `use_cache` | `bool` | `True` | Cacheia o DataFrame preparado com `.cache()`. Desabilitado automaticamente em serverless |
+| `lock_enabled` | `bool` | `False` | Ativa lock operacional best-effort por `target_table` |
+| `retry_attempts` | `int \| None` | `None` | Sobrescreve o número de tentativas para conflitos Delta neste plano |
+| `retry_backoff_seconds` | `int \| None` | `None` | Sobrescreve o backoff base entre tentativas neste plano |
+| `hooks` | `IngestionHooks \| None` | `None` | Callbacks opcionais `before_read`, `after_prepare`, `before_write`, `after_write` |
+
+### 5.12 Idempotência
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `idempotency_key` | `str \| None` | `None` | Chave lógica do lote. Identifica unicamente uma carga |
+| `idempotency_policy` | `"always_run" \| "skip_if_success" \| "fail_if_success" \| "rerun_if_failed"` | `"always_run"` | Comportamento ao reencontrar `idempotency_key` |
+
+### 5.13 Linhagem Operacional
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `parent_run_id` | `str \| None` | `None` | ID da execução pai (DAGs, sub-jobs) |
+| `run_group_id` | `str \| None` | `None` | ID lógico do grupo de execução |
+| `master_job_id` | `str \| None` | `None` | ID do job mestre no orquestrador |
+| `master_run_id` | `str \| None` | `None` | ID da execução mestre. Ex.: `{{job.run_id}}` do Databricks |
+
+### 5.14 Metadados de Contrato
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `description` | `str \| None` | `None` | Descrição do contrato de ingestão |
+| `owner` | `str \| None` | `None` | Dono/responsável pelo pipeline |
+| `domain` | `str \| None` | `None` | Domínio de negócio (ex.: `"comercial"`, `"financeiro"`) |
+| `tags` | `List[str]` | `[]` | Tags do contrato. String com `\|` também aceita |
+| `sla` | `str \| None` | `None` | SLA esperado (ex.: `"D+0 08:00"`) |
+| `runtime_parameters` | `Dict[str, Any]` | `{}` | Parâmetros de execução arbitrários, propagados nas ctrl tables e retorno |
+
+---
+
+## 5B. Anatomia de um Contrato YAML Completo
+
+Cada tabela vira um arquivo YAML. Abaixo, um contrato anotado com todos os campos disponíveis e comentários explicativos:
+
+```yaml
+# ============================================================
+# contracts/silver/c_cliente.yaml
+# Contrato completo de ingestão — Silver SCD1 com todos os recursos
+# ============================================================
+
+# --- Obrigatórios ---
+source: b_cliente                        # str: nome de tabela Unity Catalog
+target_table: c_cliente                  # str: nome da tabela alvo (sem catalog/layer)
+
+# --- Identificação do ambiente ---
+catalog: main                            # default: "main"
+layer: silver                            # bronze | silver | gold
+mode: scd1_upsert                        # modo de escrita (ver §6)
+source_system: crm                       # default: "default"
+ctrl_schema: ops                         # default: "ops" — schema das ctrl tables
+notebook_name: ingest_silver_clientes    # default: "unknown"
+
+# --- Metadados de contrato (propagados para ctrl tables) ---
+description: "Clientes consolidados do CRM com deduplicação"
+owner: data-platform
+domain: comercial
+tags: [silver, cliente, crm]             # lista ou "silver|cliente|crm"
+sla: "D+0 08:00"
+runtime_parameters:
+  carga: incremental
+  prioridade: alta
+
+# --- Transformações ---
+select_columns: []                       # opcional: filtrar colunas. Ex.: "id|nome|email"
+column_mapping: {}                       # opcional: origem -> alvo. Ex.: {cod_cli: id_cliente}
+filter_expression: null                  # opcional: SQL WHERE. Ex.: "status != 'CANCELADO'"
+custom_keys: {}                          # opcional: chaves derivadas. Ex.: {id_item: [empresa, filial, item]}
+
+# --- Chaves e deduplicação ---
+merge_keys: id_cliente                   # obrigatório em scd1_upsert/scd2/snapshot
+# hash_keys: id_cliente                  # alternativo em scd1_hash_diff
+# hash_exclude_columns: updated_at|extraction_ts
+dedup_order_expr: "updated_at DESC NULLS LAST"
+
+# --- Watermark (carga incremental) ---
+watermark_columns: updated_at            # simples: "coluna". Composto: "c1|c2|c3"
+
+# --- Layout Delta ---
+# partition_column: ingestion_date       # partição física (cuidado com cardinalidade)
+# partition_value: null                  # usado em overwrite por partição
+merge_strategy: delta                    # delta | delta_by_partition | replace_partitions
+# merge_partition_column: dt
+# replace_partitions_source_complete: false
+cluster_columns: []                      # Delta Liquid Clustering. Ex.: "id_cliente|status"
+zorder_columns: []                       # ZORDER. Ex.: "id_cliente|updated_at"
+optimize_after_write: false              # executa OPTIMIZE após escrita
+delta_properties: {}                     # Ex.: {delta.enableChangeDataFeed: "true"}
+
+# --- Schema ---
+schema_policy: additive_only             # permissive | additive_only | strict
+allow_type_widening: false               # int→bigint, float→double, etc.
+
+# --- Quality gates ---
+quality_rules:
+  required_columns: [id_cliente, updated_at]
+  not_null: [id_cliente]
+  unique_key: [id_cliente]
+  accepted_values:
+    status: [ATIVO, INATIVO, PENDENTE]
+  min_rows: 1
+  max_null_ratio:
+    email: 0.15
+    telefone: 0.30
+  expressions:
+    - name: positive_amount
+      expression: "amount > 0"
+      severity: quarantine          # warn | quarantine | abort
+      message: "Valor deve ser positivo."
+    - name: valid_period
+      expression: "end_date >= start_date OR end_date IS NULL"
+      severity: abort
+      message: "Período inválido."
+on_quality_fail: fail                   # fail | warn | quarantine
+
+# --- SCD2 (apenas se mode=scd2_historical) ---
+# scd2_change_columns: nome|email|status
+# scd2_effective_from_column: updated_at
+
+# --- Encoding ---
+fix_encoding: false
+# encoding: Windows-1252
+# encoding_columns: []
+
+# --- Diagnóstico ---
+dry_run: false
+explain_mode: false
+explain_format: formatted               # simple | extended | formatted | cost | codegen
+
+# --- OpenLineage ---
+openlineage_enabled: true
+openlineage_namespace: databricks://main
+openlineage_producer: lakehouse-ingestion-framework
+
+# --- Performance ---
+use_cache: true                         # cacheia DataFrame preparado (desabilitado em serverless)
+lock_enabled: false                     # lock best-effort por target_table
+retry_attempts: null                    # sobrescreve default global se informado
+retry_backoff_seconds: null             # sobrescreve default global se informado
+
+# --- Idempotência ---
+# idempotency_key: "job-42:batch-2026-05-11"
+idempotency_policy: always_run           # always_run | skip_if_success | fail_if_success | rerun_if_failed
+
+# --- Linhagem operacional (preenchidos pelo orquestrador) ---
+# parent_run_id: null
+# run_group_id: null
+# master_job_id: null
+# master_run_id: null
+```
+
+---
+
+## 5C. Fontes Declarativas com `SourceSpec`
+
+Além de tabela e `DataFrame`, `source` aceita um objeto declarativo para Autoloader em modo finito `available_now`. Esse recurso é adequado para landing zones de arquivos onde você quer checkpoint, inferência/evolução de schema do Autoloader e reaproveitamento dos mesmos modos de escrita do framework.
+
+### 5C.1 YAML com Autoloader
+
+```yaml
+source:
+  type: autoloader
+  path: /Volumes/main/landing/orders
+  format: json
+  schema_location: /Volumes/main/ops/autoloader_schemas/orders
+  checkpoint_location: /Volumes/main/ops/checkpoints/orders
+  trigger: available_now
+  include_existing_files: true
+  max_files_per_trigger: 1000
+  schema_hints: "order_id BIGINT, amount DECIMAL(18,2)"
+  options:
+    cloudFiles.inferColumnTypes: "true"
+
+target_table: b_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+schema_policy: additive_only
+notebook_name: bronze_orders_autoloader
+```
+
+### 5C.2 Python com `SourceSpec`
+
+```python
+from lakehouse_ingestion import SourceSpec, ingest
+
+result = ingest(
+    source=SourceSpec(
+        type="autoloader",
+        path="/Volumes/main/landing/orders",
+        format="json",
+        schema_location="/Volumes/main/ops/autoloader_schemas/orders",
+        checkpoint_location="/Volumes/main/ops/checkpoints/orders",
+        options={"cloudFiles.inferColumnTypes": "true"},
+    ),
+    target_table="b_orders",
+    catalog="main",
+    layer="bronze",
+    mode="scd0_append",
+)
+```
+
+### 5C.3 Semântica Operacional
+
+- O framework usa `spark.readStream.format("cloudFiles")` e `trigger(availableNow=True)`.
+- A execução externa é registrada em `ctrl_ingestion_streams`.
+- Cada micro-batch vira uma execução filha em `ctrl_ingestion_runs`, com `parent_run_id = stream_run_id`.
+- `idempotency_key` no stream gera chaves de batch no formato `<idempotency_key>:batch:<batch_id>`.
+- `snapshot_soft_delete` é incompatível com `SourceSpec`, porque snapshot exige source completo do estado atual.
+- Streaming contínuo não é suportado nesta versão; o contrato é deliberadamente finito.
+
+---
+
+## 6. Modos de Escrita — Guia Detalhado
+
+### 6.1 Tabela Comparativa
+
+| Modo | Estratégia SQL | Idempotência | Histórico | Chave Obrigatória | Colunas Técnicas |
+|------|---------------|-------------|-----------|-------------------|-----------------|
+| `scd0_append` | APPEND | ❌ | ❌ | Nenhuma | `ingestion_date`, `source_system`, `__run_id` |
+| `scd0_overwrite` | OVERWRITE [+ replaceWhere] | ✅ | ❌ | Nenhuma | `ingestion_date`, `source_system`, `__run_id` |
+| `scd1_upsert` | MERGE INTO | ✅ | ❌ | `merge_keys` | `ingestion_date`, `source_system`, `__run_id` |
+| `scd1_hash_diff` | APPEND (diff por hash) | ✅ relativa | ❌ | `hash_keys` | `row_hash`, `ingestion_date`, `source_system`, `__run_id` |
+| `scd2_historical` | MERGE INTO + staging | ✅ | ✅ | `merge_keys` | `row_hash`, `valid_from`, `valid_to`, `is_current`, `changed_columns` |
+| `snapshot_soft_delete` | MERGE INTO (com delete lógico) | ✅ | ❌ | `merge_keys` | `row_hash`, `is_active`, `deleted_at` |
+
+### 6.2 `scd0_append` — Append Imutável
+
+**Quando usar:** Eventos, logs, fatos transacionais, cargas incrementais que nunca atualizam registros anteriores. É o modo padrão.
+
+**Comportamento:**
+- Insere todas as linhas sem comparar com o destino
+- Não atualiza registros existentes
+- Permite evolução de schema conforme `schema_policy`
+
+**Python:**
 ```python
 ingest(
     source="raw_orders",
+    target_table="b_orders",
     catalog="main",
     layer="bronze",
-    target_table="b_orders",
     mode="scd0_append",
     watermark_columns="updated_at",
-    source_system="erp"
+    source_system="erp",
 )
 ```
 
-### 6.3 `scd0_overwrite`
+**YAML (`contracts/bronze/b_orders.yaml`):**
+```yaml
+source: raw_orders
+target_table: b_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+watermark_columns: updated_at
+source_system: erp
+notebook_name: bronze_orders
+```
 
-Uso indicado para tabelas de referência, snapshots pequenos e reprocessamentos controlados.
+> Para idempotência relativa, combine com `watermark_columns` — execuções repetidas não duplicam dados já processados.
 
-Características:
+### 6.3 `scd0_overwrite` — Substituição Total ou Parcial
 
-- Pode substituir a tabela inteira.
-- Pode substituir apenas uma partição com `partition_column` e `partition_value`.
-- Quando usado com Liquid Clustering, a escrita não deve misturar `partitionBy` físico no mesmo destino.
+**Quando usar:** Tabelas de referência, snapshots pequenos, reprocessamentos controlados, fatos agregados por período.
 
-Exemplo com substituição total:
+**Comportamento:**
+- Sem `partition_column` + `partition_value`: sobrescreve a tabela inteira
+- Com `partition_column` + `partition_value`: usa `replaceWhere` para sobrescrever apenas a partição
 
+**Overwrite total:**
 ```python
 ingest(
     source=df_ref,
+    target_table="c_status_pedido",
     catalog="main",
     layer="silver",
-    target_table="c_status_pedido",
     mode="scd0_overwrite",
-    schema_policy="strict"
+    schema_policy="strict",
 )
 ```
 
-Exemplo com substituição por partição:
+**YAML (`contracts/silver/c_status_pedido.yaml`):**
+```yaml
+source: ref_status_pedido
+target_table: c_status_pedido
+catalog: main
+layer: silver
+mode: scd0_overwrite
+schema_policy: strict
+notebook_name: silver_status_pedido
+```
 
+**Overwrite por partição:**
 ```python
 ingest(
     source=df_mes,
+    target_table="faturamento_mensal",
     catalog="main",
     layer="gold",
-    target_table="faturamento_mensal",
     mode="scd0_overwrite",
     partition_column="competencia",
-    partition_value="2026-05"
+    partition_value="2026-05",  # substitui apenas esta partição
 )
 ```
 
-### 6.4 `scd1_upsert`
+**YAML (`contracts/gold/faturamento_mensal.yaml`):**
+```yaml
+source: c_faturamento
+target_table: faturamento_mensal
+catalog: main
+layer: gold
+mode: scd0_overwrite
+partition_column: competencia
+partition_value: "{{dt}}"           # placeholder resolvido em runtime
+schema_policy: strict
+notebook_name: gold_faturamento
+```
 
-Uso indicado para manter o estado atual de uma entidade sem preservar histórico completo.
+> ⚠️ Sem `partition_value`, o overwrite apaga **toda** a tabela. Use com cautela em tabelas grandes.
 
-Características:
+### 6.4 `scd1_upsert` — Estado Atual (SCD Tipo 1)
 
-- Usa `MERGE INTO` Delta.
-- Requer `merge_keys`.
-- Atualiza colunas não-chave quando a chave já existe.
-- Insere novos registros quando a chave não existe.
-- Pode limitar o escopo do merge com `merge_strategy="delta_by_partition"` e `merge_partition_column`.
-- `merge_strategy="replace_partitions"` exige `merge_partition_column` e `replace_partitions_source_complete=True`, pois sobrescreve integralmente as partições afetadas.
+**Quando usar:** Manter o estado atual de uma entidade sem preservar histórico. É o modo mais comum em Silver.
 
-Exemplo:
+**Comportamento:**
+- Usa `MERGE INTO` com `t.key <=> s.key` (IS NOT DISTINCT FROM — trata `NULL = NULL` como verdade)
+- Linhas com chave existente: **UPDATE** das colunas não-chave
+- Linhas com chave nova: **INSERT**
 
+**Python:**
 ```python
 ingest(
     source="b_cliente",
+    target_table="c_cliente",
     catalog="main",
     layer="silver",
-    target_table="c_cliente",
     mode="scd1_upsert",
     merge_keys="id_cliente",
     dedup_order_expr="updated_at DESC NULLS LAST",
-    schema_policy="additive_only"
+    schema_policy="additive_only",
 )
 ```
 
-### 6.5 `scd1_hash_diff`
+**YAML (`contracts/silver/c_cliente.yaml`):**
+```yaml
+source: b_cliente
+target_table: c_cliente
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: id_cliente
+dedup_order_expr: "updated_at DESC NULLS LAST"
+schema_policy: additive_only
+notebook_name: silver_cliente
+```
 
-Uso indicado quando a origem não fornece CDC confiável, mas é necessário evitar inserir versões idênticas.
+**Estratégias de merge** (parâmetro `merge_strategy`, ver §10 para detalhes):
+- `"delta"` (default) — MERGE puro, varre toda a tabela target
+- `"delta_by_partition"` — adiciona predicado `IN (part_vals)` para reduzir arquivos varridos
+- `"replace_partitions"` — OVERWRITE com `replaceWhere`, mais rápido quando source contém estado completo das partições
 
-Características:
+### 6.5 `scd1_hash_diff` — Append com Hash Diff
 
-- Calcula `row_hash` sobre as colunas de negócio.
-- Exclui colunas técnicas e colunas configuradas em `hash_exclude_columns`.
-- Compara o hash atual com a última versão conhecida por `hash_keys`.
-- Usa `dedup_order_expr` quando informado. Sem expressão explícita, usa `ingestion_sequence` ou `ingestion_ts_utc`; targets legados com múltiplas versões por chave e sem ordenação confiável falham com mensagem objetiva.
-- Evita operações `UPDATE` em larga escala, privilegiando escrita append-only.
-- Pode reduzir leitura do target quando `partition_column` está presente.
+**Quando usar:** Origem não fornece CDC confiável, mas é necessário evitar inserir versões idênticas das mesmas chaves.
 
-Exemplo:
+**Comportamento:**
+1. Calcula `row_hash` (SHA-256) sobre todas as colunas de negócio (exclui `CONTROL_COLUMNS` e `hash_exclude_columns`)
+2. Lê o target, extrai o "último estado" de cada `hash_key` (via `dedup_order_expr` ou heurística automática)
+3. Faz LEFT JOIN + anti-join lógico: insere apenas linhas onde `row_hash` difere ou chave não existe
+4. Append das diferenças
 
+**Python:**
 ```python
 ingest(
     source="b_produto",
+    target_table="c_produto_versions",
     catalog="main",
     layer="silver",
-    target_table="c_produto_versions",
     mode="scd1_hash_diff",
     hash_keys="id_produto",
-    hash_exclude_columns="updated_at|source_file",
+    hash_exclude_columns="updated_at|source_file",  # colunas voláteis ignoradas no hash
     dedup_order_expr="updated_at DESC NULLS LAST",
-    partition_column="ingestion_date"
+    partition_column="ingestion_date",  # reduz leitura do target
 )
 ```
 
-### 6.6 `scd2_historical`
+**YAML (`contracts/silver/c_produto_versions.yaml`):**
+```yaml
+source: b_produto
+target_table: c_produto_versions
+catalog: main
+layer: silver
+mode: scd1_hash_diff
+hash_keys: id_produto
+hash_exclude_columns: updated_at|source_file
+dedup_order_expr: "updated_at DESC NULLS LAST"
+partition_column: ingestion_date
+schema_policy: additive_only
+notebook_name: silver_produto_hash
+```
 
-Uso indicado para preservar histórico completo de alterações de uma entidade.
+> **Como o framework determina o "último estado" sem `dedup_order_expr`:**
+> 1. Tenta `ingestion_sequence DESC NULLS LAST` (se a coluna existe no target)
+> 2. Tenta `ingestion_ts_utc DESC NULLS LAST, __run_id DESC NULLS LAST`
+> 3. Se target tiver múltiplas versões por chave sem ordenação determinística → `ValueError`
+>
+> **Recomendação:** sempre informe `dedup_order_expr` explicitamente para evitar ambiguidade.
 
-Características:
+### 6.6 `scd2_historical` — Histórico Completo (SCD Tipo 2)
 
-- Requer `merge_keys`.
-- Fecha a versão corrente quando há alteração relevante.
-- Insere nova versão corrente com `is_current=true`.
-- Usa `valid_from` e `valid_to`.
-- Pode rastrear colunas alteradas em `changed_columns`.
-- Quando `scd2_change_columns` é informado, o hash de mudança considera apenas essas colunas.
-- Quando `scd2_change_columns` não é informado, o hash considera colunas de negócio, excluindo chaves e colunas técnicas.
+**Quando usar:** Preservar histórico completo de alterações de uma entidade (ex.: dimensions in data warehouse).
 
-Semântica de reativação:
+**Colunas geradas no target:**
 
-- Se uma chave previamente inativa reaparecer, o framework cria uma nova versão histórica corrente.
-- Versões anteriores permanecem encerradas com `is_current=false`.
-- A biblioteca não “revive” fisicamente a versão antiga. Isso preserva rastreabilidade histórica.
+| Coluna | Descrição |
+|--------|-----------|
+| `valid_from` | Início da validade (vem de `scd2_effective_from_column` ou `current_timestamp()`) |
+| `valid_to` | Fim da validade (`NULL` = corrente, preenchido ao fechar versão) |
+| `is_current` | `true` para a versão corrente, `false` para históricas |
+| `row_hash` | Hash apenas das `scd2_change_columns` (mudanças fora delas não geram nova versão) |
+| `changed_columns` | CSV das colunas que mudaram nesta transição |
 
-Exemplo:
+**Comportamento:**
+1. Calcula `row_hash` apenas sobre `scd2_change_columns` (ou todas exceto chaves + controle se vazio)
+2. Compara com `is_current=true` do target
+3. Para cada chave com mudança: fecha versão antiga (`valid_to=now`, `is_current=false`) e insere nova (`valid_from`, `is_current=true`)
+4. Chaves reaparecidas (previamente inativas) geram nova versão corrente (não reativam a antiga)
+5. Usa "staged rows" (duas variantes por linha changed) para forçar UPDATE + INSERT no mesmo MERGE
 
+**Python:**
 ```python
 ingest(
     source="c_cliente",
+    target_table="dim_cliente_historico",
     catalog="main",
     layer="silver",
-    target_table="dim_cliente_historico",
     mode="scd2_historical",
     merge_keys="id_cliente",
-    scd2_change_columns="nome|email|status|cidade",
+    scd2_change_columns="nome|email|status|cidade",  # só mudanças nessas colunas versionam
     scd2_effective_from_column="updated_at",
     cluster_columns="id_cliente|status",
-    schema_policy="additive_only"
+    schema_policy="additive_only",
 )
 ```
 
-### 6.7 `snapshot_soft_delete`
+**YAML (`contracts/silver/dim_cliente_historico.yaml`):**
+```yaml
+source: c_cliente
+target_table: dim_cliente_historico
+catalog: main
+layer: silver
+mode: scd2_historical
+merge_keys: id_cliente
+scd2_change_columns: nome|email|status|cidade
+scd2_effective_from_column: updated_at
+cluster_columns: id_cliente|status
+schema_policy: additive_only
+notebook_name: silver_cliente_scd2
+description: "Dimensão de cliente com histórico SCD2"
+owner: data-platform
+domain: comercial
+```
 
-Uso indicado quando a origem envia um snapshot completo do estado atual e registros ausentes devem ser tratados como inativos.
+> **Dica:** `scd2_change_columns` deve ser o conjunto **mínimo** que define uma "mudança real". Incluir colunas voláteis (timestamps de extração, etc.) gera versões desnecessárias.
 
-Características:
+### 6.7 `snapshot_soft_delete` — Snapshot com Soft Delete
 
-- Requer `merge_keys`.
-- Atualiza registros existentes quando o `row_hash` muda.
-- Insere novos registros.
-- Marca registros ausentes no snapshot como `is_active=false`.
-- Preenche `deleted_at` com o timestamp da execução.
-- Pressupõe snapshot completo da entidade. **Não pode ser combinado com `watermark_columns` ou `filter_expression`** — o framework rejeita com `ValueError` no `_validate_plan`. Para sincronização incremental, use `scd1_upsert`.
-- Executa `MERGE` SQL em todos os runtimes para manter comportamento consistente entre classic e serverless.
+**Quando usar:** A origem envia um snapshot completo do estado atual, e registros ausentes devem ser tratados como inativos (não deletados fisicamente).
 
-Exemplo:
+**Colunas geradas no target:**
 
+| Coluna | Descrição |
+|--------|-----------|
+| `is_active` | `true` se presente no snapshot, `false` se ausente |
+| `deleted_at` | Timestamp de quando foi marcado inativo |
+| `row_hash` | Hash de todas as colunas de negócio |
+
+**Comportamento:**
+1. MERGE com `t.key <=> s.key`
+2. MATCHED + hash diferente → UPDATE
+3. NOT MATCHED → INSERT (nova)
+4. **NOT MATCHED BY SOURCE + is_active=true → UPDATE SET is_active=false, deleted_at=now()** (soft delete)
+5. MATCHED + is_active=false → UPDATE (re-ativa registros que voltaram a aparecer)
+
+**Python:**
 ```python
 ingest(
-    source=df_snapshot_clientes,
+    source="snapshot_customers_today",
+    target_table="c_customer_snapshot",
     catalog="main",
     layer="silver",
-    target_table="c_cliente_snapshot",
     mode="snapshot_soft_delete",
-    merge_keys="id_cliente",
+    merge_keys="customer_id",
     dedup_order_expr="updated_at DESC NULLS LAST",
-    schema_policy="additive_only"
+    schema_policy="additive_only",
 )
 ```
+
+**YAML (`contracts/silver/c_customer_snapshot.yaml`):**
+```yaml
+source: snapshot_customers_today
+target_table: c_customer_snapshot
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: customer_id
+dedup_order_expr: "updated_at DESC NULLS LAST"
+schema_policy: additive_only
+notebook_name: silver_customer_snapshot
+# watermark_columns NÃO pode ser usado com snapshot_soft_delete
+# filter_expression NÃO pode ser usado com snapshot_soft_delete
+```
+
+> ⚠️ **Restrição crítica:** snapshot_soft_delete **NÃO aceita** `watermark_columns` nem `filter_expression`. O framework rejeita com `ValueError`. Um source filtrado faria todas as linhas fora do filtro virarem `is_active=false` erroneamente. Para sincronização incremental, use `scd1_upsert`.
+
+### 6.8 Restrições de Modo por Camada
+
+| Modo | Bronze | Silver | Gold |
+|------|--------|--------|------|
+| `scd0_append` | ✅ | ✅ | ✅ |
+| `scd0_overwrite` | ✅ | ✅ | ✅ |
+| `scd1_upsert` | ❌ | ✅ | ✅ |
+| `scd1_hash_diff` | ✅ | ✅ | ✅ |
+| `scd2_historical` | ❌ | ✅ | ✅ |
+| `snapshot_soft_delete` | ❌ | ✅ | ✅ |
 
 ---
 
-## 7. API pública
+## 7. Quality Gates — Guia Completo
 
-A biblioteca expõe duas formas principais de execução:
-
-```python
-from lakehouse_ingestion import ingest, ingest_plan, IngestionPlan, QualityRules
-```
-
-### 7.1 `ingest(**kwargs)`
-
-Função orientada a notebooks. Recebe parâmetros nomeados e cria internamente um `IngestionPlan`.
+### 7.1 Estrutura do `QualityRules`
 
 ```python
-result = ingest(
-    source="b_orders",
-    target_table="c_orders",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="order_id"
-)
+@dataclass(frozen=True)
+class QualityRules:
+    required_columns: List[str]       # Colunas que DEVEM existir
+    not_null: List[str]               # Colunas que NÃO podem ter NULL
+    unique_key: List[str]             # Conjunto de colunas que deve ser único
+    accepted_values: Dict[str, List]  # Coluna → lista de valores permitidos
+    min_rows: Optional[int]           # Mínimo de linhas após preparação
+    max_null_ratio: Dict[str, float]  # Coluna → razão máxima de NULLs (0.0 a 1.0)
+    expressions: List[QualityExpression]  # Expressões SQL booleanas customizadas
 ```
 
-### 7.2 `ingest_plan(plan: IngestionPlan)`
-
-Função orientada a configuração declarativa, testes e orquestração.
+### 7.2 QualityExpression (Regras Customizadas)
 
 ```python
-plan = IngestionPlan(
-    source="b_orders",
-    target_table="c_orders",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys=["order_id"]
-)
-
-result = ingest_plan(plan)
+@dataclass(frozen=True)
+class QualityExpression:
+    name: str                              # Nome único da regra
+    expression: str                        # Expressão SQL booleana
+    severity: "warn" | "quarantine" | "abort" = "quarantine"
+    message: Optional[str] = None          # Mensagem descritiva em falha
 ```
 
-### 7.3 Escolha recomendada
+### 7.3 Avaliação (Single-Pass Aggregation)
 
-| Situação | Interface recomendada |
-|---|---|
-| Notebook exploratório | `ingest()` |
-| Job padronizado | `ingest_plan()` |
-| Configuração gerada por YAML/JSON | `ingest_plan()` |
-| Testes unitários | `ingest_plan()` |
-| Migração incremental de notebooks existentes | `ingest()` |
-
----
-
-## 8. Referência completa de parâmetros
-
-### 8.1 Identificação da execução
-
-| Parâmetro | Tipo | Padrão | Obrigatório | Descrição |
-|---|---:|---|---|---|
-| `source` | `str | DataFrame | SourceSpec` | sem padrão | Sim | Origem da ingestão. Pode ser nome de tabela, DataFrame Spark ou source declarativo Autoloader `available_now`. |
-| `target_table` | `str` | sem padrão | Sim | Nome da tabela alvo sem catálogo e sem schema. O schema é definido por `layer`. |
-| `catalog` | `str` | `"main"` | Não | Catálogo Unity Catalog onde alvo e tabelas de controle serão resolvidos. |
-| `layer` | `"bronze" | "silver" | "gold"` | `"bronze"` | Não | Camada lógica usada como schema da tabela alvo. |
-| `mode` | `WriteMode` | `"scd0_append"` | Não | Estratégia de escrita. |
-| `source_system` | `str` | `"default"` | Não | Identificador da origem, gravado como metadado técnico. |
-| `ctrl_schema` | `str` | `"ops"` | Não | Schema onde as tabelas de controle serão criadas. |
-| `notebook_name` | `str` | `"unknown"` | Não | Nome lógico do notebook ou job para auditoria. |
-
-### 8.2 Seleção, filtro e preparação
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `select_columns` | `str | List[str]` | `[]` | Colunas selecionadas da origem. Como string, usa `|` como separador. |
-| `filter_expression` | `str | None` | `None` | Expressão Spark SQL aplicada com `where`. |
-| `custom_keys` | `Dict[str, str | List[str]]` | `{}` | Cria colunas derivadas por concatenação de colunas naturais. |
-| `dedup_order_expr` | `str | None` | `None` | Expressão de ordenação para deduplicação por `merge_keys` ou `hash_keys`. |
-| `fix_encoding` | `bool` | `False` | Ativa correção de encoding em colunas string. |
-| `encoding` | `str` | `"Windows-1252"` | Encoding de origem usado na correção. |
-| `encoding_columns` | `str | List[str]` | `[]` | Colunas string onde a correção de encoding será aplicada. Se vazio, aplica em todas as strings. |
-
-Exemplo com filtro, seleção e chave customizada:
+Para reduzir I/O, o framework consolida regras de coluna (`not_null`, `accepted_values`, `max_null_ratio`) e `quality_rules.expressions` em uma única passagem `df.agg(...)`:
 
 ```python
-ingest(
-    source="raw_items",
-    target_table="c_item",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    select_columns="empresa|filial|pedido|item|updated_at|valor",
-    filter_expression="updated_at IS NOT NULL",
-    custom_keys={"id_item": "empresa|filial|pedido|item"},
-    merge_keys="id_item",
-    dedup_order_expr="updated_at DESC NULLS LAST"
-)
+agg_exprs = [count(*)]
+for c in not_null:          agg_exprs.append(sum(col.isNull()))
+for c in accepted_values:   agg_exprs.append(sum(~isin(vals) & isNotNull()))
+for expr in expressions:    agg_exprs.append(sum(NOT (expr)))
+# Uma única ação sobre o DataFrame
+agg_row = df.agg(*agg_exprs).collect()[0]
 ```
 
-### 8.3 Watermark
+**Exceções** (passagens próprias):
+- `unique_key` — `groupBy(keys).count().where(count>1).count()`
+- `required_columns` — só inspeção de schema, não toca dados
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `watermark_columns` | `str | List[str]` | `[]` | Coluna ou conjunto de colunas usado para carga incremental. |
+### 7.4 Ações em Falha (`on_quality_fail`)
 
-O framework armazena watermarks em JSON com tipo Spark SQL. Isso permite comparar números como números, datas como datas e timestamps como timestamps.
+| Ação | Comportamento | Quando usar |
+|------|--------------|-------------|
+| `"fail"` | Aborta a execução, `status=FAILED` | Padrão. Use quando dados inválidos são inaceitáveis |
+| `"warn"` | Registra falhas, mas escreve tudo | Desenvolvimento, migração, ou quando a qualidade é informativa |
+| `"quarantine"` | Linhas inválidas → `ctrl_ingestion_quarantine`; válidas → target | Quando você quer isolar problemas sem perder o resto |
 
-Exemplo com watermark simples:
+### 7.5 Regras Abortivas (Abort-Only)
 
-```python
-ingest(
-    source="raw_orders",
-    target_table="b_orders",
-    catalog="main",
-    layer="bronze",
-    mode="scd0_append",
-    watermark_columns="updated_at"
-)
-```
+Três regras são **abort-only** — descrevem propriedades do conjunto e não conseguem isolar linhas individuais:
 
-Exemplo com watermark composto:
+| Regra | Por que é abort-only |
+|-------|---------------------|
+| `unique_key` | Qual linha "fica" e qual "vai"? Decisão arbitrária sem reprocessamento |
+| `required_columns` | A coluna inteira está faltando — não há linha a isolar |
+| `min_rows` | Contagem mínima é propriedade agregada |
 
-```python
-ingest(
-    source="raw_movimentos",
-    target_table="b_movimentos",
-    catalog="main",
-    layer="bronze",
-    mode="scd0_append",
-    watermark_columns="data_movimento|hora_movimento|seq_movimento"
-)
-```
+**Comportamento:** quando `on_quality_fail="quarantine"` e qualquer regra abort-only falha, o framework **escala automaticamente para `"fail"`** e aborta a execução. Isso evita o pior caso: escrever o dataset inteiro com `status=FAILED`.
 
-Observações:
+> Para tolerar falhas de `unique_key`: use `dedup_order_expr` antes do quality gate. Para tolerar `min_rows`: use `on_quality_fail="warn"`.
 
-- A ordenação composta é lexicográfica por coluna, preservando o tipo original de cada coluna.
-- Colunas com `NULL` podem impedir avanço correto. Em cargas incrementais, recomenda-se filtrar registros sem watermark.
-- Mudança de tipo da coluna de watermark entre execuções pode causar falha de comparação ou rejeição pela política de schema.
+### 7.6 Exemplo com Quality Gates via Dict
 
-### 8.4 Chaves e hash
-
-| Parâmetro | Tipo | Padrão | Usado por | Descrição |
-|---|---:|---|---|---|
-| `merge_keys` | `str | List[str]` | `[]` | `scd1_upsert`, `scd2_historical`, `snapshot_soft_delete` | Chaves naturais usadas no `MERGE`. |
-| `hash_keys` | `str | List[str]` | `[]` | `scd1_hash_diff` | Chaves usadas para comparar a versão mais recente no destino. |
-| `hash_exclude_columns` | `str | List[str]` | `[]` | `scd1_hash_diff` e hash auxiliar | Colunas ignoradas no cálculo do hash. |
-| `scd2_change_columns` | `str | List[str]` | `[]` | `scd2_historical` | Colunas usadas para detectar mudança histórica. |
-| `scd2_effective_from_column` | `str | None` | `None` | `scd2_historical` | Coluna da origem usada como `valid_from`. Se omitida, usa timestamp da execução. |
-
-Exemplo SCD2 com chave composta:
-
-```python
-ingest(
-    source="c_preco_produto",
-    target_table="dim_preco_produto",
-    catalog="main",
-    layer="silver",
-    mode="scd2_historical",
-    merge_keys="id_produto|id_tabela_preco",
-    scd2_change_columns="preco|moeda|status",
-    scd2_effective_from_column="updated_at"
-)
-```
-
-### 8.5 Estratégia de escrita e layout Delta
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `partition_column` | `str | None` | `None` | Coluna de partição física Delta. Use com cuidado. |
-| `partition_value` | `str | None` | `None` | Valor usado em overwrite por partição. |
-| `merge_strategy` | `"delta" | "delta_by_partition" | "replace_partitions"` | `"delta"` | Estratégia aplicada em `scd1_upsert`. |
-| `merge_partition_column` | `str | None` | `None` | Coluna usada para limitar merge por partições afetadas. |
-| `replace_partitions_source_complete` | `bool` | `False` | Confirma que o source contém o estado completo das partições afetadas quando `merge_strategy="replace_partitions"`. |
-| `cluster_columns` | `str | List[str]` | `[]` | Colunas usadas para Liquid Clustering. |
-| `zorder_columns` | `str | List[str]` | `[]` | Colunas usadas no `OPTIMIZE ZORDER BY`. |
-| `optimize_after_write` | `bool` | `False` | Executa `OPTIMIZE` após escrita com linhas gravadas. |
-
-Recomendações:
-
-- Prefira `cluster_columns` em Delta Lake moderno quando disponível.
-- Evite partições físicas de alta cardinalidade, como UUID, timestamp completo ou IDs transacionais.
-- Evite `OPTIMIZE` indiscriminado em microcargas ou tabelas pequenas.
-- `OPTIMIZE` deve ser tratado como decisão de custo/performance, não como pós-processamento obrigatório.
-
-Exemplo com Liquid Clustering:
-
-```python
-ingest(
-    source="c_vendas",
-    target_table="f_vendas",
-    catalog="main",
-    layer="gold",
-    mode="scd1_upsert",
-    merge_keys="id_venda",
-    cluster_columns="dt_venda|id_cliente",
-    optimize_after_write=True
-)
-```
-
-### 8.6 Schema policy
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `schema_policy` | `"permissive" | "additive_only" | "strict"` | `"permissive"` | Política de evolução de schema. |
-| `allow_type_widening` | `bool` | `False` | Permite aplicar mudanças seguras de tipo por `ALTER COLUMN TYPE`. |
-
-Comportamento:
-
-| Política | Novas colunas | Colunas removidas | Mudança de tipo |
-|---|---|---|---|
-| `permissive` | Aceita | Aceita | Rejeita quando insegura; aceita alargamento com `allow_type_widening=True`. |
-| `additive_only` | Aceita | Rejeita | Rejeita quando insegura; aceita alargamento com `allow_type_widening=True`. |
-| `strict` | Rejeita | Rejeita | Rejeita. |
-
-Observações:
-
-- Em modos com `MERGE`, novas colunas são sincronizadas antes do merge quando a política permite.
-- Mudanças de tipo não são silenciosas. Alargamentos seguros precisam de `allow_type_widening=True`; mudanças inseguras falham com mensagem explícita.
-- Mudanças aplicadas são registradas em `ctrl_ingestion_schema_changes`.
-- Em `strict`, a origem precisa ter o mesmo contrato estrutural esperado pelo destino.
-- Em `additive_only`, colunas novas são adicionadas ao destino, mas remoções e alterações de tipo falham cedo.
-
-Exemplo:
-
-```python
-ingest(
-    source="b_cliente",
-    target_table="c_cliente",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="id_cliente",
-    schema_policy="additive_only"
-)
-```
-
-### 8.6.1 Preparação, Delta e retry por plano
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `column_mapping` | `Dict[str, str]` | `{}` | Renomeia colunas source -> target antes de filtros, watermark, quality e escrita. Destinos duplicados, colisões e colunas técnicas reservadas são rejeitados. |
-| `delta_properties` | `Dict[str, str]` | `{}` | Aplica `TBLPROPERTIES` na criação da tabela Delta. Útil para `delta.enableChangeDataFeed`, optimize write e retenção. |
-| `retry_attempts` | `int | None` | `None` | Sobrescreve `CONFIG.default_retry_attempts` somente neste plano. |
-| `retry_backoff_seconds` | `int | None` | `None` | Sobrescreve `CONFIG.default_retry_backoff_seconds` somente neste plano. |
-
-Guardrails adicionais:
-
-- A origem não pode trazer colunas técnicas gerenciadas (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, etc.).
-- `MERGE` aborta quando todas as `merge_keys` vierem nulas e emite warning para nulos parciais.
-
-### 8.6.2 SourceSpec e Autoloader `available_now`
-
-`source` pode ser um dicionário declarativo:
-
-```python
-ingest(
-    source={
-        "type": "autoloader",
-        "path": "/Volumes/main/raw/orders",
-        "format": "parquet",
-        "schema_location": "/Volumes/main/ops/schemas/orders",
-        "checkpoint_location": "/Volumes/main/ops/checkpoints/orders",
-        "trigger": "available_now",
-    },
-    target_table="b_orders",
-    catalog="main",
-    layer="bronze",
-    mode="scd0_append",
-)
-```
-
-O framework usa `readStream.format("cloudFiles")` com `trigger(availableNow=True)`. Streaming contínuo não é suportado. `snapshot_soft_delete` é incompatível com `SourceSpec`.
-
-### 8.7 Quality gates
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `quality_rules` | `QualityRules | Dict | None` | `None` | Regras de qualidade executadas antes da escrita. |
-| `on_quality_fail` | `"fail" | "warn" | "quarantine"` | `"fail"` | Ação quando regras falham. |
-| `idempotency_key` | `str | None` | `None` | Chave lógica opcional do lote. |
-| `idempotency_policy` | `"always_run" | "skip_if_success" | "fail_if_success" | "rerun_if_failed"` | `"always_run"` | Política explícita de reexecução para a chave lógica. |
-
-Campos de `QualityRules`:
-
-| Campo | Tipo | Descrição |
-|---|---:|---|
-| `required_columns` | `List[str]` | Colunas que devem existir no DataFrame. |
-| `not_null` | `List[str]` | Colunas que não podem conter `NULL`. |
-| `unique_key` | `List[str]` | Conjunto de colunas que deve ser único. |
-| `accepted_values` | `Dict[str, List[Any]]` | Valores permitidos por coluna. Limitado por `CONFIG.max_inline_accepted_values`. |
-| `min_rows` | `int | None` | Quantidade mínima de registros após preparação. |
-| `max_null_ratio` | `Dict[str, float]` | Percentual máximo de nulos por coluna, entre 0 e 1. |
-| `expressions` | `List[QualityExpression]` | Expressões SQL booleanas nomeadas com `severity` (`warn`, `quarantine`, `abort`) e `message` opcional. Valores `false` ou `NULL` falham. Entram na mesma agregação single-pass das regras de coluna. |
-| `custom` | `Dict[str, Dict]` | Regras customizadas por nome lógico. Cada item exige `type` registrado via `register_quality_rule(type, evaluator)`. |
-
-Ações:
-
-| Ação | Comportamento |
-|---|---|
-| `fail` | Interrompe a execução e registra falha. |
-| `warn` | Registra falhas, mas continua a escrita. |
-| `quarantine` | Grava registros inválidos em quarentena e escreve apenas registros válidos. Vale para regras de linha (`not_null`, `accepted_values`, `max_null_ratio`); regras de conjunto (`unique_key`, `min_rows`, `required_columns`) não isolam linhas e escalam para `fail`. |
-
-Exemplo com dicionário:
-
+**Python:**
 ```python
 ingest(
     source="b_orders",
@@ -660,26 +1036,74 @@ ingest(
                 "expression": "amount > 0",
                 "severity": "quarantine",
                 "message": "Valor deve ser positivo.",
-            }
+            },
+            {
+                "name": "valid_period",
+                "expression": "end_date >= start_date",
+                "severity": "abort",
+                "message": "Período inválido — dados inconsistentes.",
+            },
         ],
     },
-    # unique_key, min_rows e required_columns são abort-only: a falha aborta
-    # a execução. Para quarentena efetiva, remova-as e use regras de linha:
-    # not_null, accepted_values, max_null_ratio ou expressions com severity="quarantine".
-    on_quality_fail="fail"
+    on_quality_fail="quarantine",
+    # unique_key e required_columns são abort-only:
+    # se falharem, a execução escala para fail mesmo com on_quality_fail="quarantine".
+    # Para quarentena efetiva, use apenas not_null, accepted_values, max_null_ratio
+    # e expressions com severity="quarantine".
 )
 ```
 
-Exemplo com dataclass:
+**YAML (`contracts/silver/c_orders.yaml`):**
+```yaml
+source: b_orders
+target_table: c_orders
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: order_id
+quality_rules:
+  required_columns: [order_id, updated_at, status]
+  not_null: [order_id, updated_at]
+  unique_key: [order_id]
+  accepted_values:
+    status: [open, closed, cancelled]
+  min_rows: 1
+  max_null_ratio:
+    customer_email: 0.20
+  expressions:
+    - name: positive_amount
+      expression: "amount > 0"
+      severity: quarantine
+      message: "Valor deve ser positivo."
+    - name: valid_period
+      expression: "end_date >= start_date"
+      severity: abort
+      message: "Período inválido — dados inconsistentes."
+on_quality_fail: quarantine
+# unique_key, required_columns e min_rows são abort-only:
+# se falharem, a execução escala para fail mesmo com quarantine.
+notebook_name: silver_orders
+schema_policy: additive_only
+```
+
+### 7.7 Exemplo com QualityRules via Dataclass
 
 ```python
-from lakehouse_ingestion import QualityRules
+from lakehouse_ingestion import QualityRules, QualityExpression
 
 rules = QualityRules(
     required_columns=["id_cliente", "updated_at"],
     not_null=["id_cliente"],
     unique_key=["id_cliente"],
-    max_null_ratio={"email": 0.15}
+    max_null_ratio={"email": 0.15},
+    expressions=[
+        QualityExpression(
+            name="valid_email",
+            expression="email RLIKE '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Za-z]{2,}$'",
+            severity="quarantine",
+            message="Email em formato inválido.",
+        )
+    ],
 )
 
 ingest(
@@ -690,496 +1114,752 @@ ingest(
     mode="scd1_upsert",
     merge_keys="id_cliente",
     quality_rules=rules,
-    on_quality_fail="fail"
+    on_quality_fail="fail",
 )
 ```
 
-### 8.8 Execução, observabilidade e linhagem
+### 7.8 Limite de `accepted_values`
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `dry_run` | `bool` | `False` | Prepara e valida a ingestão sem efeitos colaterais: não cria schemas/ctrl tables, não aplica `ALTER TABLE ADD COLUMNS`, não persiste em `ctrl_ingestion_quality`/`quarantine`/`runs`/`state`/`lineage`. Apenas as validações (schema policy, quality gates, watermark) executam. |
-| `explain_mode` | `bool` | `False` | Captura `df.explain()` e persiste o resultado. |
-| `explain_format` | `str` | `"formatted"` | Formato do explain. Valores comuns: `simple`, `extended`, `formatted`, `cost`, `codegen`. |
-| `openlineage_enabled` | `bool` | `False` | Gera e persiste evento OpenLineage em JSON. |
-| `openlineage_namespace` | `str | None` | `None` | Namespace usado no evento. Se omitido, usa catálogo/camada. |
-| `openlineage_producer` | `str` | `"lakehouse-ingestion-framework"` | Identificador do produtor no evento OpenLineage. |
-| `use_cache` | `bool` | `True` | Permite cache do DataFrame preparado. Desabilitado automaticamente em ambientes incompatíveis. |
-| `lock_enabled` | `bool` | `False` | Ativa lock operacional best-effort. |
-| `description`, `owner`, `domain`, `sla` | `str | None` | `None` | Metadados declarativos do contrato para auditoria. |
-| `tags` | `List[str]` | `[]` | Tags do contrato. |
-| `runtime_parameters` | `Dict[str, Any]` | `{}` | Parâmetros de execução propagados para retorno e ctrl table. |
-
-Exemplo com `dry_run`:
+O framework impõe um limite de **1000 valores** por coluna em `accepted_values` (configurável via `FrameworkConfig.max_inline_accepted_values`). Acima disso, `isin([...])` no Spark causa problemas de performance. A solução é usar uma tabela de referência + `LEFT ANTI JOIN` antes da chamada:
 
 ```python
-result = ingest(
-    source="b_orders",
-    target_table="c_orders",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="order_id",
-    dry_run=True
+# Em vez de accepted_values com 10k itens:
+df_clean = df.join(
+    spark.table("ref.tipos_validos"),
+    on="tipo",
+    how="leftsemi"  # mantém apenas os válidos
 )
-
-print(result)
+# Depois chama ingest() com o df_clean
 ```
 
-Exemplo com explain e OpenLineage:
+### 7.9 Regras Customizadas via Registry
+
+Para casos específicos, registre avaliadores com `register_quality_rule`. O avaliador recebe `(df, rule_name, config)` e retorna ao menos `failed_count`; pode retornar `message`, `details` e `condition` para regras quarentenáveis.
 
 ```python
+from lakehouse_ingestion import register_quality_rule, ingest
+from pyspark.sql import functions as F
+
+def freshness_rule(df, rule_name, config):
+    column = config["column"]
+    max_age_days = int(config["max_age_days"])
+    condition = F.col(column) < F.date_sub(F.current_date(), max_age_days)
+    return {
+        "failed_count": df.where(condition).count(),
+        "condition": condition,
+        "message": f"{column} excedeu {max_age_days} dias",
+    }
+
+register_quality_rule("freshness", freshness_rule)
+
 ingest(
-    source="b_orders",
-    target_table="c_orders",
-    catalog="main",
-    layer="silver",
+    source="b_events",
+    target_table="c_events",
     mode="scd1_upsert",
-    merge_keys="order_id",
-    explain_mode=True,
-    explain_format="formatted",
-    openlineage_enabled=True,
-    openlineage_namespace="main.silver"
-)
-```
-
-### 8.9 Integração com orquestradores
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---:|---|---|
-| `parent_run_id` | `str | None` | `None` | ID de execução pai. Útil em DAGs ou jobs compostos. |
-| `run_group_id` | `str | None` | `None` | ID lógico do grupo de execução. |
-| `master_job_id` | `str | None` | `None` | ID do job mestre no orquestrador. |
-| `master_run_id` | `str | None` | `None` | ID da execução mestre no orquestrador. |
-
-Exemplo:
-
-```python
-ingest(
-    source="b_items",
-    target_table="c_items",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="item_id",
-    parent_run_id=dbutils.widgets.get("parent_run_id"),
-    run_group_id=dbutils.widgets.get("run_group_id"),
-    master_job_id=dbutils.widgets.get("job_id"),
-    master_run_id=dbutils.widgets.get("run_id")
+    merge_keys="event_id",
+    quality_rules={
+        "custom": {
+            "event_freshness": {
+                "type": "freshness",
+                "column": "event_date",
+                "max_age_days": 7,
+                "severity": "warn",
+            }
+        }
+    },
 )
 ```
 
 ---
 
-## 9. Retorno da execução
+## 8. Schema Policy — Evolução de Schema
 
-A função retorna um dicionário com métricas e metadados.
+### 8.1 Políticas
 
-| Campo | Descrição |
-|---|---|
-| `status` | `SUCCESS` ou `FAILED`. |
-| `run_id` | Identificador único da execução. |
-| `target_table` | Nome completo da tabela alvo. |
-| `source_table` | Nome da origem ou `dataframe`. |
-| `mode` | Modo de escrita executado. |
-| `rows_read` | Quantidade de linhas após preparação. |
-| `rows_written` | Quantidade de linhas consideradas na escrita. |
-| `rows_inserted` | Linhas inseridas conforme Delta history ou fallback lógico. |
-| `rows_updated` | Linhas atualizadas conforme Delta history ou fallback lógico. |
-| `rows_deleted` | Linhas removidas/marcadas conforme Delta history ou fallback lógico. |
-| `rows_quarantined` | Quantidade de registros enviados à quarentena. |
-| `metrics_source` | Origem das métricas: `logical` ou `mixed`. |
-| `framework_version` | Versão da biblioteca que executou a ingestão. |
-| `ctrl_schema_version` | Versão do schema das tabelas de controle. |
-| `runtime_type` | Tipo de runtime detectado: `classic` ou `serverless`. |
-| `spark_version` | Versão Spark reportada pela sessão. |
-| `python_version` | Versão Python do processo executor. |
-| `watermark_previous` | Watermark antes da execução. |
-| `watermark_current` | Watermark após a execução bem-sucedida. |
-| `quality_status` | `PASSED`, `FAILED` ou `NOT_CONFIGURED`. |
-| `schema_changes` | Diferenças de schema detectadas. |
-| `operation_metrics` | Métricas obtidas no histórico Delta. |
-| `write_committed` | Indica se houve commit Delta associado à escrita. |
-| `delta_version_before` | Versão Delta antes da escrita. |
-| `delta_version_after` | Versão Delta após a escrita. |
-| `write_delta_version` | Versão Delta do commit de escrita, quando aplicável. |
-| `explain_captured` | Indica se o explain foi capturado. |
-| `openlineage_event_emitted` | Indica se o evento OpenLineage foi persistido. |
-| `openlineage_event` | Evento OpenLineage em formato de dicionário. |
-| `idempotency_key`, `idempotency_policy` | Chave e política de idempotência usadas. |
-| `skip_reason`, `skipped_by_run_id` | Motivo e execução original quando `status="SKIPPED"`. |
-| `stage_durations` | Duração por etapa (`read`, `schema`, `quality`, `write`, `state_update`, `lineage`, etc.). |
-| `contract_metadata` | Metadados declarativos do contrato (`description`, `owner`, `domain`, `tags`, `sla`, `runtime_parameters`). |
-| `error_message` | Mensagem curta do erro, quando houver falha. |
+| Política | Novas Colunas | Colunas Removidas | Mudança de Tipo | Quando usar |
+|----------|---------------|-------------------|-----------------|-------------|
+| `"permissive"` | ✅ Aceita (adiciona via ALTER) | ✅ Aceita | ❌ Rejeita inseguras | Origens instáveis, fase de descoberta |
+| `"additive_only"` | ✅ Aceita (adiciona via ALTER) | ❌ Rejeita | ❌ Rejeita inseguras | Silver/Gold com contratos que só crescem |
+| `"strict"` | ❌ Rejeita | ❌ Rejeita | ❌ Rejeita | Tabelas de consumo com contrato fixo |
 
-Exemplo de consumo:
+### 8.2 Tipo de Mudanças Bloqueadas vs Permitidas
+
+**Sempre bloqueadas** (mudanças potencialmente destrutivas):
+- `string → int`, `double → int`, `timestamp → date`, etc.
+
+**Permitidas com `allow_type_widening=True`** (alargamentos seguros):
+- `int → bigint`, `smallint → int`, `tinyint → smallint`
+- `float → double`
+- Aumento de precisão decimal (ex.: `decimal(10,2) → decimal(18,2)`)
+- `date → timestamp`
+- `int → double`
+
+Quando `allow_type_widening=True` e uma mudança segura é detectada, o framework aplica `ALTER TABLE ALTER COLUMN TYPE` e registra em `ctrl_ingestion_schema_changes`.
+
+### 8.3 Exemplos
 
 ```python
-result = ingest(...)
+# Bronze: esquema de origem instável, aceitamos qualquer coisa
+ingest(source="raw_events", target_table="b_events",
+       layer="bronze", mode="scd0_append", schema_policy="permissive")
 
-if result["status"] != "SUCCESS":
-    raise RuntimeError(result["error_message"])
+# Silver: contrato aditivo — colunas novas OK, mas nada de remover ou mudar tipo
+ingest(source="b_cliente", target_table="c_cliente",
+       layer="silver", mode="scd1_upsert", merge_keys="id",
+       schema_policy="additive_only")
 
-print(result["rows_written"])
-print(result["delta_version_after"])
+# Gold: tabela de consumo com schema fixo
+ingest(source=df_agg, target_table="f_vendas_diario",
+       layer="gold", mode="scd0_overwrite", schema_policy="strict")
+
+# Com alargamento de tipo:
+ingest(source=df, target_table="c_metricas",
+       layer="silver", mode="scd1_upsert", merge_keys="id",
+       schema_policy="additive_only", allow_type_widening=True)
 ```
+
+**Exemplo YAML unificado de schema policy por camada:**
+
+```yaml
+# contracts/bronze/b_events.yaml — origem instável
+source: raw_events
+target_table: b_events
+catalog: main
+layer: bronze
+mode: scd0_append
+schema_policy: permissive        # aceita qualquer schema
+
+---
+# contracts/silver/c_cliente.yaml — contrato aditivo
+source: b_cliente
+target_table: c_cliente
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: id_cliente
+schema_policy: additive_only      # só adiciona colunas
+
+---
+# contracts/gold/f_vendas_diario.yaml — schema fixo
+source: c_vendas
+target_table: f_vendas_diario
+catalog: main
+layer: gold
+mode: scd0_overwrite
+schema_policy: strict             # rejeita qualquer divergência
+
+---
+# contracts/silver/c_metricas.yaml — aditivo com alargamento
+source: b_metricas
+target_table: c_metricas
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: id
+schema_policy: additive_only
+allow_type_widening: true         # int→bigint, float→double, etc.
+```
+
+> **Nota:** `allow_type_widening=True` é incompatível com `schema_policy="strict"` (validado em construção do plan).
 
 ---
 
-## 10. Tabelas de controle
+## 9. Watermarks — Carga Incremental
 
-As tabelas são criadas automaticamente no schema definido por `ctrl_schema`, por padrão `ops`.
+### 9.1 Conceito
 
-### 10.1 `ctrl_ingestion_runs`
+Watermarks permitem que cada execução processe apenas dados **novos** (posteriores ao último processamento bem-sucedido). O framework persiste o watermark em `ctrl_ingestion_state` como JSON tipado, garantindo que:
+- Comparações preservam tipos (`timestamp > timestamp`, `bigint > bigint`)
+- O watermark **só avança** após execução com `status=SUCCESS`
+- Em falha, o watermark anterior é mantido (não regride nem avança)
 
-Histórico completo de execuções.
+### 9.2 Watermark Simples (1 coluna)
 
-Principais colunas:
-
-| Coluna | Descrição |
-|---|---|
-| `run_id` | ID único da execução. |
-| `run_ts_utc` | Timestamp lógico da execução. |
-| `run_date` | Data UTC usada como partição. |
-| `notebook_name` | Nome lógico do notebook ou job. |
-| `layer` | Camada alvo. |
-| `source_table` | Origem. |
-| `target_table` | Destino. |
-| `mode` | Modo de escrita. |
-| `status` | Status final. |
-| `rows_read` | Linhas lidas/preparadas. |
-| `rows_written` | Linhas escritas. |
-| `rows_inserted` | Linhas inseridas conforme métricas Delta. |
-| `rows_updated` | Linhas atualizadas conforme métricas Delta. |
-| `rows_deleted` | Linhas removidas ou marcadas conforme operação Delta. |
-| `rows_quarantined` | Linhas enviadas à quarentena. |
-| `watermark_previous` | Watermark anterior. |
-| `watermark_current` | Watermark final. |
-| `duration_seconds` | Duração total. |
-| `quality_status` | Resultado dos quality gates. |
-| `schema_policy` | Política de schema usada. |
-| `schema_changes_json` | Diferenças estruturais detectadas. |
-| `stage_durations_json` | Duração por etapa da execução. |
-| `contract_description`, `contract_owner`, `contract_domain`, `contract_sla` | Metadados declarativos do contrato. |
-| `contract_tags_json`, `runtime_parameters_json` | Tags e parâmetros runtime serializados em JSON. |
-| `operation_metrics_json` | Métricas do histórico Delta. |
-| `write_committed` | Indica se houve commit de escrita. |
-| `delta_version_before` | Versão Delta antes. |
-| `delta_version_after` | Versão Delta depois. |
-| `error_message` | Mensagem curta do erro. Stack completo fica em `ctrl_ingestion_errors`. |
-| `idempotency_policy`, `skip_reason`, `skipped_by_run_id` | Controle de idempotência e reexecução. |
-| `framework_version`, `ctrl_schema_version` | Versões da biblioteca e do schema de controle. |
-| `runtime_type`, `spark_version`, `python_version` | Metadados do runtime para suporte e auditoria. |
-
-Consulta útil:
-
-```sql
-SELECT
-  run_date,
-  target_table,
-  mode,
-  status,
-  rows_read,
-  rows_written,
-  rows_quarantined,
-  duration_seconds,
-  delta_version_after
-FROM main.ops.ctrl_ingestion_runs
-ORDER BY run_ts_utc DESC;
+**Python:**
+```python
+ingest(
+    source="raw_orders",
+    target_table="b_orders",
+    catalog="main",
+    layer="bronze",
+    mode="scd0_append",
+    watermark_columns="updated_at",  # processa apenas linhas com updated_at > último watermark
+)
 ```
 
-### 10.2 `ctrl_ingestion_state`
-
-Estado corrente por tabela alvo.
-
-| Coluna | Descrição |
-|---|---|
-| `target_table` | Tabela alvo. |
-| `watermark_column` | Colunas de watermark usadas. |
-| `watermark_value` | Watermark atual serializado em JSON. |
-| `last_success_at_utc` | Última execução bem-sucedida. |
-| `last_run_id` | Último run associado. |
-| `last_status` | Último status. |
-| `last_rows_written` | Linhas escritas na última execução. |
-| `last_delta_version` | Última versão Delta conhecida. |
-| `last_write_completed_at_utc` | Momento de conclusão da escrita. |
-| `last_watermark_candidate` | Watermark candidato calculado antes da escrita. |
-| `last_updated_at_utc` | Última atualização do estado. |
-
-Consulta útil:
-
-```sql
-SELECT
-  target_table,
-  last_status,
-  watermark_column,
-  watermark_value,
-  last_delta_version,
-  last_success_at_utc
-FROM main.ops.ctrl_ingestion_state
-ORDER BY last_updated_at_utc DESC;
+**YAML (`contracts/bronze/b_orders.yaml`):**
+```yaml
+source: raw_orders
+target_table: b_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+watermark_columns: updated_at
 ```
 
-### 10.3 `ctrl_ingestion_quality`
+Filtro gerado: `WHERE updated_at > '2024-01-15 12:30:00'`
 
-Resultado das regras de qualidade por execução.
+### 9.3 Watermark Composto (múltiplas colunas)
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução. |
-| `target_table` | Destino. |
-| `rule_name` | Nome da regra. |
-| `status` | Resultado da regra. |
-| `severity` | Severidade declarada ou inferida: `warn`, `quarantine`, `abort`. |
-| `failed_count` | Quantidade de falhas. |
-| `checked_at_utc` | Momento da verificação. |
-| `message` | Mensagem customizada ou padrão da regra. |
-| `details_json` | Detalhes da regra. |
+**Python:**
+```python
+ingest(
+    source="raw_movimentos",
+    target_table="b_movimentos",
+    catalog="main",
+    layer="bronze",
+    mode="scd0_append",
+    watermark_columns="data_movimento|hora_movimento|seq_movimento",
+)
+```
 
-### 10.4 `ctrl_ingestion_quarantine`
+**YAML (`contracts/bronze/b_movimentos.yaml`):**
+```yaml
+source: raw_movimentos
+target_table: b_movimentos
+catalog: main
+layer: bronze
+mode: scd0_append
+watermark_columns: data_movimento|hora_movimento|seq_movimento
+```
 
-Registros rejeitados quando `on_quality_fail="quarantine"`.
+Filtro gerado (comparação lexicográfica):
+```sql
+WHERE (data_movimento > L1)
+   OR (data_movimento = L1 AND hora_movimento > L2)
+   OR (data_movimento = L1 AND hora_movimento = L2 AND seq_movimento > L3)
+```
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução. |
-| `target_table` | Destino lógico. |
-| `rule_name` | Regra que enviou o registro para quarentena. |
-| `error_reason` | Motivo serializado. |
-| `record_payload` | Registro original em JSON. |
-| `quarantined_at_utc` | Momento da quarentena. |
+### 9.4 Encoding do Watermark
 
-### 10.5 `ctrl_ingestion_errors`
+Watermarks são serializados como JSON com tipo e valor:
 
-Stack traces completos de execuções com falha. Use esta tabela para diagnóstico detalhado sem poluir `ctrl_ingestion_runs`.
+```json
+{
+  "updated_at": {"type": "timestamp", "value": "2024-01-15 12:30:00"},
+  "version":    {"type": "bigint", "value": "42"}
+}
+```
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução com falha. |
-| `error_ts_utc`, `error_date` | Momento e partição do erro. |
-| `target_table`, `source_table`, `mode`, `status` | Contexto operacional. |
-| `error_type` | Classe da exceção. |
-| `error_message` | Mensagem curta. |
-| `stack_trace` | Traceback completo. |
-| `framework_version`, `ctrl_schema_version` | Versões da biblioteca e do schema de controle. |
-| `runtime_type`, `spark_version`, `python_version` | Metadados do runtime. |
+### 9.5 Fallback em Cascata
 
-### 10.6 `ctrl_ingestion_metadata`
+Quando `ctrl_ingestion_state` não tem watermark (primeira execução ou perda da state table), o framework tenta:
+1. `SELECT MAX(col) FROM target_table` diretamente
+2. Se o target não existe → `None` (processa tudo)
 
-Tabela de uma linha por componente para registrar `framework_version`, `ctrl_schema_version` e `updated_at_utc`.
+### 9.6 Troubleshooting de Watermark
 
-### 10.7 `ctrl_ingestion_schema_changes`
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Watermark não avança | Falha na execução, coluna com NULLs, ou sem dados novos | Verifique `ctrl_ingestion_state.watermark_value` e logs de erro |
+| Dados duplicados | Coluna de watermark não é monótona | Use `dedup_order_expr` ou `unique_key` nos quality gates |
+| "Watermark não contém as colunas esperadas" | Mudou `watermark_columns` entre execuções | Limpe a state table ou use uma nova `target_table` |
 
-Histórico de evolução estrutural aplicada ou detectada no destino.
+---
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução que detectou a mudança. |
-| `change_ts_utc` | Timestamp de registro da mudança. |
-| `target_table` | Tabela Delta afetada. |
-| `change_type` | `add_column` ou `type_change`. |
-| `column_name` | Coluna afetada. |
-| `source_type`, `target_type` | Tipo novo vindo da fonte e tipo anterior do destino, quando aplicável. |
-| `applied` | Indica se o framework aplicou a mudança. |
-| `details_json` | Detalhes da validação. |
-| `framework_version`, `ctrl_schema_version` | Versões para auditoria. |
-O framework aplica apenas migrações aditivas conhecidas com `ALTER TABLE ADD COLUMNS`; colunas nunca são removidas automaticamente.
+## 10. Estratégias de Merge (scd1_upsert)
 
-### 10.7 `ctrl_ingestion_locks`
+O parâmetro `merge_strategy` controla como o `MERGE` é executado em `scd1_upsert`:
 
-Reserva operacional best-effort por tabela alvo.
+### 10.1 `"delta"` (default)
 
-| Coluna | Descrição |
-|---|---|
-| `target_table` | Tabela protegida. |
-| `run_id` | Execução que adquiriu o lock. |
-| `owner` | Dono operacional do lock. |
-| `acquired_at_utc` | Momento de aquisição. |
-| `expires_at_utc` | Expiração por TTL. |
-| `ttl_minutes` | TTL configurado. |
-| `released_at_utc` | Momento de liberação. |
-| `status` | `ACTIVE` ou `RELEASED`. |
+MERGE puro com `t.key <=> s.key` (IS NOT DISTINCT FROM). Varre toda a tabela target.
 
-O lock não é uma exclusão pessimista distribuída. Ele reduz colisões operacionais, mas a consistência final continua baseada no controle otimista do Delta Lake.
+**Python:**
+```python
+ingest(source=df, target_table="c_cliente", mode="scd1_upsert",
+       merge_keys="id_cliente", merge_strategy="delta")
+```
 
-### 10.8 `ctrl_ingestion_explain`
+**YAML:**
+```yaml
+merge_strategy: delta   # default, pode ser omitido
+```
 
-Planos capturados quando `explain_mode=True`.
+**Quando usar:** Tabelas pequenas/médias, ou quando não há partição relevante para filtrar.
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução. |
-| `target_table` | Destino. |
-| `source_table` | Origem. |
-| `mode` | Modo de escrita. |
-| `explain_format` | Formato usado. |
-| `plan_text` | Texto retornado por `df.explain`. |
-| `captured_at_utc` | Momento da captura. |
+### 10.2 `"delta_by_partition"`
 
-### 10.9 `ctrl_ingestion_lineage`
+Adiciona predicado `AND t.partition_col IN (valores_afetados)` na cláusula `ON`, reduzindo arquivos varridos.
+
+**Python:**
+```python
+ingest(source=df, target_table="c_vendas", mode="scd1_upsert",
+       merge_keys="id_venda",
+       merge_strategy="delta_by_partition",
+       merge_partition_column="dt_venda")
+```
+
+**YAML (`contracts/silver/c_vendas.yaml`):**
+```yaml
+source: b_vendas
+target_table: c_vendas
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: id_venda
+merge_strategy: delta_by_partition
+merge_partition_column: dt_venda
+```
+
+**Quando usar:** Tabelas grandes particionadas, quando o source toca poucas partições.
+
+### 10.3 `"replace_partitions"`
+
+Não faz MERGE — faz **OVERWRITE** com `replaceWhere = partition_col IN (vals)`. Assume que o source contém o **estado completo** das partições afetadas.
+
+**Python:**
+```python
+ingest(source=df, target_table="f_vendas_diario", mode="scd1_upsert",
+       merge_keys="id_venda",
+       merge_strategy="replace_partitions",
+       merge_partition_column="dt_referencia",
+       replace_partitions_source_complete=True)
+```
+
+**YAML (`contracts/gold/f_vendas_diario.yaml`):**
+```yaml
+source: c_vendas
+target_table: f_vendas_diario
+catalog: main
+layer: gold
+mode: scd1_upsert
+merge_keys: id_venda
+merge_strategy: replace_partitions
+merge_partition_column: dt_referencia
+replace_partitions_source_complete: true   # confirmação explícita obrigatória
+```
+
+**Quando usar:** Refeitura diária por partição onde o source tem o estado-fim completo daquela partição.
+
+> ⚠️ **Exigências:**
+> - `replace_partitions_source_complete=True` é obrigatório (confirmação explícita do usuário)
+> - `merge_partition_column` é obrigatório
+> - Se `partition_column` também for informado, deve ser igual a `merge_partition_column`
+> - Linhas que existem no target mas não no source **serão perdidas** nas partições afetadas
+
+### 10.4 Performance Relativa
+
+| Estratégia | Velocidade | Custo | Risco |
+|------------|-----------|-------|-------|
+| `delta` | Base | Base | Nenhum |
+| `delta_by_partition` | Mais rápida | Menor | Nenhum (só reduz escopo) |
+| `replace_partitions` | Mais rápida | Menor | Perda de dados se source incompleto |
+
+---
+
+## 11. Locks, Idempotência, Retry e Concorrência
+
+### 11.1 Lock Operacional (`lock_enabled`)
+
+Lock best-effort por `target_table` usando `ctrl_ingestion_locks`:
+
+**Python:**
+```python
+ingest(source="b_cliente", target_table="c_cliente",
+       mode="scd1_upsert", merge_keys="id_cliente",
+       lock_enabled=True)
+```
+
+**YAML:**
+```yaml
+lock_enabled: true
+```
+
+**Funcionamento:**
+- Antes da escrita, faz MERGE em `ctrl_ingestion_locks` e lê de volta para confirmar que este `run_id` ficou como `ACTIVE`
+- Locks expirados (TTL padrão: 120 min) são rompidos automaticamente
+- No `finally`, o lock é liberado (`status=RELEASED`)
+- **Best-effort:** há janela de corrida entre MERGE e read-back
+
+> O lock **não substitui** o controle otimista de concorrência do Delta Lake. Use para reduzir colisões previsíveis. A consistência final continua baseada no Delta.
+
+### 11.2 Retry para Conflitos Delta
+
+O framework automaticamente retenta operações de escrita que falham com erros de concorrência Delta:
+
+```python
+# Configurável via FrameworkConfig (default: 3 tentativas, backoff 5s linear + jitter)
+with_retry(lambda: execute_write_mode(...))
+```
+
+**Erros que disparam retry:** `CONCURRENT`, `CONFLICT`, `RETRY`, `DELTA_CONCURRENT`
+
+**Erros que NÃO disparam retry** (propagam imediatamente): OOM, schema mismatch, permissão, etc.
+
+### 11.3 Idempotência (`idempotency_key` + `idempotency_policy`)
+
+Permite identificar unicamente um lote lógico e controlar reexecuções:
+
+| `idempotency_policy` | Comportamento |
+|---------------------|---------------|
+| `"always_run"` | Sempre executa (default) |
+| `"skip_if_success"` | Se já existe `SUCCESS` para esta `idempotency_key`, retorna `status="SKIPPED"` |
+| `"rerun_if_failed"` | Se já existe `SUCCESS`, pula. Se último status foi `FAILED`, reexecuta |
+| `"fail_if_success"` | Se já existe `SUCCESS`, **aborta com erro** (proteção contra dupla execução) |
+
+**Python:**
+```python
+ingest(
+    source="b_pedidos",
+    target_table="c_pedidos",
+    mode="scd1_upsert",
+    merge_keys="id_pedido",
+    idempotency_key="job-42:batch-2026-05-11",
+    idempotency_policy="skip_if_success",
+)
+```
+
+**YAML (`contracts/silver/c_pedidos.yaml`):**
+```yaml
+source: b_pedidos
+target_table: c_pedidos
+mode: scd1_upsert
+merge_keys: id_pedido
+idempotency_key: "job-42:batch-2026-05-11"
+idempotency_policy: skip_if_success
+```
+
+> `idempotency_policy != "always_run"` exige `idempotency_key` (validado em construção do plan).
+
+---
+
+## 12. Observabilidade — Tabelas de Controle
+
+As tabelas de controle são criadas automaticamente no schema `ctrl_schema` (default `ops`):
+
+### 12.1 `ctrl_ingestion_runs`
+
+Histórico completo de todas as execuções. Particionada por `run_date`.
+
+**Colunas principais:** `run_id`, `run_ts_utc`, `run_date`, `notebook_name`, `layer`, `source_table`, `target_table`, `mode`, `status`, `rows_read`, `rows_written`, `rows_inserted`, `rows_updated`, `rows_deleted`, `rows_quarantined`, `watermark_previous`, `watermark_current`, `duration_seconds`, `quality_status`, `schema_policy`, `schema_changes_json`, `stage_durations_json`, `operation_metrics_json`, `write_committed`, `delta_version_before`, `delta_version_after`, `error_message`, `idempotency_key`, `idempotency_policy`, `skip_reason`, `skipped_by_run_id`, `contract_description`, `contract_owner`, `contract_domain`, `contract_tags_json`, `contract_sla`, `runtime_parameters_json`, `metrics_source`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`.
+
+### 12.2 `ctrl_ingestion_state`
+
+Uma linha por `target_table` — sempre o estado mais recente.
+
+**Colunas:** `target_table` (PK), `watermark_column`, `watermark_value`, `last_success_at_utc`, `last_run_id`, `last_status`, `last_rows_written`, `last_error_message`, `last_delta_version`, `last_write_completed_at_utc`, `last_watermark_candidate`, `last_updated_at_utc`, `parent_run_id`, `run_group_id`, `master_job_id`, `master_run_id`.
+
+### 12.3 `ctrl_ingestion_quality`
+
+Uma linha por regra que falhou, por execução.
+
+**Colunas:** `run_id`, `target_table`, `rule_name`, `status`, `severity`, `failed_count`, `checked_at_utc`, `message`, `details_json`.
+
+### 12.4 `ctrl_ingestion_quarantine`
+
+Linhas isoladas quando `on_quality_fail="quarantine"`.
+
+**Colunas:** `run_id`, `target_table`, `rule_name`, `error_reason`, `record_payload` (JSON da linha original), `quarantined_at_utc`.
+
+### 12.5 `ctrl_ingestion_errors`
+
+Stack traces completos de execuções com falha.
+
+**Colunas:** `run_id`, `error_ts_utc`, `error_date` (partição), `target_table`, `source_table`, `mode`, `status`, `error_type`, `error_message`, `stack_trace`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`.
+
+### 12.6 `ctrl_ingestion_locks`
+
+Reserva operacional best-effort por `target_table`.
+
+**Colunas:** `target_table` (PK), `run_id`, `owner`, `acquired_at_utc`, `expires_at_utc`, `ttl_minutes`, `released_at_utc`, `status` (`ACTIVE`/`RELEASED`).
+
+### 12.7 `ctrl_ingestion_explain`
+
+Planos Spark capturados com `explain_mode=True`.
+
+**Colunas:** `run_id`, `target_table`, `source_table`, `mode`, `explain_format`, `plan_text`, `captured_at_utc`.
+
+### 12.8 `ctrl_ingestion_lineage`
 
 Eventos OpenLineage em JSON.
 
-| Coluna | Descrição |
-|---|---|
-| `run_id` | Execução. |
-| `event_time_utc` | Momento do evento. |
-| `event_type` | Tipo do evento. |
-| `target_table` | Destino. |
-| `source_table` | Origem. |
-| `namespace` | Namespace OpenLineage. |
-| `producer` | Produtor. |
-| `event_json` | Evento completo em JSON. |
+**Colunas:** `run_id`, `event_time_utc`, `event_type`, `target_table`, `source_table`, `namespace`, `producer`, `event_json`.
+
+### 12.9 `ctrl_ingestion_metadata`
+
+Uma linha por componente. Registra `framework_version`, `ctrl_schema_version` e `updated_at_utc`.
+
+### 12.10 `ctrl_ingestion_schema_changes`
+
+Histórico de evolução estrutural (adições de colunas, mudanças de tipo).
+
+**Colunas:** `run_id`, `change_ts_utc`, `target_table`, `change_type` (`add_column`/`type_change`/`type_widening`), `column_name`, `source_type`, `target_type`, `applied`, `details_json`, `framework_version`, `ctrl_schema_version`.
+
+### 12.11 `ctrl_ingestion_streams`
+
+Histórico das execuções externas de `SourceSpec`/Autoloader `available_now`.
+
+**Colunas:** `stream_run_id`, `idempotency_key`, `idempotency_policy`, `skip_reason`, `skipped_by_stream_run_id`, `target_table`, `target_catalog`, `target_layer`, `notebook_name`, `source_type`, `source_path`, `trigger`, `checkpoint_location`, `status`, `started_at_utc`, `ended_at_utc`, `duration_seconds`, `batches_processed`, `total_rows_read`, `total_rows_written`, `total_rows_quarantined`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`, `error_message`, `master_job_id`, `master_run_id`, `parent_run_id`, `run_group_id`.
+
+### 12.12 Consultas Úteis
+
+```sql
+-- Últimas execuções por tabela
+SELECT target_table, status, rows_written, duration_seconds, started_at_utc
+FROM ops.ctrl_ingestion_runs
+WHERE run_date = current_date()
+ORDER BY started_at_utc DESC;
+
+-- Estado atual de cada tabela
+SELECT target_table, last_status, watermark_value, last_delta_version, last_success_at_utc
+FROM ops.ctrl_ingestion_state
+ORDER BY last_updated_at_utc DESC;
+
+-- Falhas de qualidade recentes
+SELECT q.target_table, q.rule_name, q.failed_count, q.message, q.details_json
+FROM ops.ctrl_ingestion_quality q
+JOIN ops.ctrl_ingestion_runs r USING (run_id)
+WHERE r.run_date >= current_date() - 7
+ORDER BY q.failed_count DESC;
+
+-- Limpeza de dados antigos
+DELETE FROM ops.ctrl_ingestion_runs WHERE run_date < current_date() - 90;
+VACUUM ops.ctrl_ingestion_runs RETAIN 168 HOURS;
+
+-- Streams Autoloader recentes
+SELECT stream_run_id, target_table, source_path, status, batches_processed, total_rows_written
+FROM ops.ctrl_ingestion_streams
+ORDER BY started_at_utc DESC;
+```
 
 ---
 
-## 11. OpenLineage
+## 13. OpenLineage e Explain Mode
 
-Quando `openlineage_enabled=True`, a biblioteca emite um evento compatível com o modelo OpenLineage em JSON e o persiste em `ctrl_ingestion_lineage`.
+### 13.1 OpenLineage
 
-A emissão é operacional e técnica. Ela registra execução, origem, destino, modo, métricas e schema quando disponível. Ela não substitui uma solução corporativa completa de catálogo, lineage semântico ou impacto regulatório.
+Quando `openlineage_enabled=True`, o framework gera um evento OpenLineage 1.0.5 e persiste em `ctrl_ingestion_lineage`.
 
-Exemplo de ativação:
+**Facets incluídos no evento:**
+- `processing_engine` — engine=spark + version
+- `parent` — se `parent_run_id` informado
+- `sourceCodeLocation` — type=notebook, url=notebook_name
+- `schema` — colunas do input e output
+- `dataQualityMetrics` — rowCount do output
+- `lakehouse_ingestion` (custom) — mode, layer, rowsRead, rowsWritten, deltaVersionBefore/After, operationMetrics, started/finishedAt
 
 ```python
 ingest(
-    source="b_orders",
-    target_table="c_orders",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="order_id",
+    source="b_orders", target_table="c_orders",
+    mode="scd1_upsert", merge_keys="order_id",
     openlineage_enabled=True,
-    openlineage_namespace="main.silver",
-    openlineage_producer="lakehouse-ingestion-framework"
+    openlineage_namespace="databricks://main",  # opcional, default: databricks://<catalog>
+    openlineage_producer="lakehouse-ingestion-framework",
 )
 ```
 
-Uso típico:
+> Para enviar eventos a um collector externo (Marquez, OpenLineage proxy), crie um forwarder que leia `ctrl_ingestion_lineage` e faça POST HTTP.
 
-```sql
-SELECT
-  run_id,
-  event_time_utc,
-  event_type,
-  source_table,
-  target_table,
-  namespace
-FROM main.ops.ctrl_ingestion_lineage
-ORDER BY event_time_utc DESC;
-```
+### 13.2 Explain Mode
 
----
-
-## 12. Explain mode
-
-`explain_mode=True` captura o plano de execução do DataFrame preparado antes da escrita.
-
-Exemplo:
+Captura o plano de execução Spark do DataFrame preparado:
 
 ```python
 ingest(
-    source="b_movimentos",
-    target_table="c_movimentos",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="id_movimento",
+    source="b_movimentos", target_table="c_movimentos",
+    mode="scd1_upsert", merge_keys="id_movimento",
     explain_mode=True,
-    explain_format="formatted"
+    explain_format="formatted",  # simple, extended, formatted, cost, codegen
 )
 ```
 
-Consulta:
-
+**Consulta:**
 ```sql
-SELECT
-  run_id,
-  target_table,
-  explain_format,
-  plan_text
-FROM main.ops.ctrl_ingestion_explain
+SELECT run_id, explain_format, plan_text
+FROM ops.ctrl_ingestion_explain
 WHERE target_table = 'main.silver.c_movimentos'
 ORDER BY captured_at_utc DESC;
 ```
 
-Observações:
-
-- Em alguns ambientes Serverless, a captura de stdout pode variar conforme runtime.
-- O explain representa o DataFrame preparado, não necessariamente todo o plano interno do Delta MERGE.
-- Para análise de performance de MERGE, combine `ctrl_ingestion_explain` com `DESCRIBE HISTORY` da tabela alvo.
+> O explain é caro em DataFrames grandes — use apenas em desenvolvimento ou diagnóstico. O texto é truncado em 100.000 caracteres.
 
 ---
 
-## 13. Retry e concorrência
+## 14. Linhagem Operacional (parent/master)
 
-A biblioteca aplica retry com backoff para erros compatíveis com concorrência Delta, como conflitos de commit.
-
-O lock operacional pode ser ativado com:
+Os parâmetros `parent_run_id`, `run_group_id`, `master_job_id` e `master_run_id` são **puramente informativos** — não alteram o comportamento da ingestão, mas são propagados para `ctrl_ingestion_runs` e `ctrl_ingestion_state`, permitindo correlação com orquestradores externos.
 
 ```python
-lock_enabled=True
-```
-
-Exemplo:
-
-```python
+# Em um notebook de Databricks Workflow:
 ingest(
-    source="b_cliente",
-    target_table="c_cliente",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys="id_cliente",
-    lock_enabled=True
+    source="b_items", target_table="c_items",
+    mode="scd1_upsert", merge_keys="item_id",
+    parent_run_id=dbutils.widgets.get("parent_run_id"),
+    run_group_id=dbutils.widgets.get("run_group_id"),
+    master_job_id=dbutils.widgets.get("job_id"),
+    master_run_id=dbutils.widgets.get("run_id"),
 )
 ```
 
-Garantias:
-
-- O lock reduz a chance de dois jobs escreverem simultaneamente na mesma tabela alvo.
-- O lock possui TTL para reduzir efeito de locks órfãos.
-- O lock não substitui o modelo otimista do Delta Lake.
-- Em alta concorrência, ainda pode haver conflito Delta, tratado por retry.
-
----
-
-## 14. Garantias operacionais
-
-| Operação | Garantia prática |
-|---|---|
-| `scd0_append` | Commit Delta atômico por escrita. |
-| `scd0_overwrite` | Substituição Delta atômica. |
-| `scd1_upsert` | MERGE transacional Delta. |
-| `scd1_hash_diff` | Comparação por hash e append de diferenças detectadas. |
-| `scd2_historical` | Atualização histórica em commit Delta único com staged rows. |
-| `snapshot_soft_delete` | Sincronização por MERGE com marcação de ausentes. |
-| Watermark | Avança somente após execução bem-sucedida registrada. |
-| Quality gates | Executados antes da escrita. |
-| Quarentena | Persistência dos registros inválidos antes da escrita dos válidos. |
-| Locking | Best-effort, não pessimista. |
-| OpenLineage | Evento operacional persistido em tabela Delta. |
+**Uso em dashboards:**
+```sql
+-- Todas as execuções de um job run específico
+SELECT * FROM ops.ctrl_ingestion_runs
+WHERE master_run_id = '12345'
+ORDER BY started_at_utc;
+```
 
 ---
 
-## 15. Limitações conhecidas
+## 15. Metadados de Contrato
 
-- `snapshot_soft_delete` pressupõe snapshot completo da origem. Não use com carga parcial incremental.
-- Locking é best-effort e não exclusão pessimista distribuída.
-- Mudanças incompatíveis de tipo são rejeitadas em `additive_only` e `strict`.
-- `explain_mode` pode ter limitações em alguns runtimes Serverless.
-- Quality gates são intencionalmente simples. Regras complexas devem ser implementadas antes da chamada ou em camada especializada.
-- `accepted_values` não deve ser usado com listas grandes. Para domínios grandes, use join com tabela de referência antes da ingestão.
-- `OPTIMIZE` pode aumentar custo se executado após microcargas frequentes.
-- A biblioteca não gerencia grants do Unity Catalog.
-- A biblioteca não substitui testes automatizados de pipeline.
+Parâmetros que documentam o pipeline sem afetar a execução:
+
+```python
+ingest(
+    source="b_cliente", target_table="c_cliente",
+    mode="scd1_upsert", merge_keys="id_cliente",
+    description="Clientes consolidados do CRM com deduplicação por updated_at",
+    owner="data-platform",
+    domain="comercial",
+    tags=["silver", "cliente", "crm"],
+    sla="D+0 08:00",
+    runtime_parameters={"carga": "incremental", "prioridade": "alta"},
+)
+```
+
+Esses valores são propagados no retorno (`contract_metadata`) e em `ctrl_ingestion_runs` (colunas `contract_description`, `contract_owner`, `contract_domain`, `contract_tags_json`, `contract_sla`, `runtime_parameters_json`).
 
 ---
 
-## 16. Exemplos completos
+## 16. FrameworkConfig — Configuração Global
 
-### 16.1 Bronze append incremental
+Dataclass frozen com defaults globais. A instância singleton é `lakehouse_ingestion.config.CONFIG`.
 
+```python
+@dataclass(frozen=True)
+class FrameworkConfig:
+    default_catalog: str = "main"
+    default_source_system: str = "default"
+    default_partition_col: str = "ingestion_date"
+    ctrl_schema: str = "ops"
+    ctrl_table_runs: str = "ctrl_ingestion_runs"
+    ctrl_table_state: str = "ctrl_ingestion_state"
+    ctrl_table_quality: str = "ctrl_ingestion_quality"
+    ctrl_table_quarantine: str = "ctrl_ingestion_quarantine"
+    ctrl_table_locks: str = "ctrl_ingestion_locks"
+    ctrl_table_explain: str = "ctrl_ingestion_explain"
+    ctrl_table_lineage: str = "ctrl_ingestion_lineage"
+    ctrl_table_metadata: str = "ctrl_ingestion_metadata"
+    ctrl_table_errors: str = "ctrl_ingestion_errors"
+    ctrl_table_schema_changes: str = "ctrl_ingestion_schema_changes"
+    ctrl_table_streams: str = "ctrl_ingestion_streams"
+    max_error_len: int = 8000
+    default_lock_ttl_minutes: int = 120
+    default_retry_attempts: int = 3
+    default_retry_backoff_seconds: int = 5
+    max_inline_accepted_values: int = 1000
+    max_partition_predicate_values: int = 1000
+```
+
+**Customização (monkey-patch, use com cautela):**
+```python
+import lakehouse_ingestion.config as cfg
+cfg.CONFIG = cfg.FrameworkConfig(ctrl_schema="my_ops", default_retry_attempts=5)
+```
+
+> Prefira passar valores no `IngestionPlan` (ex.: `ctrl_schema="my_ops"`) em vez de alterar o CONFIG global.
+
+---
+
+## 16B. Extensões Programáticas
+
+### 16B.1 Hooks de Ingestão
+
+`IngestionHooks` permite pontos explícitos de extensão sem alterar o core. Hooks que recebem DataFrame devem retornar um DataFrame.
+
+```python
+from lakehouse_ingestion import IngestionHooks, ingest
+from pyspark.sql import functions as F
+
+hooks = IngestionHooks(
+    after_prepare=lambda df, plan: df.withColumn("processed_by", F.lit(plan.notebook_name)),
+)
+
+ingest(
+    source="raw.orders",
+    target_table="b_orders",
+    layer="bronze",
+    hooks=hooks,
+)
+```
+
+Falhas em hooks propagam como falha da ingestão e são registradas em `ctrl_ingestion_errors`.
+
+### 16B.2 Registry de Write Modes
+
+`register_write_mode(mode, handler)` adiciona motores de escrita customizados. O handler recebe `(plan, df, target, effective_rows)` e retorna o número lógico de linhas afetadas.
+
+```python
+from lakehouse_ingestion import register_write_mode
+
+def my_writer(plan, df, target, effective_rows):
+    df.write.format("delta").mode("append").saveAsTable(target)
+    return effective_rows
+
+register_write_mode("custom_append", my_writer)
+```
+
+### 16B.3 Registry de Sources
+
+`register_source_resolver(source_type, resolver)` adiciona resolvers declarativos. O resolver precisa implementar `resolve_stream(spec, plan)` e retornar `(stream_df, source_label)`.
+
+O resolver nativo registrado é `autoloader`, usado por `SourceSpec(type="autoloader")`.
+
+---
+
+## 17. Padrões e Recomendações por Camada
+
+### 17.1 Bronze
+
+| Recomendação | Detalhe |
+|-------------|---------|
+| Modo | `scd0_append` (padrão) |
+| Schema policy | `"permissive"` — origem pode ser instável |
+| Watermark | Sempre que a origem tiver coluna confiável |
+| Quality gates | Mínimo: `not_null` nas chaves, se possível |
+| Encoding | `fix_encoding=True` se origem tem charset problemático |
+| Partição | Por `ingestion_date` (partição técnica) |
+
+### 17.2 Silver
+
+| Recomendação | Detalhe |
+|-------------|---------|
+| Modo | `scd1_upsert` para estado atual; `scd2_historical` para histórico |
+| Schema policy | `"additive_only"` — contrato que só cresce |
+| Deduplicação | Sempre defina `dedup_order_expr` |
+| Quality gates | `not_null` + `unique_key` nas chaves; `accepted_values` em enums |
+| SCD2 | Restrinja `scd2_change_columns` ao mínimo de negócio |
+| Snapshot | Só use se a origem for realmente completa |
+
+### 17.3 Gold
+
+| Recomendação | Detalhe |
+|-------------|---------|
+| Modo | `scd0_overwrite` para reconstruções; `scd1_upsert` para manutenção |
+| Schema policy | `"strict"` — contrato fixo |
+| Quality gates | `required_columns` + `min_rows` para garantir completude |
+| Otimização | `optimize_after_write=True` com `zorder_columns` nas colunas de consulta |
+| Cuidado | Evite `OPTIMIZE` automático em tabelas pequenas ou microcargas |
+
+### 17.4 Convenções de Nomenclatura
+
+| Camada | Prefixo | Exemplo |
+|--------|---------|---------|
+| Bronze | `b_` | `b_orders`, `b_events` |
+| Silver | `c_` | `c_orders`, `c_cliente` |
+| Gold — Dimensão | `dim_` | `dim_cliente`, `dim_produto` |
+| Gold — Fato | `fato_` ou `f_` | `fato_vendas`, `f_pedidos_diario` |
+| Gold — Agregado | `gd_` | `gd_metricas_diario` |
+
+---
+
+## 18. Exemplos Completos
+
+### 18.1 Bronze — Append Incremental
+
+**Python:**
 ```python
 from lakehouse_ingestion import ingest
 
@@ -1192,14 +1872,33 @@ result = ingest(
     source_system="erp",
     watermark_columns="updated_at",
     schema_policy="permissive",
-    notebook_name="bronze_erp_orders"
+    notebook_name="bronze_erp_orders",
+    description="Captura bruta de pedidos do ERP",
+    owner="data-platform",
+    domain="vendas",
 )
-
-print(result["status"])
 ```
 
-### 16.2 Silver upsert com deduplicação e quarentena
+**YAML (`contracts/bronze/b_erp_orders.yaml`):**
+```yaml
+source: raw_erp_orders
+target_table: b_erp_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+source_system: erp
+watermark_columns: updated_at
+schema_policy: permissive
+notebook_name: bronze_erp_orders
+description: "Captura bruta de pedidos do ERP"
+owner: data-platform
+domain: vendas
+tags: [bronze, erp, pedidos]
+```
 
+### 18.2 Silver — SCD1 Upsert com Qualidade e Quarentena
+
+**Python:**
 ```python
 result = ingest(
     source="b_erp_orders",
@@ -1213,22 +1912,59 @@ result = ingest(
     dedup_order_expr="updated_at DESC NULLS LAST",
     schema_policy="additive_only",
     quality_rules={
-        "required_columns": ["order_id", "updated_at", "status"],
         "not_null": ["order_id", "updated_at"],
-        "unique_key": ["order_id"],
-        "accepted_values": {"status": ["open", "closed", "cancelled"]}
+        "accepted_values": {"status": ["open", "closed", "cancelled"]},
+        "max_null_ratio": {"customer_email": 0.20},
     },
-    # unique_key e required_columns são abort-only: a falha aborta a execução.
-    # Para usar quarentena de fato, remova essas regras e mantenha apenas
-    # not_null/accepted_values/max_null_ratio com on_quality_fail="quarantine".
-    on_quality_fail="fail",
+    on_quality_fail="quarantine",  # apenas regras de linha são quarentenadas
     explain_mode=True,
-    openlineage_enabled=True
+    openlineage_enabled=True,
+    lock_enabled=True,
+    description="Pedidos padronizados com deduplicação",
+    owner="data-platform",
+    domain="vendas",
+    tags=["silver", "pedidos"],
 )
+
+if result["status"] != "SUCCESS":
+    raise RuntimeError(f"Ingestão falhou: {result['error_message']}")
+
+print(f"Escritas: {result['rows_written']}, Quarentena: {result['rows_quarantined']}")
+print(f"Versão Delta: {result['delta_version_before']} → {result['delta_version_after']}")
 ```
 
-### 16.3 Silver SCD2 histórico
+**YAML (`contracts/silver/c_orders.yaml`):**
+```yaml
+source: b_erp_orders
+target_table: c_orders
+catalog: main
+layer: silver
+mode: scd1_upsert
+source_system: erp
+merge_keys: order_id
+watermark_columns: updated_at
+dedup_order_expr: "updated_at DESC NULLS LAST"
+schema_policy: additive_only
+quality_rules:
+  not_null: [order_id, updated_at]
+  accepted_values:
+    status: [open, closed, cancelled]
+  max_null_ratio:
+    customer_email: 0.20
+on_quality_fail: quarantine
+explain_mode: true
+openlineage_enabled: true
+lock_enabled: true
+notebook_name: silver_orders
+description: "Pedidos padronizados com deduplicação"
+owner: data-platform
+domain: vendas
+tags: [silver, pedidos, erp]
+```
 
+### 18.3 Silver — SCD2 Histórico
+
+**Python:**
 ```python
 result = ingest(
     source="c_orders",
@@ -1242,12 +1978,36 @@ result = ingest(
     cluster_columns="order_id|status",
     schema_policy="additive_only",
     lock_enabled=True,
-    openlineage_enabled=True
+    openlineage_enabled=True,
+    description="Histórico de alterações de status de pedidos",
+    owner="data-platform",
+    domain="vendas",
 )
 ```
 
-### 16.4 Snapshot com soft delete
+**YAML (`contracts/silver/dim_order_status_history.yaml`):**
+```yaml
+source: c_orders
+target_table: dim_order_status_history
+catalog: main
+layer: silver
+mode: scd2_historical
+merge_keys: order_id
+scd2_change_columns: status|total_value|shipping_address
+scd2_effective_from_column: updated_at
+cluster_columns: order_id|status
+schema_policy: additive_only
+lock_enabled: true
+openlineage_enabled: true
+notebook_name: silver_order_scd2
+description: "Histórico de alterações de status de pedidos"
+owner: data-platform
+domain: vendas
+```
 
+### 18.4 Silver — Snapshot com Soft Delete
+
+**Python:**
 ```python
 result = ingest(
     source="snapshot_customers_today",
@@ -1261,14 +2021,41 @@ result = ingest(
     quality_rules={
         "required_columns": ["customer_id"],
         "not_null": ["customer_id"],
-        "unique_key": ["customer_id"]
     },
-    on_quality_fail="fail"
+    on_quality_fail="fail",
+    description="Snapshot diário de clientes ativos com soft delete",
+    owner="data-platform",
+    domain="comercial",
+    runtime_parameters={"carga": "snapshot_completo"},
 )
 ```
 
-### 16.5 Gold overwrite particionado
+**YAML (`contracts/silver/c_customer_snapshot.yaml`):**
+```yaml
+source: snapshot_customers_today
+target_table: c_customer_snapshot
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: customer_id
+dedup_order_expr: "updated_at DESC NULLS LAST"
+schema_policy: additive_only
+quality_rules:
+  required_columns: [customer_id]
+  not_null: [customer_id]
+on_quality_fail: fail
+notebook_name: silver_customer_snapshot
+description: "Snapshot diário de clientes ativos com soft delete"
+owner: data-platform
+domain: comercial
+runtime_parameters:
+  carga: snapshot_completo
+# snapshot_soft_delete NÃO aceita watermark_columns nem filter_expression
+```
 
+### 18.5 Gold — Overwrite Particionado
+
+**Python:**
 ```python
 result = ingest(
     source=df_gold_month,
@@ -1279,42 +2066,37 @@ result = ingest(
     partition_column="month_ref",
     partition_value="2026-05",
     schema_policy="strict",
-    optimize_after_write=True
+    optimize_after_write=True,
+    zorder_columns="month_ref|region",
+    description="Agregado mensal de vendas por região",
+    owner="analytics",
+    domain="vendas",
 )
 ```
 
-### 16.6 Plano declarativo
-
-```python
-from lakehouse_ingestion import ingest_plan, IngestionPlan, QualityRules
-
-plan = IngestionPlan(
-    source="b_customer_events",
-    target_table="c_customer_events",
-    catalog="main",
-    layer="silver",
-    mode="scd1_upsert",
-    merge_keys=["customer_id", "event_id"],
-    watermark_columns=["event_ts"],
-    dedup_order_expr="event_ts DESC NULLS LAST",
-    schema_policy="additive_only",
-    quality_rules=QualityRules(
-        required_columns=["customer_id", "event_id", "event_ts"],
-        not_null=["customer_id", "event_id"],
-        unique_key=["customer_id", "event_id"]
-    ),
-    on_quality_fail="fail",  # unique_key/required_columns são abort-only
-    explain_mode=True,
-    openlineage_enabled=True,
-    lock_enabled=True
-)
-
-result = ingest_plan(plan)
+**YAML (`contracts/gold/gd_sales_monthly.yaml`):**
+```yaml
+source: c_vendas
+target_table: gd_sales_monthly
+catalog: main
+layer: gold
+mode: scd0_overwrite
+partition_column: month_ref
+partition_value: "{{dt}}"           # placeholder resolvido em runtime
+schema_policy: strict
+optimize_after_write: true
+zorder_columns: month_ref|region
+notebook_name: gold_sales_monthly
+description: "Agregado mensal de vendas por região"
+owner: analytics
+domain: vendas
 ```
 
-### 16.7 Dry run para validação operacional
+### 18.6 Dry Run — Validação sem Escrita
 
+**Python:**
 ```python
+# Seguro rodar contra produção — não cria tabelas, não escreve dados
 result = ingest(
     source="b_orders",
     target_table="c_orders",
@@ -1325,266 +2107,383 @@ result = ingest(
     watermark_columns="updated_at",
     quality_rules={
         "required_columns": ["order_id", "updated_at"],
-        "not_null": ["order_id"]
+        "not_null": ["order_id"],
     },
-    dry_run=True
+    dry_run=True,
 )
 
-display(result)
+print(f"Status: {result['status']}")                   # DRY_RUN
+print(f"Linhas efetivas: {result['rows_effective']}")   # rows_read - rows_quarantined
+print(f"Partições afetadas: {result['affected_partitions']}")
+print(f"Schema changes: {result['schema_changes']}")
+print(f"Watermark candidate: {result['watermark_candidate']}")
 ```
 
----
-
-## 17. Troubleshooting
-
-| Sintoma | Causa provável | Ação recomendada |
-|---|---|---|
-| `DELTA_CONCURRENT_APPEND` ou conflito de commit | Escritas concorrentes na mesma tabela ou partição. | Ative `lock_enabled`, reduza paralelismo no alvo ou ajuste dependências do workflow. |
-| `MERGE source has multiple matches` | Duplicidade nas `merge_keys`. | Use `dedup_order_expr` e valide `unique_key` nos quality gates. |
-| Watermark não avança | Linhas sem watermark, falha após escrita ou ausência de registros novos. | Verifique `ctrl_ingestion_state`, `watermark_candidate` e filtros de origem. |
-| Tabela de quarentena vazia | Regras não falharam ou `on_quality_fail` não está como `quarantine`. | Consulte `ctrl_ingestion_quality`. |
-| SCD2 gera muitas versões | `scd2_change_columns` amplo demais ou hash incluindo colunas voláteis. | Restrinja `scd2_change_columns` às colunas de negócio. |
-| `accepted_values` falha com lista grande | Lista acima do limite configurado. | Use tabela de referência e join prévio. |
-| `OPTIMIZE` aumenta custo sem melhorar performance | Tabela pequena ou microcargas frequentes. | Use política externa de otimização por volume/quantidade de arquivos. |
-| Erro de permissão no schema `ops` | Usuário/job sem permissão para criar schema/tabelas. | Conceda permissões no catálogo ou crie previamente o schema operacional. |
-| Explain vazio ou incompleto | Limitação de captura do runtime. | Consulte Spark UI e histórico Delta complementarmente. |
-| Schema rejeitado em `additive_only` | Remoção ou alteração de tipo detectada. | Ajuste a origem, altere política conscientemente ou versionamento de contrato. |
-
----
-
-## 18. Recomendações de uso por camada
-
-### 18.1 Bronze
-
-- Preferir `scd0_append`.
-- Usar `schema_policy="permissive"` quando a origem é instável.
-- Evitar regras de negócio complexas.
-- Registrar `source_system` de forma consistente.
-- Usar watermark quando a origem tiver coluna confiável.
-
-### 18.2 Silver
-
-- Usar `schema_policy="additive_only"` ou `strict`.
-- Definir `merge_keys` ou `hash_keys` explicitamente.
-- Sempre configurar deduplicação quando houver risco de múltiplos registros por chave.
-- Usar quality gates em entidades críticas.
-- Usar `scd2_historical` somente quando histórico for necessário.
-
-### 18.3 Gold
-
-- Preferir contratos estáveis e `schema_policy="strict"`.
-- Evitar mudanças automáticas de schema.
-- Controlar granularidade da tabela e semântica das métricas fora da biblioteca.
-- Usar `scd0_overwrite` para reconstruções controladas.
-- Evitar `OPTIMIZE` automático sem avaliação de custo.
-
----
-
-## 19. Empacotamento e publicação
-
-Estrutura esperada do pacote:
-
-```text
-lakehouse_ingestion_pkg/
-├── pyproject.toml
-├── README.md
-└── src/
-    └── lakehouse_ingestion/
-        ├── __init__.py
-        └── ingestion.py
+**YAML (`contracts/silver/c_orders_dry.yaml`):**
+```yaml
+source: b_orders
+target_table: c_orders
+catalog: main
+layer: silver
+mode: scd1_upsert
+merge_keys: order_id
+watermark_columns: updated_at
+quality_rules:
+  required_columns: [order_id, updated_at]
+  not_null: [order_id]
+dry_run: true     # valida tudo, não escreve nada
 ```
 
-Exemplo de `pyproject.toml`:
+### 18.7 Hash Diff com Exclusão de Colunas Voláteis
 
-```toml
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "lakehouse-ingestion-framework"
-version = "1.5.0"
-description = "Framework de ingestão Delta Lake para Databricks com contratos declarativos, quality gates, SCD, explain mode e eventos OpenLineage."
-readme = "README.md"
-requires-python = ">=3.10"
-license = "MIT"
-dependencies = [
-    "pyspark>=3.4",
-    "delta-spark>=3.0"
-]
-
-[project.optional-dependencies]
-databricks = ["databricks-sdk>=0.20"]
-dev = ["build>=1.0", "twine>=4.0", "pytest>=7.0", "ruff>=0.4"]
-```
-
-Build local:
-
-```bash
-python -m pip install --upgrade build twine
-python -m build
-python -m twine check dist/*
-```
-
-Publicação em TestPyPI:
-
-```bash
-python -m twine upload --repository testpypi dist/*
-```
-
-Publicação em PyPI:
-
-```bash
-python -m twine upload dist/*
-```
-
----
-
-## 20. Checklist antes de produção
-
-| Item | Status esperado |
-|---|---|
-| Catálogo e schemas criados ou com permissão de criação. | Validado. |
-| Schema `ops` com permissão para tabelas de controle. | Validado. |
-| Modos de escrita definidos por tabela. | Validado. |
-| Chaves naturais revisadas. | Validado. |
-| Watermarks testados com `dry_run=True`. | Validado. |
-| Quality gates definidos para Silver crítica. | Validado. |
-| SCD2 limitado às colunas de mudança relevantes. | Validado. |
-| `snapshot_soft_delete` usado apenas com snapshot completo. | Validado. |
-| Concorrência avaliada por tabela alvo. | Validado. |
-| `explain_mode` testado em desenvolvimento. | Validado. |
-| OpenLineage habilitado quando necessário. | Validado. |
-| Custo de `OPTIMIZE` avaliado. | Validado. |
-
----
-
-## 21. Contrato de primeira versão
-
-Esta versão não mantém aliases legados de parâmetros ou modos de escrita. O contrato público deve ser usado exatamente como documentado.
-
-Exemplos de nomes aceitos:
-
+**Python:**
 ```python
-watermark_columns
-hash_exclude_columns
-scd2_change_columns
-scd2_historical
-snapshot_soft_delete
-```
-
-Exemplos de nomes não aceitos:
-
-```python
-watermark_column
-hash_exclude_cols
-scd2_change_cols
-scd2
-snapshot
-upsert
-```
-
-Parâmetros desconhecidos em `ingest()` geram erro. Essa decisão é intencional para evitar typos silenciosos em pipelines de produção.
-
----
-
-## 22. Convenções recomendadas
-
-### 22.1 Nome de tabelas
-
-| Camada | Prefixo sugerido | Exemplo |
-|---|---|---|
-| Bronze | `b_` | `b_orders` |
-| Silver | `c_` | `c_orders` |
-| Gold | `gd_`, `dim_`, `fato_` | `dim_cliente`, `fato_vendas` |
-
-### 22.2 Colunas técnicas
-
-| Coluna | Descrição |
-|---|---|
-| `ingestion_date` | Data UTC da ingestão. |
-| `source_system` | Sistema de origem. |
-| `__run_id` | Execução que produziu o registro. |
-| `row_hash` | Hash binário de comparação. |
-| `valid_from` | Início da validade histórica. |
-| `valid_to` | Fim da validade histórica. |
-| `is_current` | Registro corrente no SCD2. |
-| `is_active` | Registro ativo no snapshot. |
-| `deleted_at` | Momento de marcação como ausente. |
-| `changed_columns` | Colunas rastreadas como alteradas. |
-
-### 22.3 Uso de separador em parâmetros string
-
-Parâmetros que aceitam múltiplas colunas podem ser passados como lista Python ou string separada por `|`.
-
-```python
-merge_keys=["empresa", "filial", "cliente"]
-```
-
-ou:
-
-```python
-merge_keys="empresa|filial|cliente"
-```
-
-Para configuração declarativa em código Python, prefira listas. Para widgets e notebooks operacionais, strings com `|` são práticas.
-
----
-
-## 23. Exemplo orientado a Databricks Workflows
-
-```python
-from lakehouse_ingestion import ingest
-
-catalog = dbutils.widgets.get("catalog")
-run_group_id = dbutils.widgets.get("run_group_id")
-job_id = dbutils.widgets.get("job_id")
-run_id = dbutils.widgets.get("run_id")
-
 result = ingest(
-    source="b_nota_fiscal",
-    target_table="c_nota_fiscal",
-    catalog=catalog,
+    source="b_produto",
+    target_table="c_produto_versions",
+    catalog="main",
+    layer="silver",
+    mode="scd1_hash_diff",
+    hash_keys="id_produto",
+    hash_exclude_columns="updated_at|extraction_ts|source_file",
+    dedup_order_expr="updated_at DESC NULLS LAST",
+    partition_column="ingestion_date",
+    schema_policy="additive_only",
+    description="Catálogo de produtos com versionamento por hash diff",
+    owner="master-data",
+    domain="produtos",
+)
+```
+
+**YAML (`contracts/silver/c_produto_versions.yaml`):**
+```yaml
+source: b_produto
+target_table: c_produto_versions
+catalog: main
+layer: silver
+mode: scd1_hash_diff
+hash_keys: id_produto
+hash_exclude_columns: updated_at|extraction_ts|source_file
+dedup_order_expr: "updated_at DESC NULLS LAST"
+partition_column: ingestion_date
+schema_policy: additive_only
+notebook_name: silver_produto_hash
+description: "Catálogo de produtos com versionamento por hash diff"
+owner: master-data
+domain: produtos
+```
+
+### 18.8 Usando `ingest_plan` com YAML
+
+```python
+import yaml
+from lakehouse_ingestion import ingest_plan
+from lakehouse_ingestion.plan import build_plan_from_kwargs
+
+with open("contracts/silver/c_clientes.yaml") as f:
+    cfg = yaml.safe_load(f)
+
+plan = build_plan_from_kwargs(**cfg)
+result = ingest_plan(plan)
+```
+
+### 18.9 Custom Keys para Chave Composta
+
+**Python:**
+```python
+ingest(
+    source="raw_items",
+    target_table="c_item",
+    catalog="main",
     layer="silver",
     mode="scd1_upsert",
-    merge_keys="id_nota_fiscal",
-    watermark_columns="updated_at",
+    select_columns="empresa|filial|pedido|item|updated_at|valor",
+    custom_keys={"id_item": ["empresa", "filial", "pedido", "item"]},
+    merge_keys="id_item",  # chave única derivada
     dedup_order_expr="updated_at DESC NULLS LAST",
-    schema_policy="additive_only",
-    quality_rules={
-        "required_columns": ["id_nota_fiscal", "updated_at"],
-        "not_null": ["id_nota_fiscal"],
-        "unique_key": ["id_nota_fiscal"]
-    },
-    on_quality_fail="fail",  # unique_key/required_columns são abort-only
-    explain_mode=False,
-    openlineage_enabled=True,
-    lock_enabled=True,
-    notebook_name="silver_nota_fiscal",
-    run_group_id=run_group_id,
-    master_job_id=job_id,
-    master_run_id=run_id
 )
+```
 
-if result["status"] != "SUCCESS":
-    raise RuntimeError(result["error_message"])
+**YAML (`contracts/silver/c_item.yaml`):**
+```yaml
+source: raw_items
+target_table: c_item
+catalog: main
+layer: silver
+mode: scd1_upsert
+select_columns: empresa|filial|pedido|item|updated_at|valor
+custom_keys:
+  id_item: empresa|filial|pedido|item   # coluna derivada = concat_ws("|", ...)
+merge_keys: id_item
+dedup_order_expr: "updated_at DESC NULLS LAST"
+notebook_name: silver_item
 ```
 
 ---
 
-## 24. Resumo executivo de uso
+## 19. Orquestração com Databricks Workflows
 
-Para uma nova tabela, defina antes da implementação:
+### 19.1 Padrão YAML + Notebook Genérico
 
-1. Camada alvo.
-2. Modo de escrita.
-3. Chave natural.
-4. Watermark, se houver.
-5. Regra de deduplicação.
-6. Política de schema.
-7. Regras mínimas de qualidade.
-8. Necessidade de histórico.
-9. Estratégia de concorrência.
-10. Necessidade de explain e OpenLineage.
+```
+contracts/
+├── bronze/
+│   ├── b_clientes.yaml
+│   ├── b_pedidos.yaml
+│   └── b_itens.yaml
+├── silver/
+│   ├── c_clientes.yaml
+│   ├── c_pedidos.yaml
+│   └── c_itens.yaml
+└── gold/
+    └── f_pedidos_diario.yaml
+```
 
-Esse conjunto forma o contrato mínimo de ingestão da tabela.
+**Notebook genérico (`run_ingestion`):**
+```python
+import yaml
+from lakehouse_ingestion import ingest_plan
+from lakehouse_ingestion.plan import build_plan_from_kwargs
+
+dbutils.widgets.text("contract_path", "")
+dbutils.widgets.text("master_run_id", "")
+
+contract_path = dbutils.widgets.get("contract_path")
+master_run_id = dbutils.widgets.get("master_run_id") or None
+
+with open(contract_path, "r") as f:
+    cfg = yaml.safe_load(f)
+
+if master_run_id:
+    cfg.setdefault("master_run_id", master_run_id)
+
+plan = build_plan_from_kwargs(**cfg)
+result = ingest_plan(plan)
+
+if result["status"] != "SUCCESS":
+    raise RuntimeError(f"Ingestão falhou: {result.get('error_message')}")
+
+dbutils.notebook.exit(json.dumps(result, default=str))
+```
+
+### 19.2 Databricks Asset Bundle com `for_each_task`
+
+```yaml
+# databricks.yml
+resources:
+  jobs:
+    pipeline_diaria:
+      name: pipeline_diaria
+      schedule:
+        quartz_cron_expression: "0 0 5 * * ?"
+        timezone_id: America/Sao_Paulo
+      tasks:
+        - task_key: bronze_layer
+          for_each_task:
+            inputs: |
+              [{"contract": "contracts/bronze/b_clientes.yaml"},
+               {"contract": "contracts/bronze/b_pedidos.yaml"}]
+            concurrency: 4
+            task:
+              notebook_task:
+                notebook_path: ../notebooks/run_ingestion
+                base_parameters:
+                  contract_path: "{{input.contract}}"
+                  master_run_id: "{{job.run_id}}"
+
+        - task_key: silver_layer
+          depends_on: [{task_key: bronze_layer}]
+          for_each_task:
+            inputs: |
+              [{"contract": "contracts/silver/c_clientes.yaml"}]
+            concurrency: 4
+            task:
+              notebook_task:
+                notebook_path: ../notebooks/run_ingestion
+                base_parameters:
+                  contract_path: "{{input.contract}}"
+                  master_run_id: "{{job.run_id}}"
+```
+
+---
+
+## 20. Troubleshooting
+
+### Erros Comuns
+
+| Sintoma | Causa Provável | Solução |
+|---------|---------------|---------|
+| `RuntimeError: Nenhuma SparkSession ativa` | Código fora de Databricks sem sessão criada | Crie `SparkSession.builder...getOrCreate()` antes de `import lakehouse_ingestion` |
+| `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark | `pip install delta-spark==3.*` (já incluso no Databricks Runtime) |
+| `ConcurrentAppendException` / conflito de commit | Escritas concorrentes na mesma tabela | Ative `lock_enabled=True`, reduza concorrência, use `delta_by_partition` |
+| `Schema policy strict violada` | Schema da fonte divergiu do target | Mude para `additive_only`/`permissive` ou corrija a fonte |
+| `quality.accepted_values.X possui N valores` | Lista > 1000 valores | Use tabela de referência + `LEFT ANTI JOIN` antes da chamada |
+| `Bronze deve ser orientada a captura` | Usou `scd1_upsert`/`scd2_historical` em bronze | Use `scd0_append`/`scd0_overwrite`/`scd1_hash_diff` ou mude a layer |
+| `snapshot_soft_delete exige snapshot completo` | Combinou `snapshot_soft_delete` com `watermark_columns`/`filter_expression` | Remova o filtro/watermark ou use `scd1_upsert` |
+| `Regras abortivas não são quarentenáveis` | `unique_key`/`min_rows`/`required_columns` falhou com `on_quality_fail="quarantine"` | Use `on_quality_fail="warn"` ou corrija os dados |
+| Watermark não avança | Execução falhou ou dados sem watermark | Verifique `ctrl_ingestion_state` e logs; corrija a falha primeiro |
+| `MERGE source has multiple matches` | Duplicidade nas `merge_keys` | Use `dedup_order_expr` + `unique_key` nos quality gates |
+| SCD2 gera versões demais | `scd2_change_columns` muito amplo ou hash incluindo colunas voláteis | Restrinja às colunas de negócio que realmente definem mudança |
+| Explain vazio ou incompleto | Limitação de captura em serverless | Consulte Spark UI e `DESCRIBE HISTORY` complementarmente |
+
+### Diagnóstico Rápido
+
+```sql
+-- Últimos erros
+SELECT run_id, target_table, error_type, error_message, stack_trace
+FROM ops.ctrl_ingestion_errors
+WHERE error_date >= current_date() - 1
+ORDER BY error_ts_utc DESC;
+
+-- Tabelas com falhas recentes
+SELECT target_table, last_status, last_error_message, last_success_at_utc
+FROM ops.ctrl_ingestion_state
+WHERE last_status = 'FAILED'
+ORDER BY last_updated_at_utc DESC;
+
+-- Evolução de schema detectada
+SELECT target_table, change_type, column_name, source_type, target_type, applied, change_ts_utc
+FROM ops.ctrl_ingestion_schema_changes
+ORDER BY change_ts_utc DESC;
+```
+
+---
+
+## 21. FAQ
+
+**P: Posso usar o framework com Structured Streaming?**
+Para streaming contínuo, não. A versão 1.5.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+
+**P: O framework suporta CDC (Change Data Feed) como origem?**
+Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
+
+**P: Como customizo os nomes das ctrl tables?**
+Os nomes vêm de `FrameworkConfig.ctrl_table_*`. Para alterar, faça monkey-patch do `CONFIG` ou, preferencialmente, use `ctrl_schema` no plan para isolar ambientes.
+
+**P: Como removo dados antigos das ctrl tables?**
+`DELETE` por partição é eficiente:
+```sql
+DELETE FROM ops.ctrl_ingestion_runs WHERE run_date < current_date() - 90;
+```
+
+**P: Posso usar `select_columns` para renomear colunas?**
+Não. `select_columns` apenas seleciona colunas existentes. Para renomear, transforme o DataFrame antes de passar para `ingest()`.
+
+**P: O que acontece se `dedup_order_expr` referencia coluna que não existe?**
+O framework valida colunas referenciadas no plan e ergue `ValueError` se faltarem.
+
+**P: `on_quality_fail="quarantine"` isola todas as falhas?**
+Não. Apenas regras de linha: `not_null`, `accepted_values`, `max_null_ratio`, e `expressions` com `severity="quarantine"`. Regras de conjunto (`unique_key`, `min_rows`, `required_columns`) escalam para `fail`.
+
+**P: Qual a diferença entre `merge_keys` e `hash_keys`?**
+- `merge_keys`: usadas na cláusula `ON` do MERGE (`scd1_upsert`, `scd2_historical`, `snapshot_soft_delete`)
+- `hash_keys`: usadas para encontrar o "último estado" no target em `scd1_hash_diff`
+
+**P: Posso usar `partition_column` + `cluster_columns` juntos?**
+Não. O framework trata como mutuamente exclusivos na criação da tabela — cluster tem prioridade.
+
+**P: O framework aplica `VACUUM` automaticamente?**
+Não. Manutenção de arquivos Delta (VACUUM, OPTIMIZE agendado) é responsabilidade do operador.
+
+**P: Como testar um contrato YAML sem rodar de fato?**
+Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida schema, quality gates e watermark sem escrever dados nem criar ctrl tables.
+
+---
+
+## 22. Checklist Pré-Produção
+
+- [ ] Pacote instalado no cluster (verificar com `import lakehouse_ingestion; print(lakehouse_ingestion.__version__)`)
+- [ ] Schema `ops` existe e cluster tem `CREATE TABLE` nele
+- [ ] Permissões UC concedidas: `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE`, `MODIFY`, `SELECT`
+- [ ] Cada contrato tem `notebook_name` único e descritivo
+- [ ] Metadados de contrato preenchidos: `description`, `owner`, `domain`, `tags`
+- [ ] `merge_keys` / `hash_keys` validados contra amostras reais (verificar duplicatas)
+- [ ] `quality_rules` com ao menos `not_null` nas chaves
+- [ ] `schema_policy` definida adequadamente por camada
+- [ ] Para SCD2: `scd2_change_columns` restrito às colunas de negócio
+- [ ] Para snapshot: source realmente completo (sem watermark/filter)
+- [ ] `dry_run=True` executado ao menos uma vez e resultado inspecionado
+- [ ] `dedup_order_expr` definido quando há risco de múltiplas versões por chave
+- [ ] `optimize_after_write` com `zorder_columns` avaliado (custo vs. benefício)
+- [ ] Estratégia de merge (`delta_by_partition`/`replace_partitions`) definida para tabelas grandes
+- [ ] Job/workflow com retry configurado (>=1 retry, >=30s intervalo)
+- [ ] Summary task ou alerta SQL para `status=FAILED`
+- [ ] OpenLineage habilitado se há collector externo
+- [ ] Testes passam (`pytest`)
+- [ ] Plano de limpeza das ctrl tables definido (retenção de N dias)
+
+---
+
+## 23. Matriz de Compatibilidade
+
+### 23.1 Modos de Escrita por Runtime
+
+| Modo | Databricks Classic | Databricks Serverless | PySpark + Delta Local |
+|------|:---:|:---:|:---:|
+| `scd0_append` | ✅ | ✅ | ✅ |
+| `scd0_overwrite` | ✅ | ✅ | ✅ |
+| `scd1_upsert` | ✅ | ✅ (via SQL MERGE) | ✅ |
+| `scd1_hash_diff` | ✅ | ✅ | ✅ |
+| `scd2_historical` | ✅ | ✅ (via SQL MERGE) | ✅ |
+| `snapshot_soft_delete` | ✅ | ✅ (via SQL MERGE) | ✅ |
+
+### 23.2 Requisitos de Software
+
+| Componente | Mínimo | Recomendado |
+|-----------|--------|-------------|
+| Python | 3.10 | 3.11+ |
+| PySpark | 3.4 | 3.5 |
+| delta-spark | 3.0 | 3.2+ |
+| Databricks Runtime | 13.3 LTS | 14.3 LTS+ |
+| Java (standalone) | 11 | 17 |
+
+### 23.3 Estrutura do Pacote
+
+```
+src/lakehouse_ingestion/
+├── __init__.py        # API pública (ingest, ingest_plan, IngestionPlan, etc.)
+├── _spark.py          # Resolução lazy de SparkSession + serverless detection
+├── _sql.py            # Helpers SQL (quoting, literais, validação)
+├── cli.py             # CLI lakehouse-ingest validate/schema
+├── config.py          # FrameworkConfig singleton + tipos (Layer, WriteMode, etc.)
+├── contract_schema.py # JSON Schema do contrato declarativo
+├── hooks.py           # IngestionHooks
+├── plan.py            # IngestionPlan, QualityRules, QualityExpression, build_plan_from_kwargs
+├── sources.py         # Source resolvers declarativos
+├── schema.py          # Hash determinístico, dedup, custom keys, encoding, schema policy
+├── watermark.py       # Watermark tipado (encode/decode/apply/compute)
+├── quality.py         # Quality gates single-pass + quarentena
+├── state.py           # Ctrl tables, log_run, upsert_state, locks, retry
+├── writers.py         # 6 motores de escrita + dispatcher
+├── lineage.py         # Explain capture + OpenLineage
+└── ingestion.py       # Orquestrador principal
+```
+
+---
+
+## 24. Licença e Contribuição
+
+**Licença:** MIT
+
+**Repositório:** https://github.com/marquesantero/lakehouse-ingestion-framework
+
+**Issues:** https://github.com/marquesantero/lakehouse-ingestion-framework/issues
+
+**Changelog:** https://github.com/marquesantero/lakehouse-ingestion-framework/blob/main/CHANGELOG.md
+
+### Versionamento
+
+O projeto segue versionamento semântico:
+- **PATCH** (x.y.z): correção de bug sem mudança de contrato
+- **MINOR** (1.x.0): novo recurso compatível ou endurecimento planejado
+- **MAJOR** (x.0.0): mudança incompatível
+
+### Convenções de Código
+
+- **Listas em parâmetros string:** use `|` como separador. Ex.: `merge_keys="id|tenant_id"`. Em Python, prefira listas nativas.
+- **Nomes de parâmetros:** exatamente como documentado. Parâmetros desconhecidos em `ingest()` geram `ValueError` — isso é intencional para evitar typos silenciosos.
+- **Charset:** arquivos YAML devem ser UTF-8.
+
+---
+
+**Fim da documentação.** Reporte problemas ou sugira melhorias via GitHub Issues.

@@ -5,7 +5,7 @@ Framework de ingestão para Databricks e Delta Lake, com contratos declarativos 
 Documentação:
 - [docs/guia_de_uso.md](docs/guia_de_uso.md) — passo a passo prático para testar como pacote ou script, padrão YAML + notebook genérico, orquestração com `for_each_task` e com master, troubleshooting e FAQ.
 - [docs/arquitetura.md](docs/arquitetura.md) — referência técnica detalhada de cada submódulo, fluxo de execução, esquemas das ctrl tables e decisões de design (~70 KB).
-- [docs/oficial.md](docs/oficial.md) — documentação original do framework (45 KB).
+- [docs/oficial.md](docs/oficial.md) — documentação oficial completa de uso, contratos, modos, observabilidade e extensão.
 - [CHANGELOG.md](CHANGELOG.md) — histórico de versões e política de release.
 
 ## Instalação local
