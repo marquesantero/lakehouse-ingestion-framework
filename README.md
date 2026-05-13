@@ -282,6 +282,8 @@ pytest
 A suíte tem dois grupos:
 
 - **Testes puros** (rápidos, sem Spark): validações de plano e parsing.
-- **Testes integrados com Spark + Delta**: 6 modos de escrita, quality gates, watermark, schema policy. Pulam graciosamente em hosts sem Java/JDK; em CI com JDK 11+ rodam normalmente.
+- **Testes integrados com Spark + Delta**: 6 modos de escrita, quality gates, watermark, schema policy, sources e streaming `available_now`.
+
+Status validado localmente: `135 passed` com Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
 
 Variável `SKIP_SPARK_TESTS=1` força o pulo dos testes integrados.

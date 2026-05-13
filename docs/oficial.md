@@ -2603,7 +2603,19 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 | Databricks Runtime | 13.3 LTS | 14.3 LTS+ |
 | Java (standalone) | 11 | 17 |
 
-### 23.3 Estrutura do Pacote
+### 23.3 Status dos Testes Locais
+
+A suite completa da lib foi validada localmente com Spark/Delta standalone:
+
+```text
+135 passed
+```
+
+Ambiente usado na validação: Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
+Em hosts sem runtime Spark/Delta funcional, `SKIP_SPARK_TESTS=1` continua disponível para
+executar apenas os testes puros.
+
+### 23.4 Estrutura do Pacote
 
 ```
 src/lakehouse_ingestion/

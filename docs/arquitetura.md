@@ -1348,6 +1348,10 @@ SKIP_SPARK_TESTS=1 pytest   # força skip de Spark
 pytest -k "scd2"            # filtro por nome
 ```
 
+Status local validado: suite completa com `135 passed` usando Python 3.11, PySpark 3.5.x,
+delta-spark 3.x e Java disponível. Use `SKIP_SPARK_TESTS=1` apenas quando o host não
+tiver runtime Spark/Delta funcional.
+
 ### 13.5 Cobertura conceitual
 
 | Aspecto                 | Coberto por                                          |
