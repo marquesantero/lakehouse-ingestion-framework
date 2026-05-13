@@ -6,6 +6,11 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.8.1 - 2026-05-13
+
+- Move `pyspark` e `delta-spark` para o extra opcional `spark`, evitando que wheels instalados em Databricks/serverless tentem resolver dependências já fornecidas pelo runtime.
+- Mantém o extra `dev` com Spark/Delta para testes locais completos e CI.
+
 ## 1.8.0 - 2026-05-13
 
 - Adiciona `shape` para transformar estruturas JSON/struct/array antes de quality/write.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lakehouse-ingestion-framework"
-version = "1.8.0"
+version = "1.8.1"
 description = "Framework de ingestão Delta Lake para Databricks com contratos declarativos, quality gates, SCD, explain mode e eventos OpenLineage."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,8 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "pyspark>=3.4,<4",
-    "delta-spark>=3.0,<4",
     "PyYAML>=6.0",
 ]
 
@@ -34,7 +32,16 @@ Issues = "https://github.com/marquesantero/lakehouse-ingestion-framework/issues"
 
 [project.optional-dependencies]
 databricks = ["databricks-sdk>=0.20"]
-dev = ["build>=1.0", "twine>=4.0", "pytest>=7.0", "ruff>=0.4", "tomli>=2.0; python_version<'3.11'"]
+spark = ["pyspark>=3.4,<4", "delta-spark>=3.0,<4"]
+dev = [
+    "build>=1.0",
+    "twine>=4.0",
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "tomli>=2.0; python_version<'3.11'",
+    "pyspark>=3.4,<4",
+    "delta-spark>=3.0,<4",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

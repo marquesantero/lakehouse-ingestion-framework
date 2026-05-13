@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.8.0`
+**Versão do pacote:** `1.8.1`
 **Pacote Python:** `lakehouse-ingestion-framework`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -1413,7 +1413,7 @@ SKIP_SPARK_TESTS=1 pytest   # força skip de Spark
 pytest -k "scd2"            # filtro por nome
 ```
 
-Status local validado: suite completa com `135 passed` usando Python 3.11, PySpark 3.5.x,
+Status local validado: suite completa com `152 passed` usando Python 3.11, PySpark 3.5.x,
 delta-spark 3.x e Java disponível. Use `SKIP_SPARK_TESTS=1` apenas quando o host não
 tiver runtime Spark/Delta funcional.
 
@@ -1445,7 +1445,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
@@ -1461,8 +1461,8 @@ Não instale como workspace file — perde o gerenciamento de deps e versionamen
 ### 14.3 Compatibilidade
 
 - Python 3.10+.
-- PySpark 3.4+ (testado em 4.0). Em DBR, use a versão do runtime.
-- delta-spark 3.0+ (testado em 4.0).
+- PySpark 3.4+ e delta-spark 3.0+ quando fora do Databricks. Instale com `pip install ".[spark]"`.
+- Em Databricks, Spark e Delta são fornecidos pelo runtime; o wheel não declara essas dependências como obrigatórias para evitar resolução desnecessária no serverless.
 
 ### 14.4 Migração de versão futura
 

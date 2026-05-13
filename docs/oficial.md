@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Documentação Oficial
 
-**Versão:** 1.8.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.8.1 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.8.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.8.1 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não gerencia permissões** Unity Catalog.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -113,20 +113,26 @@ Exemplo: `ingest(catalog="main", layer="silver", target_table="c_cliente")` → 
 pip install lakehouse-ingestion-framework
 ```
 
+O pacote mantém apenas `PyYAML` como dependência obrigatória. Em Databricks/serverless, `pyspark` e Delta já vêm do runtime e não devem ser resolvidos pelo wheel. Para execução local fora do Databricks, instale o extra Spark:
+
+```bash
+pip install "lakehouse-ingestion-framework[spark]"
+```
+
 ### 2.2 Via Wheel no Databricks
 
 ```bash
 # Build local
 pip install build
 python -m build
-# → dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+# → dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -147,8 +153,8 @@ pytest -v                      # suite completa (requer Java 11+)
 | Item | Requisito |
 |------|-----------|
 | Python | >= 3.10 |
-| PySpark | >= 3.4, < 4 |
-| delta-spark | >= 3.0, < 4 |
+| PySpark | >= 3.4, < 4 quando fora do Databricks; fornecido pelo Databricks Runtime em cluster/serverless |
+| delta-spark | >= 3.0, < 4 quando fora do Databricks; fornecido pelo Databricks Runtime em cluster/serverless |
 | Databricks Runtime | DBR 13.3 LTS+ (recomendado 14+) |
 | Java (fora Databricks) | 11+ |
 | Permissões UC | `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE` no catálogo e schema `ops` |
@@ -2771,7 +2777,7 @@ resources:
 | Sintoma | Causa Provável | Solução |
 |---------|---------------|---------|
 | `RuntimeError: Nenhuma SparkSession ativa` | Código fora de Databricks sem sessão criada | Crie `SparkSession.builder...getOrCreate()` antes de `import lakehouse_ingestion` |
-| `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark | `pip install delta-spark==3.*` (já incluso no Databricks Runtime) |
+| `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark fora do Databricks | `pip install "lakehouse-ingestion-framework[spark]"` (já incluso no Databricks Runtime) |
 | `ConcurrentAppendException` / conflito de commit | Escritas concorrentes na mesma tabela | Ative `lock_enabled=True`, reduza concorrência, use `delta_by_partition` |
 | `Schema policy strict violada` | Schema da fonte divergiu do target | Mude para `additive_only`/`permissive` ou corrija a fonte |
 | `quality.accepted_values.X possui N valores` | Lista > 1000 valores | Use tabela de referência + `LEFT ANTI JOIN` antes da chamada |
@@ -2809,7 +2815,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.6.4 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.8.1 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
@@ -2899,7 +2905,7 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 A suite completa da lib foi validada localmente com Spark/Delta standalone:
 
 ```text
-135 passed
+152 passed
 ```
 
 Ambiente usado na validação: Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.

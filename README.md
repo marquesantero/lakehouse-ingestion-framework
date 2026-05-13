@@ -28,6 +28,12 @@ Principais diferenciais:
 pip install .
 ```
 
+No Databricks, o wheel não declara `pyspark` nem `delta-spark` como dependências obrigatórias, porque Spark e Delta já são fornecidos pelo runtime. Para desenvolvimento local fora do Databricks, instale o extra `spark`:
+
+```bash
+pip install ".[spark]"
+```
+
 Para desenvolvimento e testes:
 
 ```bash
@@ -46,8 +52,8 @@ twine check dist/*
 ## Requisitos de runtime
 
 - Python 3.10+
-- PySpark 3.4 até 3.5.x (ou Databricks Runtime equivalente)
-- delta-spark 3.0 até 3.x
+- PySpark 3.4 até 3.5.x e delta-spark 3.0 até 3.x quando rodando fora do Databricks (`pip install ".[spark]"`)
+- Databricks Runtime equivalente quando rodando em cluster clássico ou serverless
 - Uma SparkSession ativa antes da chamada de `ingest()`. O framework resolve a sessão por:
   1. `databricks.sdk.runtime.spark` quando rodando em Databricks
   2. `SparkSession.getActiveSession()` em qualquer outro ambiente
@@ -387,6 +393,6 @@ A suíte tem dois grupos:
 - **Testes puros** (rápidos, sem Spark): validações de plano e parsing.
 - **Testes integrados com Spark + Delta**: 6 modos de escrita, quality gates, watermark, schema policy, sources e streaming `available_now`.
 
-Status validado localmente: `135 passed` com Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
+Status validado localmente: `152 passed` com Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
 
 Variável `SKIP_SPARK_TESTS=1` força o pulo dos testes integrados.

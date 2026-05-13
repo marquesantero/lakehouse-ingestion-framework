@@ -63,7 +63,7 @@ Guia prático passo a passo para testar e operar o framework. Cobre dois modos d
 ### 2.1 Pré-requisitos
 
 - Python 3.10 ou superior.
-- PySpark 3.4+ e delta-spark 3.0+ (em Databricks já vêm com o runtime; fora dele, instale via `pip`).
+- PySpark 3.4+ e delta-spark 3.0+ quando fora do Databricks. Em Databricks, ambos já vêm com o runtime e o wheel não tenta resolvê-los como dependências obrigatórias.
 - Java 11+ (apenas se for rodar Spark fora do Databricks).
 - Acesso de gravação a um catálogo Unity Catalog ou a um schema Hive.
 
@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+# gera: dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.6.4
+print(lakehouse_ingestion.__version__)  # 1.8.1
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.6.4
+%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.8.1
 ```
 
 Em seguida:
@@ -1020,7 +1020,7 @@ Você pode executar o framework end-to-end na sua máquina (ou em CI) usando PyS
 java -version
 
 pip install -e ".[dev]"
-pip install pyspark==3.5.* delta-spark==3.* pyyaml
+# O extra dev já inclui PySpark/Delta para a suite completa.
 ```
 
 ### 8.2 Script de teste local
@@ -1135,10 +1135,10 @@ from lakehouse_ingestion import ingest  # agora resolve a sessão
 
 ### "ModuleNotFoundError: No module named 'delta'"
 
-Falta `delta-spark`. Instale:
+Falta `delta-spark`. Fora do Databricks, instale o extra Spark:
 
 ```bash
-pip install delta-spark==3.*
+pip install "lakehouse-ingestion-framework[spark]"
 ```
 
 Em Databricks, isso já vem com o runtime — esse erro só aparece localmente.
