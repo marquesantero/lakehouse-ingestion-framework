@@ -99,13 +99,27 @@ def _check_governance(paths: List[Path], indent: int) -> int:
     return exit_code
 
 
-def _apply_governance(paths: List[Path], *, force_revoke: bool = False) -> int:
+def _apply_governance(paths: List[Path]) -> int:
     from .ingestion import apply_governance_bundle
 
     exit_code = 0
     for path in paths:
         try:
-            result = apply_governance_bundle(str(path), force_revoke=force_revoke)
+            result = apply_governance_bundle(str(path))
+            print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        except Exception as exc:
+            exit_code = 1
+            print(f"ERRO {path}: {exc}", file=sys.stderr)
+    return exit_code
+
+
+def _apply_annotations(paths: List[Path]) -> int:
+    from .ingestion import apply_annotations_bundle
+
+    exit_code = 0
+    for path in paths:
+        try:
+            result = apply_annotations_bundle(str(path))
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
         except Exception as exc:
             exit_code = 1
@@ -121,6 +135,34 @@ def _apply_access(paths: List[Path], *, force_revoke: bool = False) -> int:
         try:
             result = apply_access_bundle(str(path), force_revoke=force_revoke)
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        except Exception as exc:
+            exit_code = 1
+            print(f"ERRO {path}: {exc}", file=sys.stderr)
+    return exit_code
+
+
+def _validate_access(paths: List[Path], indent: int) -> int:
+    from ._sql import full_table_name
+    from .governance import access_drift_report, validate_governance_contract
+
+    exit_code = 0
+    for path in paths:
+        try:
+            bundle = load_contract_bundle(path)
+            plan = bundle.ingestion
+            target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+            validation = validate_governance_contract(target, None, plan.access)
+            drift = access_drift_report(target, plan.access)
+            status = "FAILED" if validation["status"] == "FAILED" or drift["status"] == "FAILED" else "SUCCESS"
+            report = {
+                "status": status,
+                "target_table": target,
+                "validation": validation,
+                "access_drift": drift,
+            }
+            print(json.dumps(report, indent=indent, sort_keys=True, default=str))
+            if status == "FAILED":
+                exit_code = 1
         except Exception as exc:
             exit_code = 1
             print(f"ERRO {path}: {exc}", file=sys.stderr)
@@ -163,14 +205,22 @@ def main(argv: list[str] | None = None) -> int:
 
     governance_apply_parser = sub.add_parser(
         "governance-apply",
-        help="Aplica annotations/operations/access sem executar ingestao",
+        help="Aplica operations/annotations sem executar ingestao",
     )
     governance_apply_parser.add_argument("paths", nargs="+", type=Path)
-    governance_apply_parser.add_argument(
-        "--force-revoke",
-        action="store_true",
-        help="Permite executar REVOKE para grants nao declarados quando access.revoke_unmanaged=true",
+
+    annotations_apply_parser = sub.add_parser(
+        "apply-annotations",
+        help="Aplica apenas annotations sem executar ingestao nem access",
     )
+    annotations_apply_parser.add_argument("paths", nargs="+", type=Path)
+
+    access_validate_parser = sub.add_parser(
+        "validate-access",
+        help="Valida apenas access.yaml e drift de grants sem aplicar alteracoes",
+    )
+    access_validate_parser.add_argument("paths", nargs="+", type=Path)
+    access_validate_parser.add_argument("--indent", type=int, default=2)
 
     access_apply_parser = sub.add_parser(
         "apply-access",
@@ -196,7 +246,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"governance-check", "drift-check"}:
         return _check_governance(args.paths, args.indent)
     if args.command == "governance-apply":
-        return _apply_governance(args.paths, force_revoke=args.force_revoke)
+        return _apply_governance(args.paths)
+    if args.command == "apply-annotations":
+        return _apply_annotations(args.paths)
+    if args.command == "validate-access":
+        return _validate_access(args.paths, args.indent)
     if args.command == "apply-access":
         return _apply_access(args.paths, force_revoke=args.force_revoke)
     if args.command == "schema":

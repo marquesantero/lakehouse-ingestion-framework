@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import traceback
 from datetime import datetime
-from dataclasses import replace
+from dataclasses import asdict, is_dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
 from pyspark.sql import DataFrame
@@ -120,6 +120,36 @@ def _governance_preview(plan: IngestionPlan, target: str) -> Dict[str, Any]:
         "annotations_sql": annotation_sql_preview(target, plan.annotations),
         "access_sql": access_sql_preview(target, plan.access),
         "operations_configured": plan.operations is not None,
+        "access_configured": plan.access is not None,
+    }
+
+
+def _annotations_preview(plan: IngestionPlan, target: str) -> Dict[str, Any]:
+    """Preview estruturado de annotations para ``dry_run``."""
+    if not plan.annotations:
+        return {"configured": False, "sql_preview": []}
+    def render_optional_dataclass(value: Any) -> Any:
+        return asdict(value) if value is not None and is_dataclass(value) else value
+
+    return {
+        "configured": True,
+        "policy": plan.annotations.policy,
+        "table": {
+            "description": plan.annotations.table.description,
+            "aliases": plan.annotations.table.aliases,
+            "tags": plan.annotations.table.tags,
+        },
+        "columns": {
+            column: {
+                "description": annotation.description,
+                "aliases": annotation.aliases,
+                "tags": annotation.tags,
+                "pii": render_optional_dataclass(annotation.pii),
+                "deprecated": render_optional_dataclass(annotation.deprecated),
+            }
+            for column, annotation in plan.annotations.columns.items()
+        },
+        "sql_preview": annotation_sql_preview(target, plan.annotations),
     }
 
 
@@ -511,6 +541,7 @@ def _build_dry_run_result(
         "idempotency_policy": plan.idempotency_policy,
         "contract_metadata": _contract_metadata(plan),
         "governance": _governance_preview(plan, target),
+        "annotations_preview": _annotations_preview(plan, target),
         "framework_version": FRAMEWORK_VERSION,
         "ctrl_schema_version": CTRL_SCHEMA_VERSION,
         **runtime_meta,
@@ -1395,10 +1426,12 @@ def ingest_bundle(path: str) -> Dict[str, Any]:
 def apply_governance_bundle(
     path: str,
     run_id: Optional[str] = None,
-    *,
-    force_revoke: bool = False,
 ) -> Dict[str, Any]:
-    """Aplica annotations/operations/access de um bundle sem reprocessar dados."""
+    """Aplica operations e annotations de um bundle sem reprocessar dados.
+
+    Access tem ciclo proprio por normalmente exigir permissoes elevadas. Use
+    ``apply_access_bundle`` para grants, row filters e column masks.
+    """
     from .contract_bundle import governance_preview, load_contract_bundle
 
     bundle = load_contract_bundle(path)
@@ -1407,7 +1440,7 @@ def apply_governance_bundle(
     governance_run_id = run_id or new_run_id()
     tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
     stage_started = utc_now_ts()
-    governance_validation = validate_governance_contract(target, plan.annotations, plan.access)
+    governance_validation = validate_governance_contract(target, plan.annotations, None)
     if governance_validation["status"] == "FAILED":
         raise ValueError(f"Contrato de governança inválido: {to_json(governance_validation['issues'])}")
     results = {
@@ -1426,20 +1459,50 @@ def apply_governance_bundle(
             plan.annotations,
             log_annotation_entries,
         ),
-        "access": apply_access_contract(
-            tables,
-            governance_run_id,
-            target,
-            plan.access,
-            log_access_entries,
-            allow_revoke_unmanaged=force_revoke,
-        ),
+        "access": {
+            "status": "DEFERRED",
+            "reason": "access deve ser aplicado por apply_access_bundle",
+            "sql_preview": access_sql_preview(target, plan.access),
+        } if plan.access else {"status": "NOT_CONFIGURED"},
     }
     return {
         "status": "SUCCESS",
         "run_id": governance_run_id,
         "target_table": target,
         "governance": results,
+        "preview": governance_preview(bundle),
+        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
+        "framework_version": FRAMEWORK_VERSION,
+        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
+    }
+
+
+def apply_annotations_bundle(path: str, run_id: Optional[str] = None) -> Dict[str, Any]:
+    """Aplica apenas annotations de um bundle, sem operations nem access."""
+    from .contract_bundle import governance_preview, load_contract_bundle
+
+    bundle = load_contract_bundle(path)
+    plan = bundle.ingestion
+    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    annotations_run_id = run_id or new_run_id()
+    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
+    stage_started = utc_now_ts()
+    validation = validate_governance_contract(target, plan.annotations, None)
+    if validation["status"] == "FAILED":
+        raise ValueError(f"Contrato de annotations inválido: {to_json(validation['issues'])}")
+    result = apply_annotations_contract(
+        tables,
+        annotations_run_id,
+        target,
+        plan.annotations,
+        log_annotation_entries,
+    )
+    return {
+        "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
+        "run_id": annotations_run_id,
+        "target_table": target,
+        "validation": validation,
+        "annotations": result,
         "preview": governance_preview(bundle),
         "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
         "framework_version": FRAMEWORK_VERSION,

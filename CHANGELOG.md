@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.6.3 - 2026-05-13
+
+- Faz `governance-apply` aplicar somente `operations` e `annotations`, mantendo `access` exclusivo do comando dedicado.
+- Adiciona API `apply_annotations_bundle()` e CLI `lakehouse-ingest apply-annotations`.
+- Adiciona CLI `lakehouse-ingest validate-access` para validar contrato de acesso e drift sem aplicar mudanças.
+- Adiciona `annotations_preview` estruturado no retorno de `dry_run`.
+
 ## 1.6.2 - 2026-05-13
 
 - Separa o ciclo de access da ingestão normal: `ingest_plan` aplica `operations`/`annotations` e deixa `access` como `DEFERRED`.
@@ -16,7 +23,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 ## 1.6.1 - 2026-05-13
 
 - Aceita o formato separado com `target`, `operations`/`ownership`, `access_policy` e `column_masks` como mapa por coluna.
-- Bloqueia `revoke_unmanaged=true` sem confirmação explícita (`governance-apply --force-revoke`).
+- Bloqueia `revoke_unmanaged=true` sem confirmação explícita no comando dedicado de access.
 - Fortalece validações de governança: `expected_frequency`, privilégios UC, funções qualificadas, descrições vazias, aliases vazios e `deprecated` incompleto.
 - Expande auditoria em `ctrl_ingestion_annotations`, `ctrl_ingestion_operations`, `ctrl_ingestion_access` e resumo de governança em `ctrl_ingestion_runs`.
 - Eleva `ctrl_schema_version` para 9.

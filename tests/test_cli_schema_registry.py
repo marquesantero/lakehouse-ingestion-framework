@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 import lakehouse_ingestion.ingestion as ingestion_module
 from lakehouse_ingestion.cli import main
 from lakehouse_ingestion.contract_schema import yaml_schema
@@ -84,6 +86,35 @@ def test_cli_apply_access_uses_dedicated_command(tmp_path, monkeypatch, capsys):
     assert main(["apply-access", str(base), "--force-revoke"]) == 0
     output = capsys.readouterr().out
     assert '"force_revoke": true' in output
+
+
+def test_cli_apply_annotations_uses_dedicated_command(tmp_path, monkeypatch, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+
+    def fake_apply_annotations_bundle(path):
+        return {"status": "SUCCESS", "path": path}
+
+    monkeypatch.setattr(ingestion_module, "apply_annotations_bundle", fake_apply_annotations_bundle)
+
+    assert main(["apply-annotations", str(base)]) == 0
+    output = capsys.readouterr().out
+    assert '"status": "SUCCESS"' in output
+
+
+def test_cli_governance_apply_does_not_accept_force_revoke(tmp_path):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main(["governance-apply", str(base), "--force-revoke"])
+    assert exc.value.code == 2
 
 
 def test_write_mode_registry_extends_plan_validation():

@@ -23,6 +23,7 @@ from .ingestion import (
     QualityRules,
     SourceSpec,
     apply_access_bundle,
+    apply_annotations_bundle,
     apply_governance_bundle,
     ingest,
     ingest_bundle,
@@ -59,6 +60,7 @@ __all__ = [
     "governance_preview",
     "governance_referenced_columns",
     "apply_access_bundle",
+    "apply_annotations_bundle",
     "apply_governance_bundle",
     "ingest",
     "ingest_bundle",
@@ -73,4 +75,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.6.2"
+__version__ = "1.6.3"

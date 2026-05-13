@@ -128,6 +128,8 @@ lakehouse-ingest governance-preview contracts/gold/gd_orders
 lakehouse-ingest governance-check contracts/gold/gd_orders
 lakehouse-ingest drift-check contracts/gold/gd_orders
 lakehouse-ingest governance-apply contracts/gold/gd_orders
+lakehouse-ingest apply-annotations contracts/gold/gd_orders
+lakehouse-ingest validate-access contracts/gold/gd_orders
 lakehouse-ingest apply-access contracts/gold/gd_orders
 lakehouse-ingest apply-access contracts/gold/gd_orders --force-revoke
 ```
