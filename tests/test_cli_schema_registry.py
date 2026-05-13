@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import lakehouse_ingestion.governance as governance_module
 import lakehouse_ingestion.ingestion as ingestion_module
 from lakehouse_ingestion.cli import main
 from lakehouse_ingestion.contract_schema import yaml_schema
@@ -115,6 +116,49 @@ def test_cli_governance_apply_does_not_accept_force_revoke(tmp_path):
     with pytest.raises(SystemExit) as exc:
         main(["governance-apply", str(base), "--force-revoke"])
     assert exc.value.code == 2
+
+
+def test_cli_validate_access_returns_failed_on_fail_drift(tmp_path, monkeypatch, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps(
+            {
+                "source": "silver.orders",
+                "target_table": "gd_orders",
+                "layer": "gold",
+                "access": {
+                    "access_policy": {"on_drift": "fail"},
+                    "grants": [{"principal": "readers", "privileges": ["SELECT"]}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        governance_module,
+        "access_drift_report",
+        lambda target, access: {
+            "status": "DRIFTED",
+            "target_table": target,
+            "missing_grants": [("readers", "SELECT")],
+            "unmanaged_grants": [],
+            "issues": [{"severity": "fail", "scope": "grant", "object": "readers:SELECT"}],
+        },
+    )
+    monkeypatch.setattr(
+        governance_module,
+        "validate_governance_contract",
+        lambda target, annotations, access: {
+            "status": "SUCCESS",
+            "target_table": target,
+            "references": {},
+            "issues": [],
+        },
+    )
+
+    assert main(["validate-access", str(base), "--indent", "0"]) == 1
+    output = capsys.readouterr().out
+    assert '"status": "FAILED"' in output
 
 
 def test_write_mode_registry_extends_plan_validation():

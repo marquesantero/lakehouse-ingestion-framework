@@ -221,7 +221,13 @@ def governance_check(bundle: ContractBundle) -> dict[str, Any]:
     validation = validate_governance_contract(target, bundle.annotations, bundle.access)
     access_drift = access_drift_report(target, bundle.access)
     metadata_warnings = contract_metadata_warnings(bundle)
-    status = "FAILED" if validation["status"] == "FAILED" or access_drift["status"] == "FAILED" else "SUCCESS"
+    access_drift_failed = (
+        access_drift["status"] == "FAILED"
+        or (access_drift["status"] == "DRIFTED" and bundle.access is not None and bundle.access.on_drift == "fail")
+    )
+    status = "FAILED" if validation["status"] == "FAILED" or access_drift_failed else "SUCCESS"
+    if status == "SUCCESS" and access_drift["status"] == "DRIFTED":
+        status = "WARNED"
     if status == "SUCCESS" and metadata_warnings:
         status = "WARNED"
     return {

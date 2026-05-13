@@ -113,6 +113,7 @@ contracts/gold/gd_orders.access.yaml
 
 `annotations` aplica comments e tags de tabela/coluna, incluindo aliases, PII e depreciação. `operations` registra ownership estruturado, criticidade, SLA, grupos e runbook para dashboards externos. `access` declara grants, row filters e column masks.
 `ingest_plan` aplica `operations`/`annotations` e deixa `access` como `DEFERRED`; permissões rodam pelo comando dedicado `apply-access`. `governance-check` compara grants declarados com `SHOW GRANTS ON TABLE`. `revoke_unmanaged=true` é operação perigosa e só executa `REVOKE` via `apply-access --force-revoke`.
+`access_policy.on_drift=fail` bloqueia aplicação quando houver drift; `warn` apenas sinaliza; `reconcile` permite correção declarativa e revogação só com `revoke_unmanaged=true` + `--force-revoke`.
 
 ```python
 from lakehouse_ingestion import ingest_bundle

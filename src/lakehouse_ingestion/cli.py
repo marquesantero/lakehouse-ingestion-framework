@@ -153,7 +153,13 @@ def _validate_access(paths: List[Path], indent: int) -> int:
             target = full_table_name(plan.catalog, plan.layer, plan.target_table)
             validation = validate_governance_contract(target, None, plan.access)
             drift = access_drift_report(target, plan.access)
-            status = "FAILED" if validation["status"] == "FAILED" or drift["status"] == "FAILED" else "SUCCESS"
+            drift_failed = (
+                drift["status"] == "FAILED"
+                or (drift["status"] == "DRIFTED" and plan.access is not None and plan.access.on_drift == "fail")
+            )
+            status = "FAILED" if validation["status"] == "FAILED" or drift_failed else "SUCCESS"
+            if status == "SUCCESS" and drift["status"] == "DRIFTED":
+                status = "WARNED"
             report = {
                 "status": status,
                 "target_table": target,

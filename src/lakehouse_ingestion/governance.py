@@ -501,9 +501,10 @@ def access_drift_report(
         }
     missing = sorted(declared - current)
     unmanaged = sorted(current - declared)
+    drift_severity = "fail" if contract.on_drift == "fail" else "warn"
     issues = [
         {
-            "severity": "warn",
+            "severity": drift_severity,
             "scope": "grant",
             "object": f"{principal}:{privilege}",
             "message": f"Grant declarado ausente: {privilege} para {principal}",
@@ -513,10 +514,14 @@ def access_drift_report(
     if contract.revoke_unmanaged:
         issues.extend(
             {
-                "severity": "warn",
+                "severity": drift_severity,
                 "scope": "grant",
                 "object": f"{principal}:{privilege}",
-                "message": f"Grant atual nao declarado sera revogado: {privilege} de {principal}",
+                "message": (
+                    f"Grant atual nao declarado "
+                    f"{'sera revogado' if contract.on_drift == 'reconcile' else 'foi detectado'}: "
+                    f"{privilege} de {principal}"
+                ),
             }
             for principal, privilege in unmanaged
         )
@@ -965,6 +970,8 @@ def apply_access_contract(
     drift = access_drift_report(target_table, contract)
     if drift["status"] == "FAILED" and contract.on_drift == "fail":
         raise ValueError(f"Falha ao calcular drift de access: {to_json(drift['issues'])}")
+    if drift["status"] == "DRIFTED" and contract.on_drift == "fail":
+        raise ValueError(f"Drift de access detectado: {to_json(drift['issues'])}")
     steps = _access_steps(target_table, contract)
     if contract.revoke_unmanaged and drift["status"] != "FAILED":
         steps.extend(_revoke_grant_steps(target_table, drift["unmanaged_grants"], contract))

@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.6.4 - 2026-05-13
+
+- Define semântica explícita para `access_policy.on_drift`.
+- `on_drift=fail` agora falha antes de aplicar grants quando há drift.
+- `validate-access` e `governance-check` retornam `FAILED` para drift com `on_drift=fail` e `WARNED` para drift tolerado.
+- Issues de drift passam a refletir severidade `fail` ou `warn` conforme a política.
+
 ## 1.6.3 - 2026-05-13
 
 - Faz `governance-apply` aplicar somente `operations` e `annotations`, mantendo `access` exclusivo do comando dedicado.

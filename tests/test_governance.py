@@ -334,6 +334,63 @@ def test_access_drift_report_detects_missing_and_unmanaged_grants():
     assert report["unmanaged_grants"] == [("legacy", "SELECT")]
 
 
+def test_access_drift_fail_policy_marks_issues_as_fail():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        access={
+            "access_policy": {"on_drift": "fail"},
+            "grants": [{"principal": "readers", "privileges": ["SELECT"]}],
+        },
+    )
+
+    report = access_drift_report(
+        "main.gold.orders",
+        plan.access,
+        current_grants=set(),
+    )
+
+    assert report["status"] == "DRIFTED"
+    assert {issue["severity"] for issue in report["issues"]} == {"fail"}
+
+
+def test_apply_access_contract_fails_before_apply_when_on_drift_fail(monkeypatch):
+    executed = []
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        access={
+            "access_policy": {"on_drift": "fail"},
+            "grants": [{"principal": "readers", "privileges": ["SELECT"]}],
+        },
+    )
+
+    monkeypatch.setattr(
+        governance_module,
+        "access_drift_report",
+        lambda target, contract: {
+            "status": "DRIFTED",
+            "target_table": target,
+            "declared_grants": [("readers", "SELECT")],
+            "current_grants": [],
+            "missing_grants": [("readers", "SELECT")],
+            "unmanaged_grants": [],
+            "issues": [{"severity": "fail", "scope": "grant", "object": "readers:SELECT"}],
+        },
+    )
+    monkeypatch.setattr(governance_module, "_execute_step", lambda sql: executed.append(sql))
+
+    with pytest.raises(ValueError, match="Drift de access detectado"):
+        apply_access_contract(
+            {"access": "ops.ctrl_ingestion_access"},
+            "run-1",
+            "main.gold.orders",
+            plan.access,
+            lambda tables, run_id, target, entries: None,
+        )
+    assert executed == []
+
+
 def test_apply_access_contract_blocks_revoke_without_force():
     plan = build_plan_from_kwargs(
         source="x",
