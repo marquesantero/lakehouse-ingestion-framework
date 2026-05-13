@@ -19,8 +19,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "pyspark>=3.4",
-    "delta-spark>=3.0",
+    "pyspark>=3.4,<4",
+    "delta-spark>=3.0,<4",
     "PyYAML>=6.0",
 ]
 

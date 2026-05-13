@@ -145,8 +145,8 @@ pytest -v                      # suite completa (requer Java 11+)
 | Item | Requisito |
 |------|-----------|
 | Python | >= 3.10 |
-| PySpark | >= 3.4 |
-| delta-spark | >= 3.0 |
+| PySpark | >= 3.4, < 4 |
+| delta-spark | >= 3.0, < 4 |
 | Databricks Runtime | DBR 13.3 LTS+ (recomendado 14+) |
 | Java (fora Databricks) | 11+ |
 | Permissões UC | `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE` no catálogo e schema `ops` |
@@ -2598,8 +2598,8 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 | Componente | Mínimo | Recomendado |
 |-----------|--------|-------------|
 | Python | 3.10 | 3.11+ |
-| PySpark | 3.4 | 3.5 |
-| delta-spark | 3.0 | 3.2+ |
+| PySpark | 3.4 | 3.5.x |
+| delta-spark | 3.0 | 3.x |
 | Databricks Runtime | 13.3 LTS | 14.3 LTS+ |
 | Java (standalone) | 11 | 17 |
 

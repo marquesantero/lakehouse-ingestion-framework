@@ -129,20 +129,17 @@ def schema_signature(df: DataFrame) -> str:
 
 
 def table_exists(full_name: str) -> bool:
-    """Verifica se ``catalog.schema.table`` existe.
-
-    Usa ``spark.catalog.tableExists`` quando possivel; cai para
-    ``DESCRIBE TABLE`` se o nome nao puder ser dividido em tres partes.
-    """
+    """Verifica se uma tabela existe usando nomes de 1, 2 ou 3 partes."""
     try:
-        catalog, schema, table = full_name.split(".", 2)
-        return spark.catalog.tableExists(f"{catalog}.{schema}.{table}")
-    except Exception:
-        try:
-            spark.sql(f"DESCRIBE TABLE {qt(full_name)}")
+        if spark.catalog.tableExists(full_name):
             return True
-        except Exception:
-            return False
+    except Exception:
+        pass
+    try:
+        spark.sql(f"DESCRIBE TABLE {qt(full_name)}")
+        return True
+    except Exception:
+        return False
 
 
 _INTEGER_ORDER = {"tinyint": 0, "smallint": 1, "int": 2, "bigint": 3}

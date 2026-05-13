@@ -168,8 +168,7 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             last_delta_version BIGINT,
             last_write_completed_at_utc TIMESTAMP,
             last_watermark_candidate STRING,
-            last_updated_at_utc TIMESTAMP,
-            CONSTRAINT pk_state PRIMARY KEY (target_table)
+            last_updated_at_utc TIMESTAMP
         ) USING DELTA
     """)
     spark.sql(f"""
@@ -204,8 +203,7 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             expires_at_utc TIMESTAMP,
             ttl_minutes BIGINT,
             released_at_utc TIMESTAMP,
-            status STRING,
-            CONSTRAINT pk_lock PRIMARY KEY (target_table)
+            status STRING
         ) USING DELTA
     """)
     spark.sql(f"""
@@ -236,8 +234,7 @@ def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
             component STRING NOT NULL,
             framework_version STRING,
             ctrl_schema_version BIGINT,
-            updated_at_utc TIMESTAMP,
-            CONSTRAINT pk_metadata PRIMARY KEY (component)
+            updated_at_utc TIMESTAMP
         ) USING DELTA
     """)
     spark.sql(f"""

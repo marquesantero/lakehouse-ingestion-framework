@@ -143,7 +143,6 @@ def test_scd1_hash_diff_only_inserts_changes(spark, make_df, unique_name):
         source=df3,
         mode="scd1_hash_diff",
         hash_keys="id",
-        dedup_order_expr="ingestion_date DESC NULLS LAST",
         **_common(table),
     )
     assert res3["rows_written"] == 1

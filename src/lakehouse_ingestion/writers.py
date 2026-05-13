@@ -34,24 +34,22 @@ def ensure_delta_table(
 ) -> bool:
     """Cria a tabela Delta com schema vazio se ainda não existe.
 
-    Usa ``df.limit(0)`` para criar a estrutura sem dados (o motor de escrita
-    insere depois). Aplica ``partitionBy`` ou ``CLUSTER BY``, mutuamente
-    exclusivos (cluster tem prioridade). Retorna ``True`` se criou,
-    ``False`` se já existia.
+    Usa SQL ``CREATE TABLE`` com schema explícito para evitar diferenças de
+    comportamento do ``saveAsTable`` entre Spark local, Delta V2 e Databricks.
+    Aplica particionamento na criação e ``CLUSTER BY`` depois, quando suportado.
+    Retorna ``True`` se criou, ``False`` se já existia.
     """
     if table_exists(target):
         return False
-    writer = df.limit(0).write.format("delta").mode("overwrite").option("mergeSchema", "true")
+    cols_sql = ", ".join(f"{q(field.name)} {field.dataType.simpleString()}" for field in df.schema.fields)
+    partition_sql = ""
     if partition_col and not cluster_cols:
         validate_cols(df, [partition_col], "partition_column")
-        writer.partitionBy(partition_col).saveAsTable(target)
-    else:
-        writer.saveAsTable(target)
-        if cluster_cols:
-            validate_cols(df, cluster_cols, "cluster_columns")
-            spark.sql(
-                f"ALTER TABLE {qt(target)} CLUSTER BY ({', '.join(q(c) for c in cluster_cols)})"
-            )
+        partition_sql = f" PARTITIONED BY ({q(partition_col)})"
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {qt(target)} ({cols_sql}) USING DELTA{partition_sql}")
+    if cluster_cols:
+        validate_cols(df, cluster_cols, "cluster_columns")
+        spark.sql(f"ALTER TABLE {qt(target)} CLUSTER BY ({', '.join(q(c) for c in cluster_cols)})")
     apply_delta_properties(target, delta_properties)
     return True
 
@@ -236,15 +234,35 @@ def write_overwrite(
     """
     ensure_delta_table(df, target, cluster_cols, partition_col, delta_properties)
     count = expected_count if expected_count is not None else df.count()
-    writer = df.write.format("delta").mode("overwrite").option("mergeSchema", "true")
+    writer = df.write.format("delta").mode("overwrite")
     if partition_col and partition_value and not cluster_cols:
         writer = writer.option(
             "replaceWhere",
             f"{q(partition_col)} = '{str(partition_value).replace(chr(39), chr(39) + chr(39))}'",
-        )
+        ).option("mergeSchema", "true")
+    else:
+        writer = writer.option("overwriteSchema", "true")
     if partition_col and not cluster_cols:
         writer = writer.partitionBy(partition_col)
-    writer.saveAsTable(target)
+    try:
+        writer.saveAsTable(target)
+    except Exception as exc:
+        if "does not support truncate" not in str(exc):
+            raise
+        logger.warning(
+            "Runtime Delta não suporta truncate via overwrite para %s; usando fallback SQL compatível.",
+            target,
+        )
+        if partition_col and partition_value and not cluster_cols:
+            escaped_value = str(partition_value).replace("'", "''")
+            spark.sql(f"DELETE FROM {qt(target)} WHERE {q(partition_col)} = '{escaped_value}'")
+            if count:
+                df.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(target)
+        else:
+            spark.sql(f"DROP TABLE IF EXISTS {qt(target)}")
+            ensure_delta_table(df, target, cluster_cols, partition_col, delta_properties)
+            if count:
+                df.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(target)
     return count
 
 

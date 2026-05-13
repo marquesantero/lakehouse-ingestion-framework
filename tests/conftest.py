@@ -19,6 +19,17 @@ if str(SRC) not in sys.path:
 
 
 def _build_spark(warehouse: Path):
+    if os.name == "nt":
+        local_hadoop = ROOT / ".hadoop"
+        if (local_hadoop / "bin" / "winutils.exe").exists() and (local_hadoop / "bin" / "hadoop.dll").exists():
+            os.environ["HADOOP_HOME"] = str(local_hadoop)
+            os.environ["PATH"] = str(local_hadoop / "bin") + os.pathsep + os.environ.get("PATH", "")
+        spark_home = os.environ.get("SPARK_HOME")
+        if spark_home and not (Path(spark_home) / "bin" / "spark-submit.cmd").exists():
+            os.environ.pop("SPARK_HOME", None)
+        os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
+        os.environ.setdefault("SPARK_LOCAL_HOSTNAME", "localhost")
+
     from pyspark.sql import SparkSession
 
     builder = (
@@ -31,6 +42,7 @@ def _build_spark(warehouse: Path):
         )
         .config("spark.sql.warehouse.dir", str(warehouse))
         .config("spark.driver.bindAddress", "127.0.0.1")
+        .config("spark.driver.host", "127.0.0.1")
         .config("spark.ui.enabled", "false")
         .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
         .config("spark.sql.session.timeZone", "UTC")

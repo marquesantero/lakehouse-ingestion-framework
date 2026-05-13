@@ -75,9 +75,8 @@ def test_build_custom_keys(make_df):
         "id long, code string, region string",
     )
     out = build_custom_keys(df, {"composite_key": ["code", "region"]})
-    rows = sorted(out.select("composite_key").collect(), key=lambda r: r[0])
-    assert rows[0][0] == "|Y"  # null -> ""
-    assert rows[1][0] == "AB|X"
+    rows = {r[0] for r in out.select("composite_key").collect()}
+    assert rows == {"|Y", "AB|X"}  # null -> ""
 
 
 def test_fix_encoding_disabled_passthrough(make_df):

@@ -46,8 +46,8 @@ twine check dist/*
 ## Requisitos de runtime
 
 - Python 3.10+
-- PySpark 3.4+ (ou Databricks Runtime equivalente)
-- delta-spark 3.0+
+- PySpark 3.4 até 3.5.x (ou Databricks Runtime equivalente)
+- delta-spark 3.0 até 3.x
 - Uma SparkSession ativa antes da chamada de `ingest()`. O framework resolve a sessão por:
   1. `databricks.sdk.runtime.spark` quando rodando em Databricks
   2. `SparkSession.getActiveSession()` em qualquer outro ambiente
