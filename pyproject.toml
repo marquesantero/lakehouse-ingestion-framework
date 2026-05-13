@@ -34,7 +34,7 @@ Issues = "https://github.com/marquesantero/lakehouse-ingestion-framework/issues"
 
 [project.optional-dependencies]
 databricks = ["databricks-sdk>=0.20"]
-dev = ["build>=1.0", "twine>=4.0", "pytest>=7.0", "ruff>=0.4"]
+dev = ["build>=1.0", "twine>=4.0", "pytest>=7.0", "ruff>=0.4", "tomli>=2.0; python_version<'3.11'"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

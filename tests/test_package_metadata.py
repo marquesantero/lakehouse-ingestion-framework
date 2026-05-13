@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import lakehouse_ingestion
 from lakehouse_ingestion.config import FRAMEWORK_VERSION
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+    import tomli as tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
