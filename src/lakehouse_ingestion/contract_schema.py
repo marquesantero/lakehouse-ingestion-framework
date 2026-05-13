@@ -68,6 +68,7 @@ def yaml_schema() -> Dict[str, Any]:
         "additionalProperties": False,
         "required": ["source", "target_table"],
         "properties": {
+            "_metadata": {"type": "object"},
             "source": {
                 "oneOf": [
                     {"type": "string"},

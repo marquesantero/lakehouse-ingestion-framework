@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from lakehouse_ingestion.contract_bundle import load_contract_bundle
+from lakehouse_ingestion.contract_bundle import governance_preview, load_contract_bundle
 from lakehouse_ingestion.governance import (
     AccessContract,
     AnnotationsContract,
@@ -129,7 +129,14 @@ def test_governance_sql_preview_generates_catalog_statements():
 def test_load_contract_bundle_reads_split_json_contracts(tmp_path):
     base = tmp_path / "gd_orders"
     (tmp_path / "gd_orders.ingestion.json").write_text(
-        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        json.dumps(
+            {
+                "_metadata": {"contract_version": "1.0.0", "last_updated_by": "data-platform"},
+                "source": "silver.orders",
+                "target_table": "gd_orders",
+                "layer": "gold",
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / "gd_orders.annotations.json").write_text(
@@ -151,3 +158,27 @@ def test_load_contract_bundle_reads_split_json_contracts(tmp_path):
     assert bundle.annotations.table.description == "Gold orders"
     assert bundle.operations.criticality == "critical"
     assert bundle.access.mode == "validate_only"
+    assert bundle.metadata["ingestion"]["contract_version"] == "1.0.0"
+    assert "ingestion" in bundle.paths
+
+
+def test_governance_preview_from_bundle(tmp_path):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "gd_orders.annotations.json").write_text(
+        json.dumps({"table": {"description": "Gold orders"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "gd_orders.access.json").write_text(
+        json.dumps({"mode": "validate_only", "grants": [{"principal": "readers", "privileges": ["SELECT"]}]}),
+        encoding="utf-8",
+    )
+
+    preview = governance_preview(load_contract_bundle(base))
+
+    assert preview["target_table"] == "main.gold.gd_orders"
+    assert preview["annotations_sql"]
+    assert preview["access_sql"][0] == "GRANT SELECT ON TABLE `main`.`gold`.`gd_orders` TO `readers`"

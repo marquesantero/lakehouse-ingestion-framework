@@ -1382,6 +1382,51 @@ def ingest_bundle(path: str) -> Dict[str, Any]:
     return ingest_plan(bundle.ingestion)
 
 
+def apply_governance_bundle(path: str, run_id: Optional[str] = None) -> Dict[str, Any]:
+    """Aplica annotations/operations/access de um bundle sem reprocessar dados."""
+    from .contract_bundle import governance_preview, load_contract_bundle
+
+    bundle = load_contract_bundle(path)
+    plan = bundle.ingestion
+    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    governance_run_id = run_id or new_run_id()
+    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
+    stage_started = utc_now_ts()
+    results = {
+        "operations": record_operations_contract(
+            tables,
+            governance_run_id,
+            target,
+            plan.operations,
+            log_operations_contract,
+        ),
+        "annotations": apply_annotations_contract(
+            tables,
+            governance_run_id,
+            target,
+            plan.annotations,
+            log_annotation_entries,
+        ),
+        "access": apply_access_contract(
+            tables,
+            governance_run_id,
+            target,
+            plan.access,
+            log_access_entries,
+        ),
+    }
+    return {
+        "status": "SUCCESS",
+        "run_id": governance_run_id,
+        "target_table": target,
+        "governance": results,
+        "preview": governance_preview(bundle),
+        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
+        "framework_version": FRAMEWORK_VERSION,
+        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
+    }
+
+
 EXAMPLE_BRONZE_PLAN = {
     "source": "raw_orders",
     "target_table": "b_orders",

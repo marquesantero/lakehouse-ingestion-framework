@@ -15,6 +15,9 @@ def test_yaml_schema_contains_new_contract_fields():
     assert "column_mapping" in props
     assert "delta_properties" in props
     assert "retry_attempts" in props
+    assert "annotations" in props
+    assert "operations" in props
+    assert "access" in props
 
 
 def test_cli_validate_accepts_json_contract(tmp_path, capsys):
@@ -29,6 +32,23 @@ def test_cli_validate_accepts_json_contract(tmp_path, capsys):
 
     assert main(["validate", str(path)]) == 0
     assert "OK" in capsys.readouterr().out
+
+
+def test_cli_governance_preview_accepts_split_contract(tmp_path, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "gd_orders.annotations.json").write_text(
+        json.dumps({"table": {"description": "Gold orders"}}),
+        encoding="utf-8",
+    )
+
+    assert main(["governance-preview", str(base), "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert "main.gold.gd_orders" in output
+    assert "COMMENT ON TABLE" in output
 
 
 def test_write_mode_registry_extends_plan_validation():

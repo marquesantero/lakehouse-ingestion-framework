@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from .governance import AccessContract, AnnotationsContract, OperationsContract
+from ._sql import full_table_name
+from .governance import (
+    AccessContract,
+    AnnotationsContract,
+    OperationsContract,
+    access_sql_preview,
+    annotation_sql_preview,
+)
 from .plan import IngestionPlan, build_plan_from_kwargs
 
 
@@ -18,6 +25,16 @@ class ContractBundle:
     annotations: Optional[AnnotationsContract] = None
     operations: Optional[OperationsContract] = None
     access: Optional[AccessContract] = None
+    metadata: dict[str, dict[str, Any]] | None = None
+    paths: dict[str, str] | None = None
+
+
+def _strip_metadata(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    clean = dict(payload)
+    metadata = clean.pop("_metadata", {}) or {}
+    if not isinstance(metadata, dict):
+        raise ValueError("_metadata deve ser um objeto/dict")
+    return clean, metadata
 
 
 def _load_structured(path: Path) -> dict[str, Any]:
@@ -71,17 +88,28 @@ def load_contract_bundle(path: str | Path) -> ContractBundle:
     if ingestion_path is None:
         raise FileNotFoundError(f"Contrato de ingestao nao encontrado para {base}")
 
-    ingestion_payload = _load_structured(ingestion_path)
+    ingestion_payload, ingestion_metadata = _strip_metadata(_load_structured(ingestion_path))
     annotations_path = _first_existing(ingestion_path, "annotations")
     operations_path = _first_existing(ingestion_path, "operations")
     access_path = _first_existing(ingestion_path, "access")
+    metadata = {"ingestion": ingestion_metadata}
+    paths = {"ingestion": str(ingestion_path)}
 
     if annotations_path:
-        ingestion_payload["annotations"] = _load_structured(annotations_path)
+        annotations_payload, annotations_metadata = _strip_metadata(_load_structured(annotations_path))
+        ingestion_payload["annotations"] = annotations_payload
+        metadata["annotations"] = annotations_metadata
+        paths["annotations"] = str(annotations_path)
     if operations_path:
-        ingestion_payload["operations"] = _load_structured(operations_path)
+        operations_payload, operations_metadata = _strip_metadata(_load_structured(operations_path))
+        ingestion_payload["operations"] = operations_payload
+        metadata["operations"] = operations_metadata
+        paths["operations"] = str(operations_path)
     if access_path:
-        ingestion_payload["access"] = _load_structured(access_path)
+        access_payload, access_metadata = _strip_metadata(_load_structured(access_path))
+        ingestion_payload["access"] = access_payload
+        metadata["access"] = access_metadata
+        paths["access"] = str(access_path)
 
     plan = build_plan_from_kwargs(**ingestion_payload)
     return ContractBundle(
@@ -89,4 +117,20 @@ def load_contract_bundle(path: str | Path) -> ContractBundle:
         annotations=plan.annotations,
         operations=plan.operations,
         access=plan.access,
+        metadata=metadata,
+        paths=paths,
     )
+
+
+def governance_preview(bundle: ContractBundle) -> dict[str, Any]:
+    """Retorna preview executavel das acoes de governanca do bundle."""
+    plan = bundle.ingestion
+    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    return {
+        "target_table": target,
+        "annotations_sql": annotation_sql_preview(target, bundle.annotations),
+        "access_sql": access_sql_preview(target, bundle.access),
+        "operations": bundle.operations,
+        "metadata": bundle.metadata or {},
+        "paths": bundle.paths or {},
+    }

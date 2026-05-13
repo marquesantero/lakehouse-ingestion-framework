@@ -13,6 +13,8 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - Registra contrato operacional em `ctrl_ingestion_operations` para dashboards e alertas externos.
 - Aplica grants, row filters e column masks declarativos com auditoria em `ctrl_ingestion_access`.
 - Adiciona loader de bundle (`load_contract_bundle`) e CLI `lakehouse-ingest validate-bundle`.
+- Adiciona `_metadata` por arquivo de contrato e preview de governança (`governance_preview`).
+- Adiciona aplicação assíncrona de governança (`apply_governance_bundle`) e CLI `governance-preview`/`governance-apply`.
 - Eleva `ctrl_schema_version` para 8.
 
 ## 1.5.1 - 2026-05-13

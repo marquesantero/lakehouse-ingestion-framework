@@ -1774,6 +1774,8 @@ Validação local sem Spark:
 
 ```bash
 lakehouse-ingest validate-bundle contracts/gold/gd_orders
+lakehouse-ingest governance-preview contracts/gold/gd_orders
+lakehouse-ingest governance-apply contracts/gold/gd_orders
 ```
 
 `annotations` aplica metadata técnica no catálogo:

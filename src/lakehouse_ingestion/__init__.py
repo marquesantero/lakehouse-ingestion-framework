@@ -1,4 +1,4 @@
-from .contract_bundle import ContractBundle, load_contract_bundle
+from .contract_bundle import ContractBundle, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .governance import (
     AccessContract,
@@ -18,6 +18,7 @@ from .ingestion import (
     IngestionPlan,
     QualityRules,
     SourceSpec,
+    apply_governance_bundle,
     ingest,
     ingest_bundle,
     ingest_plan,
@@ -46,6 +47,8 @@ __all__ = [
     "SourceSpec",
     "TableAnnotations",
     "get_source_resolver",
+    "governance_preview",
+    "apply_governance_bundle",
     "ingest",
     "ingest_bundle",
     "ingest_plan",
