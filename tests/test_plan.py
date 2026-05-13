@@ -7,6 +7,7 @@ from lakehouse_ingestion import (
     IngestionPlan,
     QualityExpression,
     QualityRules,
+    ShapeConfig,
     SourceSpec,
     apply_preset,
     get_preset,
@@ -215,6 +216,39 @@ def test_build_plan_accepts_mapping_delta_properties_and_retry_options():
     assert plan.delta_properties == {"delta.enableChangeDataFeed": "true"}
     assert plan.retry_attempts == 5
     assert plan.retry_backoff_seconds == 0
+
+
+def test_build_plan_accepts_shape_contract():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        shape={
+            "flatten": {"enabled": True, "separator": "_", "max_depth": 4},
+            "arrays": [
+                {"path": "items", "mode": "explode_outer", "alias": "item"},
+                {"path": "item.discounts", "mode": "to_json", "alias": "discounts_json"},
+            ],
+            "columns": {
+                "customer.email": {"alias": "customer_email"},
+                "item.sku": "item_sku",
+            },
+            "allow_cardinality_change_on_bronze": True,
+        },
+    )
+    assert isinstance(plan.shape, ShapeConfig)
+    assert plan.shape.flatten.enabled is True
+    assert plan.shape.arrays[0].path == "items"
+    assert plan.shape.arrays[0].mode == "explode_outer"
+    assert plan.shape.columns["customer.email"].alias == "customer_email"
+
+
+def test_build_plan_rejects_invalid_shape_contract():
+    with pytest.raises(ValueError, match="shape.arrays deve ser uma lista"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"arrays": {"path": "items"}})
+    with pytest.raises(ValueError, match="mode='bad'"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"arrays": [{"path": "items", "mode": "bad"}]})
+    with pytest.raises(ValueError, match="sem ponto"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"columns": {"a.b": {"alias": "x.y"}}})
 
 
 def test_build_plan_rejects_invalid_mapping_and_retry_options():

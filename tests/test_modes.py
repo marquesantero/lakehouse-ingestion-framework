@@ -1,6 +1,9 @@
 """Testes ponta-a-ponta dos 6 modos de escrita via ``ingest``."""
 from __future__ import annotations
 
+from pyspark.sql import Row
+from pyspark.sql.types import ArrayType, LongType, StringType, StructField, StructType
+
 from lakehouse_ingestion import IngestionHooks, ingest
 
 
@@ -92,6 +95,134 @@ def test_column_mapping_renames_source_columns_before_write(spark, make_df, uniq
     final = spark.table(f"spark_catalog.silver.{table}")
     assert {"id", "val"}.issubset(set(final.columns))
     assert sorted((r["id"], r["val"]) for r in final.select("id", "val").collect()) == [(1, "a"), (2, "b")]
+
+
+def test_shape_flattens_structs_and_extracts_nested_columns(spark, unique_name):
+    table = f"{unique_name}_shape_flatten"
+    schema = StructType(
+        [
+            StructField("id", LongType(), False),
+            StructField(
+                "customer",
+                StructType(
+                    [
+                        StructField("email", StringType(), True),
+                        StructField("address", StructType([StructField("city", StringType(), True)]), True),
+                    ]
+                ),
+                True,
+            ),
+        ]
+    )
+    df = spark.createDataFrame(
+        [Row(id=1, customer=Row(email="a@example.com", address=Row(city="SP")))],
+        schema,
+    )
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "columns": {"customer.email": "customer_email"},
+            "flatten": {"enabled": True, "include": ["customer"]},
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    assert {"customer_email", "customer_address_city"}.issubset(set(final.columns))
+    row = final.select("customer_email", "customer_address_city").first()
+    assert row["customer_email"] == "a@example.com"
+    assert row["customer_address_city"] == "SP"
+
+
+def test_shape_explodes_arrays_of_structs_in_dependency_order(spark, unique_name):
+    table = f"{unique_name}_shape_arrays"
+    discount_schema = StructType([StructField("code", StringType(), True)])
+    item_schema = StructType(
+        [
+            StructField("sku", StringType(), True),
+            StructField("discounts", ArrayType(discount_schema), True),
+        ]
+    )
+    order_schema = StructType(
+        [
+            StructField("order_id", LongType(), False),
+            StructField("items", ArrayType(item_schema), True),
+        ]
+    )
+    df = spark.createDataFrame(
+        [
+            Row(
+                order_id=1,
+                items=[
+                    Row(sku="A", discounts=[Row(code="D1"), Row(code="D2")]),
+                    Row(sku="B", discounts=[]),
+                ],
+            )
+        ],
+        order_schema,
+    )
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "arrays": [
+                {"path": "item.discounts", "mode": "explode_outer", "alias": "discount"},
+                {"path": "items", "mode": "explode_outer", "alias": "item"},
+            ],
+            "columns": {"item.sku": "item_sku", "discount.code": "discount_code"},
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    rows = sorted(
+        (r["order_id"], r["item_sku"], r["discount_code"])
+        for r in final.select("order_id", "item_sku", "discount_code").collect()
+    )
+    assert rows == [(1, "A", "D1"), (1, "A", "D2"), (1, "B", None)]
+
+
+def test_shape_blocks_cardinality_change_on_bronze_by_default(make_df, unique_name):
+    table = f"{unique_name}_shape_bronze_guard"
+    df = make_df([(1, ["a", "b"])], "id long, items array<string>")
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={"arrays": [{"path": "items", "mode": "explode_outer", "alias": "item"}]},
+        **_common(table, "bronze"),
+    )
+    assert res["status"] == "FAILED"
+    assert "bloqueado em bronze" in (res["error_message"] or "")
+
+
+def test_shape_blocks_sibling_array_cartesian(spark, unique_name):
+    table = f"{unique_name}_shape_cartesian"
+    schema = StructType(
+        [
+            StructField("id", LongType(), False),
+            StructField("items", ArrayType(StringType()), True),
+            StructField("payments", ArrayType(StringType()), True),
+        ]
+    )
+    df = spark.createDataFrame([Row(id=1, items=["a", "b"], payments=["pix", "card"])], schema)
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "arrays": [
+                {"path": "items", "mode": "explode_outer", "alias": "item"},
+                {"path": "payments", "mode": "explode_outer", "alias": "payment"},
+            ]
+        },
+        **_common(table, "silver"),
+    )
+    assert res["status"] == "FAILED"
+    assert "produto cartesiano" in (res["error_message"] or "")
 
 
 def test_reserved_source_columns_fail_before_silent_overwrite(spark, make_df, unique_name):

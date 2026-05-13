@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Documentação Oficial
 
-**Versão:** 1.7.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.8.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -15,6 +15,7 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 5. [Referência Completa de Parâmetros do IngestionPlan](#5-referência-completa-de-parâmetros-do-ingestionplan)
 5C. [Fontes Declarativas com SourceSpec](#5c-fontes-declarativas-com-sourcespec)
 5D. [Presets Declarativos](#5d-presets-declarativos)
+5E. [Shape Declarativo para JSON, Structs e Arrays](#5e-shape-declarativo-para-json-structs-e-arrays)
 6. [Modos de Escrita — Guia Detalhado](#6-modos-de-escrita--guia-detalhado)
 7. [Quality Gates — Guia Completo](#7-quality-gates--guia-completo)
 8. [Schema Policy — Evolução de Schema](#8-schema-policy--evolução-de-schema)
@@ -52,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.7.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.8.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não gerencia permissões** Unity Catalog.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -730,6 +731,196 @@ register_preset("company_silver_default", {
     "schema_policy": "additive_only",
     "on_quality_fail": "quarantine",
 })
+```
+
+---
+
+## 5E. Shape Declarativo para JSON, Structs e Arrays
+
+`shape` transforma a estrutura física do DataFrame antes de filtros, watermark, dedup, quality e escrita. Ele é separado de `annotations`: `shape` altera dados/colunas; `annotations` descreve catálogo.
+
+### 5E.1 Quando Usar
+
+- Bronze: preservar o bruto por padrão. Use `to_json`, `size` ou `first` quando quiser enriquecer sem mudar cardinalidade.
+- Silver: local recomendado para `flatten`, `explode` e normalização de JSON/arrays.
+- Gold: usar apenas para serving final quando a Silver ainda não entregar a forma esperada.
+
+### 5E.2 Flatten de Structs
+
+```yaml
+preset: silver_scd1_upsert
+source: bronze.raw_orders
+target_table: s_orders
+catalog: main
+merge_keys: order_id
+
+shape:
+  flatten:
+    enabled: true
+    separator: "_"
+    include:
+      - customer
+      - shipping_address
+    exclude:
+      - customer.raw_document
+    max_depth: 5
+```
+
+Exemplo:
+
+```text
+customer.email        -> customer_email
+customer.address.city -> customer_address_city
+```
+
+### 5E.3 Extração de Paths com Alias
+
+```yaml
+shape:
+  columns:
+    customer.email:
+      alias: customer_email
+    customer.document.number: customer_document_number
+```
+
+Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_keys` e escrita.
+
+### 5E.4 Arrays e Arrays de Structs
+
+Modos suportados:
+
+| Modo | Cardinalidade | Resultado |
+|------|---------------|-----------|
+| `keep` | mantém | não altera a coluna |
+| `to_json` | mantém | serializa array para string JSON |
+| `size` | mantém | cria coluna com tamanho do array |
+| `first` | mantém | cria coluna com primeiro elemento |
+| `explode` | muda | uma linha por elemento, descartando arrays vazios |
+| `explode_outer` | muda | uma linha por elemento, preservando arrays vazios/nulos |
+
+Arrays aninhados podem ser declarados em qualquer ordem. A lib resolve dependências por path e alias:
+
+```yaml
+shape:
+  arrays:
+    - path: item.discounts
+      mode: explode_outer
+      alias: discount
+    - path: items
+      mode: explode_outer
+      alias: item
+  columns:
+    order_id: order_id
+    item.sku: item_sku
+    discount.code: discount_code
+```
+
+Fluxo efetivo:
+
+```text
+items[]          -> item
+item.discounts[] -> discount
+item.sku         -> item_sku
+discount.code    -> discount_code
+```
+
+### 5E.5 Guardrails de Cardinalidade
+
+Em Bronze, `explode` e `explode_outer` falham por padrão:
+
+```yaml
+shape:
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+```
+
+Erro esperado: mudança de cardinalidade bloqueada em Bronze. Para permitir explicitamente:
+
+```yaml
+shape:
+  allow_cardinality_change_on_bronze: true
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+```
+
+Arrays irmãos com explode podem gerar produto cartesiano:
+
+```yaml
+shape:
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+    - path: payments
+      mode: explode_outer
+      alias: payment
+```
+
+Se `items` tem 2 elementos e `payments` tem 2 elementos, o resultado pode ter 4 linhas. A lib bloqueia esse caso por padrão. Para confirmar intencionalmente:
+
+```yaml
+shape:
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+    - path: payments
+      mode: explode_outer
+      alias: payment
+      allow_cartesian: true
+```
+
+### 5E.6 Exemplo Completo Silver
+
+```yaml
+preset:
+  - silver_scd1_upsert
+  - quality_quarantine
+
+source: bronze.raw_orders_json
+target_table: s_order_items
+catalog: main
+merge_keys: order_item_key
+
+shape:
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+    - path: item.discounts
+      mode: to_json
+      alias: item_discounts_json
+  columns:
+    order_id: order_id
+    customer.email: customer_email
+    item.sku: item_sku
+    item.quantity: item_quantity
+  flatten:
+    enabled: true
+    include: [customer]
+    separator: "_"
+
+custom_keys:
+  order_item_key: order_id|item_sku
+
+quality_rules:
+  not_null: [order_id, item_sku]
+  unique_key: [order_item_key]
+
+annotations:
+  columns:
+    customer_email:
+      description: "Email do cliente extraído do JSON."
+      pii:
+        enabled: true
+        type: email
+        sensitivity: restricted
+    item_sku:
+      description: "SKU do item do pedido."
 ```
 
 ---
@@ -2728,6 +2919,7 @@ src/lakehouse_ingestion/
 ├── hooks.py           # IngestionHooks
 ├── plan.py            # IngestionPlan, QualityRules, QualityExpression, build_plan_from_kwargs
 ├── presets.py         # Presets declarativos e registry de presets customizados
+├── shape.py           # Shape declarativo para JSON, structs e arrays
 ├── sources.py         # Source resolvers declarativos
 ├── schema.py          # Hash determinístico, dedup, custom keys, encoding, schema policy
 ├── watermark.py       # Watermark tipado (encode/decode/apply/compute)

@@ -120,6 +120,58 @@ def yaml_schema() -> Dict[str, Any]:
             "runtime_parameters": {"type": "object"},
             "select_columns": {"oneOf": [string_array, {"type": "string"}]},
             "column_mapping": string_map,
+            "shape": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "properties": {
+                    "allow_cardinality_change_on_bronze": {"type": "boolean"},
+                    "flatten": {
+                        "oneOf": [
+                            {"type": "boolean"},
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "enabled": {"type": "boolean"},
+                                    "separator": {"type": "string"},
+                                    "include": {"oneOf": [string_array, {"type": "string"}]},
+                                    "exclude": {"oneOf": [string_array, {"type": "string"}]},
+                                    "max_depth": {"type": "integer", "minimum": 1},
+                                },
+                            },
+                        ],
+                    },
+                    "arrays": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["path"],
+                            "properties": {
+                                "path": {"type": "string"},
+                                "mode": {
+                                    "enum": ["keep", "to_json", "size", "first", "explode", "explode_outer"]
+                                },
+                                "alias": {"type": ["string", "null"]},
+                                "allow_cartesian": {"type": "boolean"},
+                            },
+                        },
+                    },
+                    "columns": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "oneOf": [
+                                {"type": "string"},
+                                {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {"alias": {"type": "string"}},
+                                },
+                            ]
+                        },
+                    },
+                },
+            },
             "filter_expression": {"type": ["string", "null"]},
             "watermark_columns": {"oneOf": [string_array, {"type": "string"}]},
             "merge_keys": {"oneOf": [string_array, {"type": "string"}]},

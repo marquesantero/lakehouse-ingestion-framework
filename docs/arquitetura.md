@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.7.0`
+**Versão do pacote:** `1.8.0`
 **Pacote Python:** `lakehouse-ingestion-framework`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -21,13 +21,14 @@
    - [4.3 `config.py` — Configuração e tipos](#43-configpy--configuração-e-tipos)
    - [4.4 `plan.py` — Contrato declarativo](#44-planpy--contrato-declarativo)
    - [4.5 `presets.py` — Defaults declarativos acopláveis](#45-presetspy--defaults-declarativos-acopláveis)
-   - [4.6 `schema.py` — Hash, dedup, encoding e schema policy](#46-schemapy--hash-dedup-encoding-e-schema-policy)
-   - [4.7 `watermark.py` — Watermark tipado](#47-watermarkpy--watermark-tipado)
-   - [4.8 `quality.py` — Quality gates e quarentena](#48-qualitypy--quality-gates-e-quarentena)
-   - [4.9 `state.py` — Tabelas de controle, log, lock, retry](#49-statepy--tabelas-de-controle-log-lock-retry)
-   - [4.10 `writers.py` — Motores de escrita](#410-writerspy--motores-de-escrita)
-   - [4.11 `lineage.py` — Explain e OpenLineage](#411-lineagepy--explain-e-openlineage)
-   - [4.12 `ingestion.py` — Orquestrador](#412-ingestionpy--orquestrador)
+   - [4.6 `shape.py` — Transformações JSON/struct/array](#46-shapepy--transformações-jsonstructarray)
+   - [4.7 `schema.py` — Hash, dedup, encoding e schema policy](#47-schemapy--hash-dedup-encoding-e-schema-policy)
+   - [4.8 `watermark.py` — Watermark tipado](#48-watermarkpy--watermark-tipado)
+   - [4.9 `quality.py` — Quality gates e quarentena](#49-qualitypy--quality-gates-e-quarentena)
+   - [4.10 `state.py` — Tabelas de controle, log, lock, retry](#410-statepy--tabelas-de-controle-log-lock-retry)
+   - [4.11 `writers.py` — Motores de escrita](#411-writerspy--motores-de-escrita)
+   - [4.12 `lineage.py` — Explain e OpenLineage](#412-lineagepy--explain-e-openlineage)
+   - [4.13 `ingestion.py` — Orquestrador](#413-ingestionpy--orquestrador)
 5. [Modos de escrita — semântica e garantias](#5-modos-de-escrita--semântica-e-garantias)
 6. [Quality gates — avaliação consolidada](#6-quality-gates--avaliação-consolidada)
 7. [Schema policy — políticas e ALTER automático](#7-schema-policy--políticas-e-alter-automático)
@@ -107,6 +108,7 @@ lakehouse_ingestion_pkg/
 │       ├── hooks.py        # hooks opcionais de pré/pós-ingestão
 │       ├── plan.py         # IngestionPlan, QualityRules, build_plan_from_kwargs
 │       ├── presets.py      # presets declarativos e registry customizado
+│       ├── shape.py        # shape declarativo para JSON, structs e arrays
 │       ├── sources.py      # Source resolvers declarativos
 │       ├── schema.py       # hash, dedup, custom keys, encoding, schema policy
 │       ├── watermark.py    # encode/decode/apply/compute watermarks tipados
@@ -149,6 +151,7 @@ lakehouse_ingestion_pkg/
 - `_spark.py`, `_sql.py`, `config.py` são **folhas**: não dependem de outros módulos do pacote.
 - `plan.py` depende de `config.py`, `_sql.py`, `governance.py`, `hooks.py` e `presets.py`.
 - `presets.py` depende só de `_sql.py` para normalizar listas de nomes.
+- `shape.py` depende de Spark SQL functions/types e `_sql.py`; não depende do orquestrador.
 - `sources.py` depende de `plan.py` e `_spark.py`.
 - `hooks.py` é um contrato leve usado por `plan.py` e `ingestion.py`.
 - `contract_schema.py` depende de constantes em `config.py`.
@@ -445,7 +448,39 @@ Regras de combinação:
 
 O catálogo built-in traz 18 presets de ingestão alinhados aos modos da lib e modificadores para quality, Delta properties, runtime e governança.
 
-### 4.6 `schema.py` — Hash, dedup, encoding e schema policy
+### 4.6 `shape.py` — Transformações JSON/struct/array
+
+`shape.py` normaliza estruturas complexas antes de filtros, watermark, quality e escrita. Ele é intencionalmente separado de `annotations`: shape altera colunas e cardinalidade; annotations descreve catálogo.
+
+Recursos:
+
+- `flatten`: expande structs recursivamente com separador configurável.
+- `columns`: extrai paths aninhados para aliases top-level.
+- `arrays`: trata arrays com `keep`, `to_json`, `size`, `first`, `explode` e `explode_outer`.
+- Guardrail de Bronze: `explode`/`explode_outer` falha por padrão, exigindo `allow_cardinality_change_on_bronze=true`.
+- Guardrail de produto cartesiano: múltiplos explodes irmãos exigem `allow_cartesian=true`.
+- Arrays aninhados podem ser declarados fora de ordem; o motor resolve quando o alias pai fica disponível.
+
+Exemplo:
+
+```yaml
+shape:
+  arrays:
+    - path: item.discounts
+      mode: explode_outer
+      alias: discount
+    - path: items
+      mode: explode_outer
+      alias: item
+  columns:
+    item.sku: item_sku
+    discount.code: discount_code
+  flatten:
+    enabled: true
+    include: [customer]
+```
+
+### 4.7 `schema.py` — Hash, dedup, encoding e schema policy
 
 #### 4.5.1 Hash determinístico
 

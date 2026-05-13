@@ -109,11 +109,66 @@ Escopo intencional: apenas Autoloader `available_now`. Streaming contínuo (`pro
 
 - `preset` aplica defaults opinativos para padrões comuns de ingestão; o contrato explícito sempre vence o preset.
 - `column_mapping` renomeia colunas source -> target antes de filtros, watermarks, quality e escrita. Destinos duplicados, colisões com colunas existentes e nomes técnicos reservados são rejeitados.
+- `shape` transforma estruturas JSON/struct/array antes de filtros, watermarks, quality e escrita.
 - `delta_properties` aplica `TBLPROPERTIES` na criação da tabela Delta, por exemplo `delta.enableChangeDataFeed`, `delta.autoOptimize.optimizeWrite` ou propriedades de retenção.
 - `retry_attempts` e `retry_backoff_seconds` sobrescrevem a política global de retry por plano.
 - `annotations`, `operations` e `access` podem ficar no próprio contrato ou em YAMLs separados (`*.annotations.yaml`, `*.operations.yaml`, `*.access.yaml`) carregados por `load_contract_bundle()`/`ingest_bundle()`.
 - A origem não pode trazer colunas técnicas gerenciadas pelo framework (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, etc.), evitando sobrescrita silenciosa.
 - Modos baseados em `MERGE` abortam se todas as `merge_keys` vierem nulas e emitem warning quando houver nulos parciais.
+
+### Shape para JSON, structs e arrays
+
+Use `shape` para normalizar JSON bruto em colunas analíticas, especialmente em Silver:
+
+```yaml
+preset: silver_scd1_upsert
+source: bronze.raw_orders
+target_table: s_orders_items
+catalog: main
+merge_keys: order_item_key
+
+shape:
+  arrays:
+    - path: item.discounts
+      mode: explode_outer
+      alias: discount
+    - path: items
+      mode: explode_outer
+      alias: item
+  columns:
+    order_id: order_id
+    item.sku: item_sku
+    discount.code: discount_code
+  flatten:
+    enabled: true
+    include: [customer]
+    separator: "_"
+```
+
+Arrays podem ser declarados em qualquer ordem; a lib resolve dependências por path/alias. Arrays irmãos com `explode` são bloqueados por padrão para evitar produto cartesiano:
+
+```yaml
+shape:
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+    - path: payments
+      mode: explode_outer
+      alias: payment
+      allow_cartesian: true  # declare apenas se a multiplicação for intencional
+```
+
+Em Bronze, `explode`/`explode_outer` é bloqueado por padrão para preservar a evidência bruta. Se for intencional:
+
+```yaml
+shape:
+  allow_cardinality_change_on_bronze: true
+  arrays:
+    - path: items
+      mode: explode_outer
+      alias: item
+```
 
 ### Contratos separados de governança
 
@@ -307,6 +362,7 @@ src/lakehouse_ingestion/
 ├── config.py          # FrameworkConfig, tipos e constantes
 ├── plan.py            # IngestionPlan, QualityRules, build_plan_from_kwargs
 ├── presets.py         # presets declarativos e registry de presets customizados
+├── shape.py           # transformações declarativas para JSON, structs e arrays
 ├── sources.py         # Source resolvers declarativos (Autoloader available_now)
 ├── schema.py          # hash, dedup, encoding, schema policy
 ├── watermark.py       # watermark simples e composto, encode/decode/apply

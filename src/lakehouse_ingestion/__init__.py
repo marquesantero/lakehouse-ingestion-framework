@@ -33,6 +33,7 @@ from .ingestion import (
 )
 from .sources import get_source_resolver, register_source_resolver
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
+from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, apply_shape
 from .writers import register_write_mode
 from .quality import register_quality_rule
 
@@ -54,6 +55,10 @@ __all__ = [
     "QualityRules",
     "RowFilter",
     "SourceSpec",
+    "ShapeArrayConfig",
+    "ShapeColumnConfig",
+    "ShapeConfig",
+    "ShapeFlattenConfig",
     "TableAnnotations",
     "get_source_resolver",
     "get_uc_capabilities",
@@ -69,6 +74,7 @@ __all__ = [
     "ingest_stream_plan",
     "load_contract_bundle",
     "apply_preset",
+    "apply_shape",
     "get_preset",
     "list_presets",
     "preset_details",
@@ -81,4 +87,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"

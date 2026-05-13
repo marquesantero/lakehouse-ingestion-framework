@@ -37,6 +37,7 @@ from .governance import (
 )
 from .hooks import IngestionHooks, normalize_hooks
 from .presets import apply_preset
+from .shape import ShapeConfig, normalize_shape
 from ._sql import as_list
 
 
@@ -287,6 +288,7 @@ class IngestionPlan:
 
     select_columns: List[str] = field(default_factory=list)
     column_mapping: Dict[str, str] = field(default_factory=dict)
+    shape: Optional[ShapeConfig] = None
     filter_expression: Optional[str] = None
     watermark_columns: List[str] = field(default_factory=list)
     merge_keys: List[str] = field(default_factory=list)
@@ -458,7 +460,7 @@ def normalize_quality_rules(
 _KNOWN_PARAMS = {
     "source", "target_table", "catalog", "layer", "mode", "source_system", "ctrl_schema",
     "notebook_name", "description", "owner", "domain", "tags", "sla", "runtime_parameters",
-    "select_columns", "column_mapping", "filter_expression", "watermark_columns",
+    "select_columns", "column_mapping", "shape", "filter_expression", "watermark_columns",
     "merge_keys", "hash_keys", "hash_exclude_columns", "custom_keys", "dedup_order_expr",
     "partition_column", "partition_value", "merge_strategy", "merge_partition_column",
     "replace_partitions_source_complete", "cluster_columns", "zorder_columns", "optimize_after_write",
@@ -601,6 +603,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         runtime_parameters=dict(kwargs.get("runtime_parameters") or {}),
         select_columns=as_list(kwargs.get("select_columns")),
         column_mapping=_normalize_string_mapping(kwargs.get("column_mapping"), "column_mapping"),
+        shape=normalize_shape(kwargs.get("shape")),
         filter_expression=kwargs.get("filter_expression"),
         watermark_columns=as_list(kwargs.get("watermark_columns")),
         merge_keys=as_list(kwargs.get("merge_keys")),

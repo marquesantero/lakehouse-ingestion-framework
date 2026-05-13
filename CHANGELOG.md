@@ -6,6 +6,14 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.8.0 - 2026-05-13
+
+- Adiciona `shape` para transformar estruturas JSON/struct/array antes de quality/write.
+- Suporta flatten recursivo de structs, extração de paths aninhados com alias e arrays em modos `keep`, `to_json`, `size`, `first`, `explode` e `explode_outer`.
+- Bloqueia mudança de cardinalidade em Bronze por padrão, exigindo `shape.allow_cardinality_change_on_bronze=true`.
+- Detecta múltiplos explodes irmãos que poderiam gerar produto cartesiano, exigindo `allow_cartesian=true`.
+- Adiciona exemplos YAML de flatten e arrays aninhados na documentação.
+
 ## 1.7.0 - 2026-05-13
 
 - Adiciona presets declarativos para padrões comuns de ingestão Bronze/Silver/Gold.

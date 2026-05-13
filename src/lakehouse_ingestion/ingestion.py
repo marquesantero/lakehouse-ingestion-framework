@@ -42,6 +42,7 @@ from .schema import (
     table_exists,
     validate_schema_policy,
 )
+from .shape import apply_shape
 from ._spark import runtime_info, safe_cache, safe_unpersist, spark
 from ._sql import (
     full_table_name,
@@ -283,10 +284,10 @@ def _prepare_dataframe(
 ) -> DataFrame:
     """Aplica todas as transformações pré-quality em ordem determinística.
 
-    Sequência: ``select_columns`` -> ``filter_expression`` -> ``custom_keys``
-    -> ``apply_watermark`` -> ``deduplicate_by_order`` -> ``fix_encoding`` ->
-    adição das colunas de controle (``ingestion_date``, ``source_system``,
-    ``__run_id``).
+    Sequência: ``select_columns`` -> ``column_mapping`` -> ``shape`` ->
+    ``filter_expression`` -> ``custom_keys`` -> ``apply_watermark`` ->
+    ``deduplicate_by_order`` -> ``fix_encoding`` -> adição das colunas de
+    controle (``ingestion_date``, ``source_system``, ``__run_id``).
     """
     if plan.select_columns:
         validate_cols(df, plan.select_columns, "select_columns")
@@ -295,6 +296,8 @@ def _prepare_dataframe(
         _validate_column_mapping(df, plan)
         for source_col, target_col in plan.column_mapping.items():
             df = df.withColumnRenamed(source_col, target_col)
+    if plan.shape:
+        df = apply_shape(df, plan.shape, layer=plan.layer)
     if plan.filter_expression:
         df = df.where(plan.filter_expression)
     if plan.custom_keys:
