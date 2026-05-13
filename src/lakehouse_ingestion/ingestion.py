@@ -1189,7 +1189,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             plan, rows_written, delta_metrics
         )
         stage_started = utc_now_ts()
-        governance_validation = validate_governance_contract(target, plan.annotations, plan.access)
+        governance_validation = validate_governance_contract(target, plan.annotations, None)
         if governance_validation["status"] == "FAILED":
             raise ValueError(f"Contrato de governança inválido: {to_json(governance_validation['issues'])}")
         governance_results = {
@@ -1208,13 +1208,11 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 plan.annotations,
                 log_annotation_entries,
             ),
-            "access": apply_access_contract(
-                tables,
-                run_id,
-                target,
-                plan.access,
-                log_access_entries,
-            ),
+            "access": {
+                "status": "DEFERRED",
+                "reason": "access deve ser aplicado pelo fluxo dedicado de governanca",
+                "sql_preview": access_sql_preview(target, plan.access),
+            } if plan.access else {"status": "NOT_CONFIGURED"},
         }
         stage_durations["governance"] = (utc_now_ts() - stage_started).total_seconds()
         if plan.hooks and plan.hooks.after_write:
@@ -1443,6 +1441,45 @@ def apply_governance_bundle(
         "target_table": target,
         "governance": results,
         "preview": governance_preview(bundle),
+        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
+        "framework_version": FRAMEWORK_VERSION,
+        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
+    }
+
+
+def apply_access_bundle(
+    path: str,
+    run_id: Optional[str] = None,
+    *,
+    force_revoke: bool = False,
+) -> Dict[str, Any]:
+    """Aplica apenas o contrato de access de um bundle."""
+    from .contract_bundle import governance_check, load_contract_bundle
+
+    bundle = load_contract_bundle(path)
+    plan = bundle.ingestion
+    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    access_run_id = run_id or new_run_id()
+    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
+    stage_started = utc_now_ts()
+    validation = validate_governance_contract(target, None, plan.access)
+    if validation["status"] == "FAILED":
+        raise ValueError(f"Contrato de access inválido: {to_json(validation['issues'])}")
+    result = apply_access_contract(
+        tables,
+        access_run_id,
+        target,
+        plan.access,
+        log_access_entries,
+        allow_revoke_unmanaged=force_revoke,
+    )
+    return {
+        "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
+        "run_id": access_run_id,
+        "target_table": target,
+        "validation": validation,
+        "access": result,
+        "check": governance_check(bundle),
         "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
         "framework_version": FRAMEWORK_VERSION,
         "ctrl_schema_version": CTRL_SCHEMA_VERSION,

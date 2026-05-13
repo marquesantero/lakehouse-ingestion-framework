@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.6.2 - 2026-05-13
+
+- Separa o ciclo de access da ingestão normal: `ingest_plan` aplica `operations`/`annotations` e deixa `access` como `DEFERRED`.
+- Adiciona API `apply_access_bundle()` e CLI `lakehouse-ingest apply-access`.
+- Adiciona alias CLI `lakehouse-ingest drift-check`.
+- Adiciona validação conservadora de capabilities Unity Catalog para tags, row filters e column masks.
+
 ## 1.6.1 - 2026-05-13
 
 - Aceita o formato separado com `target`, `operations`/`ownership`, `access_policy` e `column_masks` como mapa por coluna.

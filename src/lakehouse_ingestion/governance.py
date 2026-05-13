@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from ._spark import spark
 from ._sql import q, qt, sql_lit, to_json, utc_now_str
+from ._uc_capabilities import capability_issues
 from .config import (
     AccessDriftPolicy,
     AccessMode,
@@ -563,6 +564,33 @@ def validate_governance_contract(
     """Valida governanca contra o schema real ou informado da tabela alvo."""
     issues = []
     references = governance_referenced_columns(annotations, access)
+    requirements: List[tuple[str, str, str, str]] = []
+    if annotations:
+        if annotations.table.tags or annotations.table.aliases or annotations.table.deprecated:
+            requirements.append(
+                (
+                    "table_tags",
+                    "annotations",
+                    "table.tags",
+                    "fail" if annotations.policy == "fail" else "warn",
+                )
+            )
+        for column, annotation in annotations.columns.items():
+            if annotation.tags or annotation.aliases or annotation.pii or annotation.deprecated:
+                requirements.append(
+                    (
+                        "column_tags",
+                        "annotations",
+                        column,
+                        "fail" if annotations.policy == "fail" else "warn",
+                    )
+                )
+    if access:
+        if access.row_filters:
+            requirements.append(("row_filters", "access", "row_filters", "fail"))
+        if access.column_masks:
+            requirements.append(("column_masks", "access", "column_masks", "fail"))
+    issues.extend(capability_issues(target_table, requirements))
     try:
         columns = (
             set(existing_columns)

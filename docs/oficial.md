@@ -1,6 +1,6 @@
 # Lakehouse Ingestion Framework — Documentação Oficial
 
-**Versão:** 1.6.1 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.6.2 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -47,7 +47,7 @@ O **Lakehouse Ingestion Framework** é uma biblioteca Python que encapsula padr�
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.6.1 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.6.2 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não gerencia permissões** Unity Catalog.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -113,14 +113,14 @@ pip install lakehouse-ingestion-framework
 # Build local
 pip install build
 python -m build
-# → dist/lakehouse_ingestion_framework-1.6.1-py3-none-any.whl
+# → dist/lakehouse_ingestion_framework-1.6.2-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/lakehouse_ingestion_framework-1.6.1-py3-none-any.whl \
+databricks fs cp dist/lakehouse_ingestion_framework-1.6.2-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.1-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.2-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -1776,8 +1776,10 @@ Validação local sem Spark:
 lakehouse-ingest validate-bundle contracts/gold/gd_orders
 lakehouse-ingest governance-preview contracts/gold/gd_orders
 lakehouse-ingest governance-check contracts/gold/gd_orders
+lakehouse-ingest drift-check contracts/gold/gd_orders
 lakehouse-ingest governance-apply contracts/gold/gd_orders
-lakehouse-ingest governance-apply contracts/gold/gd_orders --force-revoke
+lakehouse-ingest apply-access contracts/gold/gd_orders
+lakehouse-ingest apply-access contracts/gold/gd_orders --force-revoke
 ```
 
 `annotations` aplica metadata técnica no catálogo:
@@ -1861,7 +1863,11 @@ Auditoria gerada:
 
 Falhas em annotations seguem `annotations.policy` (`fail`, `warn`, `ignore`). Falhas em access seguem `access_policy.mode` (`apply`, `validate_only`, `ignore`) e `access_policy.on_drift` (`fail`, `warn`, `reconcile`). O formato legado com `mode`/`on_drift` no topo de `access` também é aceito.
 
-Para grants, o framework compara o declarado com `SHOW GRANTS ON TABLE`. O relatório aparece em `governance-check` e em `governance.access.drift` no retorno. Se `revoke_unmanaged=true`, grants atuais não declarados só são revogados por `lakehouse-ingest governance-apply --force-revoke`; ingestão normal e aplicação sem essa flag falham com mensagem explícita.
+Para grants, o framework compara o declarado com `SHOW GRANTS ON TABLE`. O relatório aparece em `governance-check`/`drift-check` e em `governance.access.drift` no retorno. Se `revoke_unmanaged=true`, grants atuais não declarados só são revogados por `lakehouse-ingest apply-access --force-revoke`; ingestão normal não aplica access e aplicação sem essa flag falha com mensagem explícita.
+
+`ingest_plan` aplica `operations` e `annotations` depois da escrita, mas deixa `access` como `DEFERRED`. A separação é intencional: permissões, masks e row filters normalmente exigem credenciais mais elevadas e devem rodar em pipeline dedicado de governança.
+
+O framework também valida capabilities básicas de Unity Catalog antes de aplicar recursos de catálogo. Tags, row filters e column masks exigem alvo qualificado em três partes (`catalog.schema.table`); caso contrário, o contrato falha ou gera warning conforme a política declarada.
 
 ---
 
@@ -2494,7 +2500,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.6.1 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.6.2 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.

@@ -287,6 +287,29 @@ def test_validate_governance_contract_passes_existing_columns():
     assert report["issues"] == []
 
 
+def test_validate_governance_contract_flags_uc_only_features_on_unqualified_target():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        annotations={"table": {"tags": {"domain": "sales"}}},
+        access={
+            "row_filters": [
+                {"name": "by_region", "function": "main.security.fn_region", "columns": ["region"]},
+            ],
+        },
+    )
+
+    report = validate_governance_contract(
+        "orders",
+        plan.annotations,
+        plan.access,
+        existing_columns=["region"],
+    )
+
+    assert report["status"] == "FAILED"
+    assert {issue["scope"] for issue in report["issues"]} == {"annotations", "access"}
+
+
 def test_access_drift_report_detects_missing_and_unmanaged_grants():
     plan = build_plan_from_kwargs(
         source="x",

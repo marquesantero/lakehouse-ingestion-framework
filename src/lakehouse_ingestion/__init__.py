@@ -1,3 +1,4 @@
+from ._uc_capabilities import UCCapabilities, get_uc_capabilities
 from .contract_bundle import ContractBundle, governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .governance import (
@@ -21,6 +22,7 @@ from .ingestion import (
     IngestionPlan,
     QualityRules,
     SourceSpec,
+    apply_access_bundle,
     apply_governance_bundle,
     ingest,
     ingest_bundle,
@@ -36,6 +38,7 @@ __all__ = [
     "FrameworkConfig",
     "AccessContract",
     "AccessGrant",
+    "UCCapabilities",
     "access_drift_report",
     "AnnotationsContract",
     "ColumnAnnotations",
@@ -51,9 +54,11 @@ __all__ = [
     "SourceSpec",
     "TableAnnotations",
     "get_source_resolver",
+    "get_uc_capabilities",
     "governance_check",
     "governance_preview",
     "governance_referenced_columns",
+    "apply_access_bundle",
     "apply_governance_bundle",
     "ingest",
     "ingest_bundle",
@@ -68,4 +73,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.6.1"
+__version__ = "1.6.2"

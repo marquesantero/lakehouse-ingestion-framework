@@ -113,6 +113,20 @@ def _apply_governance(paths: List[Path], *, force_revoke: bool = False) -> int:
     return exit_code
 
 
+def _apply_access(paths: List[Path], *, force_revoke: bool = False) -> int:
+    from .ingestion import apply_access_bundle
+
+    exit_code = 0
+    for path in paths:
+        try:
+            result = apply_access_bundle(str(path), force_revoke=force_revoke)
+            print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        except Exception as exc:
+            exit_code = 1
+            print(f"ERRO {path}: {exc}", file=sys.stderr)
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lakehouse-ingest")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -140,12 +154,30 @@ def main(argv: list[str] | None = None) -> int:
     governance_check_parser.add_argument("paths", nargs="+", type=Path)
     governance_check_parser.add_argument("--indent", type=int, default=2)
 
+    drift_check_parser = sub.add_parser(
+        "drift-check",
+        help="Alias de governance-check para checagem de drift/contrato",
+    )
+    drift_check_parser.add_argument("paths", nargs="+", type=Path)
+    drift_check_parser.add_argument("--indent", type=int, default=2)
+
     governance_apply_parser = sub.add_parser(
         "governance-apply",
         help="Aplica annotations/operations/access sem executar ingestao",
     )
     governance_apply_parser.add_argument("paths", nargs="+", type=Path)
     governance_apply_parser.add_argument(
+        "--force-revoke",
+        action="store_true",
+        help="Permite executar REVOKE para grants nao declarados quando access.revoke_unmanaged=true",
+    )
+
+    access_apply_parser = sub.add_parser(
+        "apply-access",
+        help="Aplica apenas access.yaml sem executar ingestao nem annotations",
+    )
+    access_apply_parser.add_argument("paths", nargs="+", type=Path)
+    access_apply_parser.add_argument(
         "--force-revoke",
         action="store_true",
         help="Permite executar REVOKE para grants nao declarados quando access.revoke_unmanaged=true",
@@ -161,10 +193,12 @@ def main(argv: list[str] | None = None) -> int:
         return _validate_bundles(args.paths)
     if args.command == "governance-preview":
         return _preview_governance(args.paths, args.indent)
-    if args.command == "governance-check":
+    if args.command in {"governance-check", "drift-check"}:
         return _check_governance(args.paths, args.indent)
     if args.command == "governance-apply":
         return _apply_governance(args.paths, force_revoke=args.force_revoke)
+    if args.command == "apply-access":
+        return _apply_access(args.paths, force_revoke=args.force_revoke)
     if args.command == "schema":
         print(json.dumps(yaml_schema(), indent=args.indent, sort_keys=True))
         return 0

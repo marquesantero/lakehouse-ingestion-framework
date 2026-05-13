@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import lakehouse_ingestion.ingestion as ingestion_module
 from lakehouse_ingestion.cli import main
 from lakehouse_ingestion.contract_schema import yaml_schema
 from lakehouse_ingestion.plan import build_plan_from_kwargs
@@ -66,6 +67,23 @@ def test_cli_governance_check_reports_missing_spark_schema(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "main.gold.gd_orders" in output
     assert "Nao foi possivel ler schema" in output
+
+
+def test_cli_apply_access_uses_dedicated_command(tmp_path, monkeypatch, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+
+    def fake_apply_access_bundle(path, *, force_revoke=False):
+        return {"status": "SUCCESS", "path": path, "force_revoke": force_revoke}
+
+    monkeypatch.setattr(ingestion_module, "apply_access_bundle", fake_apply_access_bundle)
+
+    assert main(["apply-access", str(base), "--force-revoke"]) == 0
+    output = capsys.readouterr().out
+    assert '"force_revoke": true' in output
 
 
 def test_write_mode_registry_extends_plan_validation():
