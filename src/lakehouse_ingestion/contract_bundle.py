@@ -11,6 +11,7 @@ from .governance import (
     AccessContract,
     AnnotationsContract,
     OperationsContract,
+    access_drift_report,
     access_sql_preview,
     annotation_sql_preview,
     validate_governance_contract,
@@ -156,14 +157,16 @@ def governance_check(bundle: ContractBundle) -> dict[str, Any]:
     plan = bundle.ingestion
     target = full_table_name(plan.catalog, plan.layer, plan.target_table)
     validation = validate_governance_contract(target, bundle.annotations, bundle.access)
+    access_drift = access_drift_report(target, bundle.access)
     metadata_warnings = contract_metadata_warnings(bundle)
-    status = "FAILED" if validation["status"] == "FAILED" else "SUCCESS"
+    status = "FAILED" if validation["status"] == "FAILED" or access_drift["status"] == "FAILED" else "SUCCESS"
     if status == "SUCCESS" and metadata_warnings:
         status = "WARNED"
     return {
         "status": status,
         "target_table": target,
         "validation": validation,
+        "access_drift": access_drift,
         "metadata_warnings": metadata_warnings,
         "preview": governance_preview(bundle),
     }

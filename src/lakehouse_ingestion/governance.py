@@ -349,6 +349,110 @@ def access_sql_preview(target_table: str, contract: Optional[AccessContract]) ->
     return [step["sql"] for step in _access_steps(target_table, contract)]
 
 
+def _row_value(row: Any, *names: str) -> Any:
+    """Le campo Spark Row tolerando variacoes de casing/nome por runtime."""
+    for name in names:
+        try:
+            return row[name]
+        except Exception:
+            pass
+    data = row.asDict(recursive=True) if hasattr(row, "asDict") else dict(row)
+    lower = {str(key).lower(): value for key, value in data.items()}
+    for name in names:
+        if name.lower() in lower:
+            return lower[name.lower()]
+    return None
+
+
+def _current_grants(target_table: str) -> set[tuple[str, str]]:
+    rows = spark.sql(f"SHOW GRANTS ON TABLE {qt(target_table)}").collect()
+    grants = set()
+    for row in rows:
+        principal = _row_value(row, "Principal", "principal", "grantee")
+        privilege = _row_value(row, "ActionType", "actionType", "Privilege", "privilege")
+        if principal and privilege:
+            grants.add((str(principal), str(privilege).upper()))
+    return grants
+
+
+def _declared_grants(contract: Optional[AccessContract]) -> set[tuple[str, str]]:
+    if not contract:
+        return set()
+    return {
+        (grant.principal, privilege.upper())
+        for grant in contract.grants
+        for privilege in grant.privileges
+    }
+
+
+def access_drift_report(
+    target_table: str,
+    contract: Optional[AccessContract],
+    current_grants: Optional[set[tuple[str, str]]] = None,
+) -> Dict[str, Any]:
+    """Compara grants declarados com grants atuais do catalogo."""
+    if not contract:
+        return {
+            "status": "NOT_CONFIGURED",
+            "target_table": target_table,
+            "declared_grants": [],
+            "current_grants": [],
+            "missing_grants": [],
+            "unmanaged_grants": [],
+            "issues": [],
+        }
+    declared = _declared_grants(contract)
+    try:
+        current = current_grants if current_grants is not None else _current_grants(target_table)
+    except Exception as exc:
+        return {
+            "status": "FAILED",
+            "target_table": target_table,
+            "declared_grants": sorted(declared),
+            "current_grants": [],
+            "missing_grants": [],
+            "unmanaged_grants": [],
+            "issues": [
+                {
+                    "severity": "fail",
+                    "scope": "access",
+                    "object": target_table,
+                    "message": f"Nao foi possivel ler grants da tabela alvo: {exc}",
+                }
+            ],
+        }
+    missing = sorted(declared - current)
+    unmanaged = sorted(current - declared)
+    issues = [
+        {
+            "severity": "warn",
+            "scope": "grant",
+            "object": f"{principal}:{privilege}",
+            "message": f"Grant declarado ausente: {privilege} para {principal}",
+        }
+        for principal, privilege in missing
+    ]
+    if contract.revoke_unmanaged:
+        issues.extend(
+            {
+                "severity": "warn",
+                "scope": "grant",
+                "object": f"{principal}:{privilege}",
+                "message": f"Grant atual nao declarado sera revogado: {privilege} de {principal}",
+            }
+            for principal, privilege in unmanaged
+        )
+    return {
+        "status": "DRIFTED" if missing or (contract.revoke_unmanaged and unmanaged) else "IN_SYNC",
+        "target_table": target_table,
+        "declared_grants": sorted(declared),
+        "current_grants": sorted(current),
+        "missing_grants": missing,
+        "unmanaged_grants": unmanaged,
+        "issues": issues,
+    }
+
+
 def governance_referenced_columns(
     annotations: Optional[AnnotationsContract],
     access: Optional[AccessContract],
@@ -529,16 +633,16 @@ def _annotation_steps(target_table: str, contract: AnnotationsContract) -> List[
 def _access_steps(target_table: str, contract: AccessContract) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
     for grant in contract.grants:
-        privileges = ", ".join(grant.privileges)
-        steps.append(
-            {
-                "access_type": "grant",
-                "principal": grant.principal,
-                "privilege": privileges,
-                "object_name": target_table,
-                "sql": f"GRANT {privileges} ON TABLE {qt(target_table)} TO {q(grant.principal)}",
-            }
-        )
+        for privilege in grant.privileges:
+            steps.append(
+                {
+                    "access_type": "grant",
+                    "principal": grant.principal,
+                    "privilege": privilege,
+                    "object_name": target_table,
+                    "sql": f"GRANT {privilege} ON TABLE {qt(target_table)} TO {q(grant.principal)}",
+                }
+            )
     for row_filter in contract.row_filters:
         columns = ", ".join(q(column) for column in row_filter.columns)
         steps.append(
@@ -567,6 +671,22 @@ def _access_steps(target_table: str, contract: AccessContract) -> List[Dict[str,
                     f"ALTER TABLE {qt(target_table)} ALTER COLUMN {q(mask.column)} "
                     f"SET MASK {_qualified_function(mask.function)}{using}"
                 ),
+            }
+        )
+    return steps
+
+
+def _revoke_grant_steps(target_table: str, grants: Iterable[tuple[str, str]]) -> List[Dict[str, Any]]:
+    steps = []
+    for principal, privilege in grants:
+        steps.append(
+            {
+                "access_type": "revoke",
+                "principal": principal,
+                "privilege": privilege,
+                "object_name": target_table,
+                "sql": f"REVOKE {privilege} ON TABLE {qt(target_table)} FROM {q(principal)}",
+                "previous_value": "GRANTED",
             }
         )
     return steps
@@ -651,26 +771,41 @@ def apply_access_contract(
     """Aplica grants, row filters e masks declarados no contrato de acesso."""
     if not contract:
         return {"status": "NOT_CONFIGURED", "applied": 0, "failed": 0, "sql_preview": []}
+    drift = access_drift_report(target_table, contract)
+    if drift["status"] == "FAILED" and contract.on_drift == "fail":
+        raise ValueError(f"Falha ao calcular drift de access: {to_json(drift['issues'])}")
     steps = _access_steps(target_table, contract)
+    if contract.revoke_unmanaged and drift["status"] != "FAILED":
+        steps.extend(_revoke_grant_steps(target_table, drift["unmanaged_grants"]))
     result = {"status": "SUCCESS", "applied": 0, "failed": 0, "sql_preview": [s["sql"] for s in steps]}
     entries = []
     if contract.mode == "ignore":
         for step in steps:
-            entries.append({**step, "status": "IGNORED", "error_message": None, "previous_value": None})
+            entries.append({**step, "status": "IGNORED", "error_message": None})
         log_entries(tables, run_id, target_table, entries)
         result["status"] = "IGNORED"
+        result["drift"] = drift
         return result
     if contract.mode == "validate_only":
         for step in steps:
-            entries.append({**step, "status": "VALIDATED", "error_message": None, "previous_value": None})
+            previous_value = "GRANTED" if (step.get("principal"), step.get("privilege")) in drift.get(
+                "current_grants", []
+            ) else None
+            entries.append({**step, "status": "VALIDATED", "error_message": None, "previous_value": previous_value})
         log_entries(tables, run_id, target_table, entries)
         result["status"] = "VALIDATED"
+        result["drift"] = drift
         return result
     for step in steps:
         try:
             _execute_step(step["sql"])
             result["applied"] += 1
-            entries.append({**step, "status": "APPLIED", "error_message": None, "previous_value": None})
+            previous_value = step.get("previous_value")
+            if previous_value is None and (step.get("principal"), step.get("privilege")) in drift.get(
+                "current_grants", []
+            ):
+                previous_value = "GRANTED"
+            entries.append({**step, "status": "APPLIED", "error_message": None, "previous_value": previous_value})
         except Exception as exc:
             result["failed"] += 1
             status = "FAILED" if contract.on_drift == "fail" else "WARNED"
@@ -682,4 +817,5 @@ def apply_access_contract(
     if result["failed"]:
         result["status"] = "WARNED"
     log_entries(tables, run_id, target_table, entries)
+    result["drift"] = drift
     return result

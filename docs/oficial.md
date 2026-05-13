@@ -1820,6 +1820,7 @@ tags:
 ```yaml
 mode: apply
 on_drift: warn
+revoke_unmanaged: false
 grants:
   - principal: data-readers
     privileges: [SELECT]
@@ -1840,6 +1841,8 @@ Auditoria gerada:
 - `ctrl_ingestion_access`: grants, row filters e column masks aplicados/validados.
 
 Falhas em annotations seguem `annotations.policy` (`fail`, `warn`, `ignore`). Falhas em access seguem `access.mode` (`apply`, `validate_only`, `ignore`) e `access.on_drift` (`fail`, `warn`, `reconcile`).
+
+Para grants, o framework compara o declarado com `SHOW GRANTS ON TABLE`. O relatório aparece em `governance-check` e em `governance.access.drift` no retorno. Se `revoke_unmanaged=true`, grants atuais não declarados são revogados explicitamente e auditados em `ctrl_ingestion_access.previous_value`.
 
 ---
 

@@ -4,13 +4,16 @@ import json
 
 import pytest
 
+import lakehouse_ingestion.governance as governance_module
 from lakehouse_ingestion.contract_bundle import governance_preview, load_contract_bundle
 from lakehouse_ingestion.governance import (
     AccessContract,
     AnnotationsContract,
     OperationsContract,
+    access_drift_report,
     access_sql_preview,
     annotation_sql_preview,
+    apply_access_contract,
     validate_governance_contract,
 )
 from lakehouse_ingestion.plan import build_plan_from_kwargs
@@ -235,3 +238,68 @@ def test_validate_governance_contract_passes_existing_columns():
 
     assert report["status"] == "SUCCESS"
     assert report["issues"] == []
+
+
+def test_access_drift_report_detects_missing_and_unmanaged_grants():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        access={
+            "revoke_unmanaged": True,
+            "grants": [
+                {"principal": "readers", "privileges": ["SELECT"]},
+                {"principal": "writers", "privileges": ["MODIFY"]},
+            ],
+        },
+    )
+
+    report = access_drift_report(
+        "main.gold.orders",
+        plan.access,
+        current_grants={("readers", "SELECT"), ("legacy", "SELECT")},
+    )
+
+    assert report["status"] == "DRIFTED"
+    assert report["missing_grants"] == [("writers", "MODIFY")]
+    assert report["unmanaged_grants"] == [("legacy", "SELECT")]
+
+
+def test_apply_access_contract_revokes_unmanaged_grants(monkeypatch):
+    executed = []
+    logged = []
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        access={
+            "revoke_unmanaged": True,
+            "grants": [{"principal": "readers", "privileges": ["SELECT"]}],
+        },
+    )
+
+    monkeypatch.setattr(
+        governance_module,
+        "access_drift_report",
+        lambda target, contract: {
+            "status": "DRIFTED",
+            "target_table": target,
+            "declared_grants": [("readers", "SELECT")],
+            "current_grants": [("legacy", "SELECT")],
+            "missing_grants": [("readers", "SELECT")],
+            "unmanaged_grants": [("legacy", "SELECT")],
+            "issues": [],
+        },
+    )
+    monkeypatch.setattr(governance_module, "_execute_step", lambda sql: executed.append(sql))
+
+    result = apply_access_contract(
+        {"access": "ops.ctrl_ingestion_access"},
+        "run-1",
+        "main.gold.orders",
+        plan.access,
+        lambda tables, run_id, target, entries: logged.extend(entries),
+    )
+
+    assert result["status"] == "SUCCESS"
+    assert "GRANT SELECT ON TABLE `main`.`gold`.`orders` TO `readers`" in executed
+    assert "REVOKE SELECT ON TABLE `main`.`gold`.`orders` FROM `legacy`" in executed
+    assert any(entry["access_type"] == "revoke" and entry["previous_value"] == "GRANTED" for entry in logged)

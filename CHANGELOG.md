@@ -16,6 +16,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - Adiciona `_metadata` por arquivo de contrato e preview de governança (`governance_preview`).
 - Adiciona aplicação assíncrona de governança (`apply_governance_bundle`) e CLI `governance-preview`/`governance-apply`.
 - Adiciona validação de governança contra schema real do target (`validate_governance_contract`) e CLI `governance-check`.
+- Adiciona relatório de drift de grants (`access_drift_report`), preenchimento de `previous_value` e suporte a `revoke_unmanaged=true`.
 - Eleva `ctrl_schema_version` para 8.
 
 ## 1.5.1 - 2026-05-13

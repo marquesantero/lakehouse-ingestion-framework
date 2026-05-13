@@ -10,6 +10,7 @@ from .governance import (
     PiiAnnotation,
     RowFilter,
     TableAnnotations,
+    access_drift_report,
     governance_referenced_columns,
     validate_governance_contract,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "FrameworkConfig",
     "AccessContract",
     "AccessGrant",
+    "access_drift_report",
     "AnnotationsContract",
     "ColumnAnnotations",
     "ColumnMask",
