@@ -13,6 +13,7 @@ from .governance import (
     OperationsContract,
     access_sql_preview,
     annotation_sql_preview,
+    validate_governance_contract,
 )
 from .plan import IngestionPlan, build_plan_from_kwargs
 
@@ -132,5 +133,37 @@ def governance_preview(bundle: ContractBundle) -> dict[str, Any]:
         "access_sql": access_sql_preview(target, bundle.access),
         "operations": bundle.operations,
         "metadata": bundle.metadata or {},
+        "metadata_warnings": contract_metadata_warnings(bundle),
         "paths": bundle.paths or {},
+    }
+
+
+def contract_metadata_warnings(bundle: ContractBundle) -> list[str]:
+    """Aponta inconsistencias entre `_metadata` dos arquivos do bundle."""
+    metadata = bundle.metadata or {}
+    versions = {
+        name: content.get("contract_version")
+        for name, content in metadata.items()
+        if content.get("contract_version")
+    }
+    if len(set(versions.values())) <= 1:
+        return []
+    return [f"contract_version divergente entre arquivos do bundle: {versions}"]
+
+
+def governance_check(bundle: ContractBundle) -> dict[str, Any]:
+    """Valida governanca contra o catalogo alvo sem aplicar alteracoes."""
+    plan = bundle.ingestion
+    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    validation = validate_governance_contract(target, bundle.annotations, bundle.access)
+    metadata_warnings = contract_metadata_warnings(bundle)
+    status = "FAILED" if validation["status"] == "FAILED" else "SUCCESS"
+    if status == "SUCCESS" and metadata_warnings:
+        status = "WARNED"
+    return {
+        "status": status,
+        "target_table": target,
+        "validation": validation,
+        "metadata_warnings": metadata_warnings,
+        "preview": governance_preview(bundle),
     }

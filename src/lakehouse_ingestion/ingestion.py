@@ -22,6 +22,7 @@ from .governance import (
     apply_access_contract,
     apply_annotations_contract,
     record_operations_contract,
+    validate_governance_contract,
 )
 from .lineage import capture_explain, write_explain_plan, write_openlineage_event
 from .plan import (  # noqa: F401
@@ -1181,7 +1182,11 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             plan, rows_written, delta_metrics
         )
         stage_started = utc_now_ts()
+        governance_validation = validate_governance_contract(target, plan.annotations, plan.access)
+        if governance_validation["status"] == "FAILED":
+            raise ValueError(f"Contrato de governança inválido: {to_json(governance_validation['issues'])}")
         governance_results = {
+            "validation": governance_validation,
             "operations": record_operations_contract(
                 tables,
                 run_id,
@@ -1392,7 +1397,11 @@ def apply_governance_bundle(path: str, run_id: Optional[str] = None) -> Dict[str
     governance_run_id = run_id or new_run_id()
     tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
     stage_started = utc_now_ts()
+    governance_validation = validate_governance_contract(target, plan.annotations, plan.access)
+    if governance_validation["status"] == "FAILED":
+        raise ValueError(f"Contrato de governança inválido: {to_json(governance_validation['issues'])}")
     results = {
+        "validation": governance_validation,
         "operations": record_operations_contract(
             tables,
             governance_run_id,

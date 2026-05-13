@@ -1,4 +1,4 @@
-from .contract_bundle import ContractBundle, governance_preview, load_contract_bundle
+from .contract_bundle import ContractBundle, governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .governance import (
     AccessContract,
@@ -10,6 +10,8 @@ from .governance import (
     PiiAnnotation,
     RowFilter,
     TableAnnotations,
+    governance_referenced_columns,
+    validate_governance_contract,
 )
 from .hooks import IngestionHooks
 from .ingestion import (
@@ -47,7 +49,9 @@ __all__ = [
     "SourceSpec",
     "TableAnnotations",
     "get_source_resolver",
+    "governance_check",
     "governance_preview",
+    "governance_referenced_columns",
     "apply_governance_bundle",
     "ingest",
     "ingest_bundle",
@@ -58,6 +62,7 @@ __all__ = [
     "register_write_mode",
     "register_quality_rule",
     "validate_plan_shape",
+    "validate_governance_contract",
     "yaml_schema",
 ]
 

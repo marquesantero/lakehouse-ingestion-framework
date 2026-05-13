@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ._spark import spark
 from ._sql import q, qt, sql_lit, to_json, utc_now_str
@@ -347,6 +347,81 @@ def access_sql_preview(target_table: str, contract: Optional[AccessContract]) ->
     if not contract:
         return []
     return [step["sql"] for step in _access_steps(target_table, contract)]
+
+
+def governance_referenced_columns(
+    annotations: Optional[AnnotationsContract],
+    access: Optional[AccessContract],
+) -> Dict[str, List[str]]:
+    """Lista colunas referenciadas pelos contratos de governanca."""
+    references = {
+        "annotations": sorted(annotations.columns) if annotations else [],
+        "row_filters": sorted(
+            {column for row_filter in (access.row_filters if access else []) for column in row_filter.columns}
+        ),
+        "column_masks": sorted(
+            {
+                column
+                for mask in (access.column_masks if access else [])
+                for column in [mask.column, *mask.using_columns]
+            }
+        ),
+    }
+    references["all"] = sorted(
+        set(references["annotations"]) | set(references["row_filters"]) | set(references["column_masks"])
+    )
+    return references
+
+
+def validate_governance_contract(
+    target_table: str,
+    annotations: Optional[AnnotationsContract],
+    access: Optional[AccessContract],
+    existing_columns: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    """Valida governanca contra o schema real ou informado da tabela alvo."""
+    issues = []
+    references = governance_referenced_columns(annotations, access)
+    try:
+        columns = (
+            set(existing_columns)
+            if existing_columns is not None
+            else {field.name for field in spark.read.table(target_table).schema.fields}
+        )
+    except Exception as exc:
+        return {
+            "status": "FAILED",
+            "target_table": target_table,
+            "references": references,
+            "issues": [
+                {
+                    "severity": "fail",
+                    "scope": "table",
+                    "object": target_table,
+                    "message": f"Nao foi possivel ler schema da tabela alvo: {exc}",
+                }
+            ],
+        }
+
+    for scope, referenced_columns in references.items():
+        if scope == "all":
+            continue
+        missing = sorted(set(referenced_columns) - columns)
+        for column in missing:
+            issues.append(
+                {
+                    "severity": "fail",
+                    "scope": scope,
+                    "object": column,
+                    "message": f"Coluna {column!r} referenciada em {scope} nao existe em {target_table}",
+                }
+            )
+    return {
+        "status": "FAILED" if issues else "SUCCESS",
+        "target_table": target_table,
+        "references": references,
+        "issues": issues,
+    }
 
 
 def _tag_sql(tags: Dict[str, str]) -> str:

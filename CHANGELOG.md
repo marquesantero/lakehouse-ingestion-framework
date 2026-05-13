@@ -15,6 +15,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - Adiciona loader de bundle (`load_contract_bundle`) e CLI `lakehouse-ingest validate-bundle`.
 - Adiciona `_metadata` por arquivo de contrato e preview de governança (`governance_preview`).
 - Adiciona aplicação assíncrona de governança (`apply_governance_bundle`) e CLI `governance-preview`/`governance-apply`.
+- Adiciona validação de governança contra schema real do target (`validate_governance_contract`) e CLI `governance-check`.
 - Eleva `ctrl_schema_version` para 8.
 
 ## 1.5.1 - 2026-05-13

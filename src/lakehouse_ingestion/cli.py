@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, List
 
-from .contract_bundle import governance_preview, load_contract_bundle
+from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .plan import build_plan_from_kwargs
 
@@ -85,6 +85,20 @@ def _preview_governance(paths: List[Path], indent: int) -> int:
     return exit_code
 
 
+def _check_governance(paths: List[Path], indent: int) -> int:
+    exit_code = 0
+    for path in paths:
+        try:
+            report = governance_check(load_contract_bundle(path))
+            print(json.dumps(report, indent=indent, sort_keys=True, default=str))
+            if report["status"] == "FAILED":
+                exit_code = 1
+        except Exception as exc:
+            exit_code = 1
+            print(f"ERRO {path}: {exc}", file=sys.stderr)
+    return exit_code
+
+
 def _apply_governance(paths: List[Path]) -> int:
     from .ingestion import apply_governance_bundle
 
@@ -119,6 +133,13 @@ def main(argv: list[str] | None = None) -> int:
     governance_preview_parser.add_argument("paths", nargs="+", type=Path)
     governance_preview_parser.add_argument("--indent", type=int, default=2)
 
+    governance_check_parser = sub.add_parser(
+        "governance-check",
+        help="Valida annotations/access contra schema real do target",
+    )
+    governance_check_parser.add_argument("paths", nargs="+", type=Path)
+    governance_check_parser.add_argument("--indent", type=int, default=2)
+
     governance_apply_parser = sub.add_parser(
         "governance-apply",
         help="Aplica annotations/operations/access sem executar ingestao",
@@ -135,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate_bundles(args.paths)
     if args.command == "governance-preview":
         return _preview_governance(args.paths, args.indent)
+    if args.command == "governance-check":
+        return _check_governance(args.paths, args.indent)
     if args.command == "governance-apply":
         return _apply_governance(args.paths)
     if args.command == "schema":

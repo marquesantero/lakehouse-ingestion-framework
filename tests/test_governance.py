@@ -11,6 +11,7 @@ from lakehouse_ingestion.governance import (
     OperationsContract,
     access_sql_preview,
     annotation_sql_preview,
+    validate_governance_contract,
 )
 from lakehouse_ingestion.plan import build_plan_from_kwargs
 
@@ -182,3 +183,55 @@ def test_governance_preview_from_bundle(tmp_path):
     assert preview["target_table"] == "main.gold.gd_orders"
     assert preview["annotations_sql"]
     assert preview["access_sql"][0] == "GRANT SELECT ON TABLE `main`.`gold`.`gd_orders` TO `readers`"
+
+
+def test_validate_governance_contract_detects_missing_columns():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        annotations={"columns": {"email": {"description": "Email"}}},
+        access={
+            "row_filters": [
+                {"name": "by_region", "function": "main.security.fn_region", "columns": ["region"]}
+            ],
+            "column_masks": [
+                {"column": "phone", "function": "main.security.mask_phone", "using_columns": ["phone"]}
+            ],
+        },
+    )
+
+    report = validate_governance_contract(
+        "main.gold.orders",
+        plan.annotations,
+        plan.access,
+        existing_columns=["email"],
+    )
+
+    assert report["status"] == "FAILED"
+    assert {issue["object"] for issue in report["issues"]} == {"phone", "region"}
+
+
+def test_validate_governance_contract_passes_existing_columns():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="orders",
+        annotations={"columns": {"email": {"description": "Email"}}},
+        access={
+            "row_filters": [
+                {"name": "by_region", "function": "main.security.fn_region", "columns": ["region"]}
+            ],
+            "column_masks": [
+                {"column": "email", "function": "main.security.mask_email", "using_columns": ["email"]}
+            ],
+        },
+    )
+
+    report = validate_governance_contract(
+        "main.gold.orders",
+        plan.annotations,
+        plan.access,
+        existing_columns=["email", "region"],
+    )
+
+    assert report["status"] == "SUCCESS"
+    assert report["issues"] == []

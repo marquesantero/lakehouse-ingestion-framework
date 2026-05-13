@@ -51,6 +51,23 @@ def test_cli_governance_preview_accepts_split_contract(tmp_path, capsys):
     assert "COMMENT ON TABLE" in output
 
 
+def test_cli_governance_check_reports_missing_spark_schema(tmp_path, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps({"source": "silver.orders", "target_table": "gd_orders", "layer": "gold"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "gd_orders.annotations.json").write_text(
+        json.dumps({"columns": {"email": {"description": "Email"}}}),
+        encoding="utf-8",
+    )
+
+    assert main(["governance-check", str(base), "--indent", "0"]) == 1
+    output = capsys.readouterr().out
+    assert "main.gold.gd_orders" in output
+    assert "Nao foi possivel ler schema" in output
+
+
 def test_write_mode_registry_extends_plan_validation():
     mode = "custom_unit_test_mode"
 
