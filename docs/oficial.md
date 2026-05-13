@@ -43,6 +43,10 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 
 O **Lakehouse Ingestion Framework** é uma biblioteca Python que encapsula padrões recorrentes de ingestão em Delta Lake, fornecendo uma interface declarativa. Em vez de escrever scripts ad-hoc com `MERGE INTO`, `INSERT`, `OVERWRITE`, Autoloader e controle operacional manual, você descreve **o que** quer fazer via um **contrato declarativo** (`IngestionPlan`), e o framework executa **como** fazer de forma padronizada, com observabilidade completa.
 
+O posicionamento é **contract-first**: o contrato é o artefato versionável que concentra ingestão, schema, qualidade, metadata de catálogo, operações e acesso. A separação em `*.ingestion.yaml`, `*.annotations.yaml`, `*.operations.yaml` e `*.access.yaml` permite que engenharia, governança, SRE e segurança evoluam suas partes sem acoplar todos os ciclos de revisão.
+
+O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocupa o espaço de biblioteca declarativa com controle fino, portabilidade entre jobs/notebooks/DAB e evidências operacionais persistidas em Delta.
+
 ### 1.2 O que ele NÃO faz
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
@@ -887,6 +891,8 @@ domain: comercial
 
 **Quando usar:** A origem envia um snapshot completo do estado atual, e registros ausentes devem ser tratados como inativos (não deletados fisicamente).
 
+Contrato semântico: o source precisa representar o estado final completo do domínio naquela execução. O modo não é incremental. Se o dado disponível é apenas o delta desde a última carga, use `scd1_upsert` ou `scd1_hash_diff`.
+
 **Colunas geradas no target:**
 
 | Coluna | Descrição |
@@ -901,6 +907,8 @@ domain: comercial
 3. NOT MATCHED → INSERT (nova)
 4. **NOT MATCHED BY SOURCE + is_active=true → UPDATE SET is_active=false, deleted_at=now()** (soft delete)
 5. MATCHED + is_active=false → UPDATE (re-ativa registros que voltaram a aparecer)
+
+**Por que SQL MERGE:** o framework usa SQL `MERGE` em todos os runtimes para manter o mesmo comportamento em cluster classic, Databricks Serverless e Spark Connect. A decisão está registrada em [ADR-003](adrs/ADR-003-snapshot-soft-delete-sql-merge.md).
 
 **Python:**
 ```python
@@ -932,6 +940,8 @@ notebook_name: silver_customer_snapshot
 ```
 
 > ⚠️ **Restrição crítica:** snapshot_soft_delete **NÃO aceita** `watermark_columns` nem `filter_expression`. O framework rejeita com `ValueError`. Um source filtrado faria todas as linhas fora do filtro virarem `is_active=false` erroneamente. Para sincronização incremental, use `scd1_upsert`.
+
+Também não use `SourceSpec`/Autoloader para esse modo. Autoloader `available_now` entrega micro-batches de arquivos novos; isso é carga incremental, não snapshot completo.
 
 ### 6.8 Restrições de Modo por Camada
 

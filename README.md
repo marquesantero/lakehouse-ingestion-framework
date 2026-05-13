@@ -6,7 +6,21 @@ Documentação:
 - [docs/guia_de_uso.md](docs/guia_de_uso.md) — passo a passo prático para testar como pacote ou script, padrão YAML + notebook genérico, orquestração com `for_each_task` e com master, troubleshooting e FAQ.
 - [docs/arquitetura.md](docs/arquitetura.md) — referência técnica detalhada de cada submódulo, fluxo de execução, esquemas das ctrl tables e decisões de design (~70 KB).
 - [docs/oficial.md](docs/oficial.md) — documentação oficial completa de uso, contratos, modos, observabilidade e extensão.
+- [docs/adrs/README.md](docs/adrs/README.md) — decisões arquiteturais registradas como ADRs.
 - [CHANGELOG.md](CHANGELOG.md) — histórico de versões e política de release.
+
+## Posicionamento
+
+O framework é uma biblioteca **contract-first** para ingestão e governança declarativa em Lakehouse. O contrato não descreve apenas a escrita: ele concentra regras de qualidade, schema policy, metadata de catálogo, operações, observabilidade e governança de acesso em artefatos versionáveis.
+
+Ele não substitui Delta Live Tables/Lakeflow. O objetivo é outro: oferecer controle fino, contratos revisáveis por tabela e portabilidade para jobs, notebooks, DAB e runtimes Spark/Delta compatíveis. Em ambientes Databricks, ele complementa Unity Catalog aplicando comments/tags e produzindo evidências operacionais em ctrl tables.
+
+Principais diferenciais:
+
+- Separação por responsabilidade: `*.ingestion.yaml`, `*.annotations.yaml`, `*.operations.yaml` e `*.access.yaml`.
+- Modos de escrita explícitos para Medallion, incluindo SCD1, SCD2, hash-diff e `snapshot_soft_delete`.
+- Observabilidade persistente em Delta: runs, qualidade, quarentena, erros, lineage, streaming, annotations, operations e access.
+- API defensiva para combinações perigosas, como `snapshot_soft_delete` com watermark/filter.
 
 ## Instalação local
 
@@ -255,6 +269,8 @@ src/lakehouse_ingestion/
 ├── lineage.py         # explain capture e OpenLineage
 └── ingestion.py       # orquestrador (ingest, ingest_plan)
 ```
+
+Decisões arquiteturais formais ficam em [docs/adrs](docs/adrs/README.md).
 
 ## Testes
 

@@ -6,7 +6,7 @@
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
 **Licença:** MIT
 
-> Este documento é a referência **técnica** do pacote: descreve cada submódulo, contrato de função, fluxo de execução, edge cases e decisões de design. Para um guia voltado ao **uso**, ver [oficial.md](./oficial.md).
+> Este documento é a referência **técnica** do pacote: descreve cada submódulo, contrato de função, fluxo de execução, edge cases e decisões de design. Para um guia voltado ao **uso**, ver [oficial.md](./oficial.md). Decisões arquiteturais formais ficam em [adrs/](./adrs/README.md).
 
 ---
 
@@ -813,6 +813,8 @@ Append-only, mas **só de mudanças**:
 
 Snapshot completo: source representa o estado-fim. Linhas ausentes ficam marcadas `is_active=false` + `deleted_at=now()`.
 
+Decisão arquitetural: ver [ADR-003](./adrs/ADR-003-snapshot-soft-delete-sql-merge.md).
+
 Implementação via `MERGE` SQL em todos os runtimes, evitando divergência entre cluster classic e Databricks Serverless/Spark Connect:
 
 ```python
@@ -831,7 +833,7 @@ WHEN NOT MATCHED BY SOURCE AND t.is_active = true THEN UPDATE SET
 
 `is_active=false → set` na cláusula matched garante "ressuscitar" um registro que voltou a aparecer (deletado e reinserido).
 
-**Bloqueio por design:** o orquestrador **rejeita** com `ValueError` a combinação `mode=snapshot_soft_delete` + `watermark_columns` ou `+ filter_expression`. Snapshot parcial faria com que todas as linhas fora do filtro virassem inativas erroneamente. Para sincronização incremental, use `scd1_upsert`.
+**Bloqueio por design:** o orquestrador **rejeita** com `ValueError` a combinação `mode=snapshot_soft_delete` + `watermark_columns`, `filter_expression` ou `SourceSpec`. Snapshot parcial faria com que todas as linhas fora do filtro virassem inativas erroneamente. Para sincronização incremental, use `scd1_upsert`, `scd1_hash_diff` ou outro modo incremental.
 
 #### 4.9.10 `write_scd2`
 
@@ -1455,10 +1457,13 @@ Queries pontuais e conhecidas. Builder seria over-engineering. A separação `q`
 - Caractere de controle ASCII reservado historicamente para esse fim.
 - Resistente a colisões: `concat_ws("|", "a|b", "c")` daria `"a|b|c"`, igual a `concat_ws("|", "a", "b|c")`. Com `` essa colisão não acontece em dados normais.
 
-### 15.10 Por que warning em vez de erro em `snapshot + watermark`?
+### 15.10 Por que erro em `snapshot_soft_delete + watermark/filter`?
 
-- Combinação às vezes é proposital (ex.: snapshot mensal de uma janela). O framework alerta mas não impede.
-- Erros estritos seriam excessivos para essa semântica.
+- `snapshot_soft_delete` define que o source é o estado completo atual.
+- `watermark_columns`, `filter_expression` e `SourceSpec` tornam o source parcial.
+- Source parcial faria linhas fora do recorte virarem `is_active=false` incorretamente.
+- Por isso a validação falha cedo com `ValueError`, em vez de emitir warning.
+- A decisão completa está registrada em [ADR-003](./adrs/ADR-003-snapshot-soft-delete-sql-merge.md).
 
 ---
 
