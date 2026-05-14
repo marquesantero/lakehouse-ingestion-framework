@@ -1,4 +1,4 @@
-# Lakehouse Ingestion Framework
+# ContractForge
 
 Framework de ingestão para Databricks e Delta Lake, com contratos declarativos por tabela, suporte a Bronze/Silver/Gold, quality gates, watermarks tipados, SCD, snapshot com soft delete, explain mode e emissão de eventos OpenLineage em JSON.
 
@@ -23,6 +23,8 @@ Principais diferenciais:
 - API defensiva para combinações perigosas, como `snapshot_soft_delete` com watermark/filter.
 
 ## Instalação local
+
+O produto e o pacote distribuído se chamam **ContractForge** (`contractforge`). O namespace Python permanece `lakehouse_ingestion`, então o uso programático continua com `from lakehouse_ingestion import ...`.
 
 ```bash
 pip install .
@@ -224,9 +226,9 @@ Presets de ingestão disponíveis:
 Comandos úteis:
 
 ```bash
-lakehouse-ingest presets list
-lakehouse-ingest presets show silver_scd1_upsert
-lakehouse-ingest validate contracts/silver/orders.yaml --expand-presets
+contractforge presets list
+contractforge presets show silver_scd1_upsert
+contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
 Extensão programática:
@@ -245,15 +247,15 @@ register_preset("company_silver_default", {
 Validação local sem Spark:
 
 ```bash
-lakehouse-ingest validate-bundle contracts/gold/gd_orders
-lakehouse-ingest governance-preview contracts/gold/gd_orders
-lakehouse-ingest governance-check contracts/gold/gd_orders
-lakehouse-ingest drift-check contracts/gold/gd_orders
-lakehouse-ingest governance-apply contracts/gold/gd_orders
-lakehouse-ingest apply-annotations contracts/gold/gd_orders
-lakehouse-ingest validate-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders --force-revoke
+contractforge validate-bundle contracts/gold/gd_orders
+contractforge governance-preview contracts/gold/gd_orders
+contractforge governance-check contracts/gold/gd_orders
+contractforge drift-check contracts/gold/gd_orders
+contractforge governance-apply contracts/gold/gd_orders
+contractforge apply-annotations contracts/gold/gd_orders
+contractforge validate-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders --force-revoke
 ```
 
 ## Modos oficiais
@@ -342,7 +344,7 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `register_write_mode(mode, handler)` registra motores de escrita customizados quando houver necessidade real de extensão.
 - `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
 - `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
-- A CLI `lakehouse-ingest validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `lakehouse-ingest schema` imprime o schema.
+- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `contractforge schema` imprime o schema.
 
 ## Matriz de runtime
 
@@ -360,7 +362,7 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 ```
 src/lakehouse_ingestion/
 ├── __init__.py        # Façade pública (ingest, ingest_plan, IngestionPlan, QualityRules, FrameworkConfig)
-├── cli.py             # CLI lakehouse-ingest validate/schema
+├── cli.py             # CLI contractforge validate/schema
 ├── contract_schema.py # JSON Schema do contrato declarativo
 ├── hooks.py           # IngestionHooks
 ├── _spark.py          # Resolução de SparkSession + safe_cache/serverless

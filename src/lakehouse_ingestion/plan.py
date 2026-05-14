@@ -324,7 +324,7 @@ class IngestionPlan:
     explain_format: str = "formatted"
     openlineage_enabled: bool = False
     openlineage_namespace: Optional[str] = None
-    openlineage_producer: str = "lakehouse-ingestion-framework"
+    openlineage_producer: str = "contractforge"
     use_cache: bool = True
     lock_enabled: bool = False
     idempotency_key: Optional[str] = None
@@ -634,7 +634,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         explain_format=explain_format,
         openlineage_enabled=bool(kwargs.get("openlineage_enabled", False)),
         openlineage_namespace=kwargs.get("openlineage_namespace"),
-        openlineage_producer=kwargs.get("openlineage_producer", "lakehouse-ingestion-framework"),
+        openlineage_producer=kwargs.get("openlineage_producer", "contractforge"),
         use_cache=bool(kwargs.get("use_cache", True)),
         lock_enabled=bool(kwargs.get("lock_enabled", False)),
         idempotency_key=kwargs.get("idempotency_key"),

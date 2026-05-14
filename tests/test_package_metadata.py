@@ -22,6 +22,8 @@ def test_package_versions_are_synchronized():
 
 def test_release_metadata_is_present():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["name"] == "contractforge"
+    assert project["scripts"] == {"contractforge": "lakehouse_ingestion.cli:main"}
     assert project["license"] == "MIT"
     assert (ROOT / "LICENSE").exists()
     assert (ROOT / "CHANGELOG.md").exists()

@@ -1,7 +1,7 @@
-# Lakehouse Ingestion Framework — Arquitetura e Referência Técnica
+# ContractForge — Arquitetura e Referência Técnica
 
 **Versão do pacote:** `1.8.1`
-**Pacote Python:** `lakehouse-ingestion-framework`
+**Pacote Python:** `contractforge`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
 **Licença:** MIT
@@ -48,7 +48,7 @@
 
 ### 1.1 Propósito
 
-O `lakehouse-ingestion-framework` padroniza a ingestão de dados em Delta Lake fornecendo:
+O `contractforge` padroniza a ingestão de dados em Delta Lake fornecendo:
 
 - Um **contrato declarativo** (`IngestionPlan`) por tabela, em vez de scripts ad-hoc.
 - **Seis modos oficiais de escrita** cobrindo append imutável, overwrite, SCD1, SCD2 histórico, hash-diff e snapshot com soft delete.
@@ -102,7 +102,7 @@ lakehouse_ingestion_pkg/
 │       ├── __init__.py     # façade pública
 │       ├── _spark.py       # resolução lazy de SparkSession + serverless
 │       ├── _sql.py         # helpers de identificadores, literais, datas
-│       ├── cli.py          # comandos lakehouse-ingest validate/schema
+│       ├── cli.py          # comandos contractforge validate/schema
 │       ├── contract_schema.py # JSON Schema do contrato declarativo
 │       ├── config.py       # FrameworkConfig + tipos (Layer, WriteMode, ...)
 │       ├── hooks.py        # hooks opcionais de pré/pós-ingestão
@@ -1445,7 +1445,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/lakehouse_ingestion_framework-1.8.1-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-1.8.1-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

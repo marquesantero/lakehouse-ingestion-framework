@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Este diretório registra decisões arquiteturais que explicam escolhas de produto e engenharia do Lakehouse Ingestion Framework.
+Este diretório registra decisões arquiteturais que explicam escolhas de produto e engenharia do ContractForge.
 
 Formato usado:
 

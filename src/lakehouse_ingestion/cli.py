@@ -1,4 +1,4 @@
-"""CLI do framework."""
+"""CLI do ContractForge."""
 from __future__ import annotations
 
 import argparse
@@ -199,7 +199,7 @@ def _presets_show(names: List[str], indent: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="lakehouse-ingest")
+    parser = argparse.ArgumentParser(prog="contractforge")
     sub = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = sub.add_parser("validate", help="Valida contratos YAML/JSON sem executar Spark")

@@ -13,10 +13,10 @@ Tambem existe risco operacional em reconciliacao de grants. Revogar permissao na
 
 `ingest_plan()` aplica `operations` e `annotations` depois da escrita, mas deixa `access` como `DEFERRED`. A aplicacao de acesso fica em comandos dedicados:
 
-- `lakehouse-ingest validate-access`
-- `lakehouse-ingest governance-check`
-- `lakehouse-ingest drift-check`
-- `lakehouse-ingest apply-access`
+- `contractforge validate-access`
+- `contractforge governance-check`
+- `contractforge drift-check`
+- `contractforge apply-access`
 
 Revogacoes de grants nao declarados exigem `revoke_unmanaged=true` no contrato e `apply-access --force-revoke` na execucao.
 

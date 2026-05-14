@@ -64,8 +64,8 @@ def yaml_schema() -> Dict[str, Any]:
     }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://github.com/marquesantero/lakehouse-ingestion-framework/schema.json",
-        "title": "Lakehouse Ingestion Contract",
+        "$id": "https://github.com/marquesantero/contractforge/schema.json",
+        "title": "ContractForge Contract Schema",
         "type": "object",
         "additionalProperties": False,
         "required": ["source", "target_table"],

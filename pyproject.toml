@@ -3,14 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lakehouse-ingestion-framework"
+name = "contractforge"
 version = "1.8.1"
-description = "Framework de ingestão Delta Lake para Databricks com contratos declarativos, quality gates, SCD, explain mode e eventos OpenLineage."
+description = "Contract-first framework for governed lakehouse ingestion on Delta Lake and Databricks."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{name = "Data Platform Team"}]
-keywords = ["databricks", "delta-lake", "pyspark", "lakehouse", "openlineage", "ingestion"]
+keywords = ["databricks", "delta-lake", "pyspark", "lakehouse", "openlineage", "ingestion", "data-contracts"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -23,12 +23,12 @@ dependencies = [
 ]
 
 [project.scripts]
-lakehouse-ingest = "lakehouse_ingestion.cli:main"
+contractforge = "lakehouse_ingestion.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/marquesantero/lakehouse-ingestion-framework"
-Changelog = "https://github.com/marquesantero/lakehouse-ingestion-framework/blob/main/CHANGELOG.md"
-Issues = "https://github.com/marquesantero/lakehouse-ingestion-framework/issues"
+Homepage = "https://github.com/marquesantero/contractforge"
+Changelog = "https://github.com/marquesantero/contractforge/blob/main/CHANGELOG.md"
+Issues = "https://github.com/marquesantero/contractforge/issues"
 
 [project.optional-dependencies]
 databricks = ["databricks-sdk>=0.20"]
