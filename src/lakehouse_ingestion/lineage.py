@@ -11,6 +11,7 @@ from pyspark.sql import DataFrame
 from .plan import IngestionPlan
 from ._spark import spark
 from ._sql import qt, safe_truncate, sql_lit, to_json
+from .sources import redact_secrets, redact_text
 
 
 def capture_explain(df: DataFrame, mode: str = "formatted") -> str:
@@ -43,12 +44,13 @@ def write_explain_plan(
     """Persiste o plano em ``ctrl_ingestion_explain``, truncado em 100k chars."""
     if not plan_text:
         return
+    safe_plan_text = redact_text(plan_text)
     spark.sql(f"""
         INSERT INTO {qt(tables['explain'])} (
             run_id, target_table, source_table, mode, explain_format, plan_text, captured_at_utc
         ) VALUES (
             {sql_lit(run_id)}, {sql_lit(target)}, {sql_lit(source_name)}, {sql_lit(mode)},
-            {sql_lit(explain_format)}, {sql_lit(safe_truncate(plan_text, 100000))}, current_timestamp()
+            {sql_lit(explain_format)}, {sql_lit(safe_truncate(safe_plan_text, 100000))}, current_timestamp()
         )
     """)
 
@@ -214,22 +216,24 @@ def write_openlineage_event(
     """
     if not plan.openlineage_enabled:
         return None
-    event = _clean_none(
-        build_openlineage_event(
-            plan,
-            run_id,
-            target,
-            source_name,
-            status,
-            started_at,
-            finished_at,
-            input_df,
-            output_df,
-            rows_read,
-            rows_written,
-            delta_version_before,
-            delta_version_after,
-            operation_metrics,
+    event = redact_secrets(
+        _clean_none(
+            build_openlineage_event(
+                plan,
+                run_id,
+                target,
+                source_name,
+                status,
+                started_at,
+                finished_at,
+                input_df,
+                output_df,
+                rows_read,
+                rows_written,
+                delta_version_before,
+                delta_version_after,
+                operation_metrics,
+            )
         )
     )
     event_type = event.get("eventType", status)

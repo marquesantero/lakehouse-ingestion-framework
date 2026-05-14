@@ -1,5 +1,9 @@
+from datetime import datetime, timezone
+
+import lakehouse_ingestion.lineage as lineage_module
 from lakehouse_ingestion.config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
 from lakehouse_ingestion.ingestion import _short_error_message
+from lakehouse_ingestion.lineage import write_openlineage_event
 from lakehouse_ingestion.plan import build_plan_from_kwargs
 from lakehouse_ingestion.writers import logical_row_metrics, resolve_write_metrics
 
@@ -45,3 +49,45 @@ def test_resolve_write_metrics_preserves_delta_metrics_and_adds_logical_metrics(
     assert row_metrics["rows_updated"] == 3
     assert row_metrics["rows_affected"] == 5
     assert operation_metrics["logicalMetrics"]["rows_affected"] == 5
+
+
+def test_openlineage_event_redacts_sensitive_operation_metrics(monkeypatch):
+    captured = {}
+
+    class FakeSpark:
+        version = "test"
+
+        def sql(self, statement):
+            captured["sql"] = statement
+
+    monkeypatch.setattr(lineage_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source="raw.orders",
+        target_table="orders",
+        openlineage_enabled=True,
+        openlineage_producer="contractforge-test",
+    )
+
+    event = write_openlineage_event(
+        {"lineage": "ops.ctrl_ingestion_lineage"},
+        plan,
+        "run-1",
+        "main.silver.orders",
+        "raw.orders",
+        "SUCCESS",
+        datetime(2026, 5, 14, tzinfo=timezone.utc),
+        datetime(2026, 5, 14, 0, 1, tzinfo=timezone.utc),
+        None,
+        None,
+        10,
+        9,
+        None,
+        3,
+        {"jdbc": "jdbc:postgresql://user:s3cr3t@host/db?password=topsecret"},
+    )
+
+    payload = str(event)
+    assert "s3cr3t" not in payload
+    assert "topsecret" not in payload
+    assert "***REDACTED***" in payload
+    assert "INSERT INTO" in captured["sql"]

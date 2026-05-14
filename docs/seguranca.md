@@ -36,11 +36,23 @@ São tratados como sensíveis quando a chave contém termos como:
 
 Também são redigidos valores no formato `{{ secret:scope/key }}`.
 
+## Redação em texto livre
+
+Além de estruturas `dict`, o ContractForge redige padrões sensíveis em texto livre antes de persistir auditoria. Isso cobre principalmente `ctrl_ingestion_explain` e `ctrl_ingestion_lineage`, onde conectores Spark podem incluir opções no plano físico ou em métricas operacionais.
+
+Padrões cobertos:
+
+- Placeholders `{{ secret:scope/key }}`.
+- Headers `Bearer <token>` e `Basic <token>`.
+- URLs com usuário/senha, como `jdbc:postgresql://user:password@host/db`.
+- Query strings ou parâmetros JDBC como `?password=...`, `;token=...`, `&api_key=...`.
+- Atribuições em texto como `password=...`, `token=...`, `client_secret=...`, `authorization=...`.
+
 ## Explain e lineage
 
 - `explain_mode` deve ser usado para diagnóstico, não como logging permanente em produção.
 - Evite colocar SQL com literais sensíveis em `source.query`, `filter_expression`, `dedup_order_expr` ou quality expressions.
-- Eventos OpenLineage devem carregar metadados operacionais, não credenciais ou payloads de negócio.
+- Eventos OpenLineage devem carregar metadados operacionais, não credenciais ou payloads de negócio. O evento é redigido antes de ser salvo, mas não use OpenLineage como canal para payloads sensíveis.
 - Se um conector externo exigir opções sensíveis com nomes não padronizados, prefira nomes contendo `secret`, `token`, `password` ou `key` para garantir redação automática.
 
 ## Ctrl tables

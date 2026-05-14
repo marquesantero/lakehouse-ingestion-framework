@@ -22,6 +22,17 @@ from .plan import ConnectorSpec, IngestionPlan, SourceSpec
 _SECRET_MARKER = "***REDACTED***"
 _SENSITIVE_KEY_PARTS = ("authorization", "password", "secret", "token", "api_key", "apikey", "key")
 _CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_SECRET_PLACEHOLDER_RE = re.compile(r"\{\{\s*secret:[^}]+\}\}", re.IGNORECASE)
+_AUTH_HEADER_RE = re.compile(r"\b(Bearer|Basic)\s+[^,\s'\"}]+", re.IGNORECASE)
+_URL_USERINFO_RE = re.compile(r"([a-z][a-z0-9+.-]*://)([^:/@\s]+):([^@\s]+)@", re.IGNORECASE)
+_SENSITIVE_PARAM_RE = re.compile(
+    r"(?i)([?&;](?:password|passwd|pwd|token|access_token|refresh_token|secret|client_secret|api_key|apikey)=)"
+    r"([^&;\s]+)"
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(password|passwd|pwd|token|access_token|refresh_token|secret|client_secret|api_key|apikey|authorization)"
+    r"(\s*[:=]\s*)([^\s,;})\]]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -266,9 +277,25 @@ def redact_secrets(value: Any) -> Any:
         return [redact_secrets(item) for item in value]
     if isinstance(value, tuple):
         return tuple(redact_secrets(item) for item in value)
-    if isinstance(value, str) and value.strip().startswith("{{ secret:"):
-        return _SECRET_MARKER
+    if isinstance(value, str):
+        return redact_text(value)
     return value
+
+
+def redact_text(value: str) -> str:
+    """Redige padrões sensíveis em texto livre antes de persistir auditoria."""
+    stripped = value.strip()
+    if stripped.startswith("{{ secret:") and stripped.endswith("}}"):
+        return _SECRET_MARKER
+    redacted = _SECRET_PLACEHOLDER_RE.sub(_SECRET_MARKER, value)
+    redacted = _AUTH_HEADER_RE.sub(lambda match: f"{match.group(1)} {_SECRET_MARKER}", redacted)
+    redacted = _URL_USERINFO_RE.sub(lambda match: f"{match.group(1)}{_SECRET_MARKER}:{_SECRET_MARKER}@", redacted)
+    redacted = _SENSITIVE_PARAM_RE.sub(lambda match: f"{match.group(1)}{_SECRET_MARKER}", redacted)
+    redacted = _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}{_SECRET_MARKER}",
+        redacted,
+    )
+    return redacted
 
 
 def _dbutils() -> Any:
