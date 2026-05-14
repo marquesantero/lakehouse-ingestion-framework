@@ -41,7 +41,7 @@ from .governance import (
 from .hooks import IngestionHooks, normalize_hooks
 from .presets import apply_preset
 from .shape import ShapeConfig, normalize_shape
-from ._sql import as_list
+from ._sql import as_list, full_table_name
 
 
 _QUALITY_RULE_FIELDS = {
@@ -432,6 +432,7 @@ class IngestionPlan:
     target_table: str
     catalog: str = "main"
     layer: Layer = "bronze"
+    target_schema: Optional[str] = None
     mode: WriteMode = "scd0_append"
     source_system: str = "default"
     ctrl_schema: str = "ops"
@@ -615,7 +616,7 @@ def normalize_quality_rules(
 
 
 _KNOWN_PARAMS = {
-    "source", "target_table", "catalog", "layer", "mode", "source_system", "ctrl_schema",
+    "source", "target", "target_table", "catalog", "layer", "target_schema", "mode", "source_system", "ctrl_schema",
     "notebook_name", "description", "owner", "domain", "tags", "sla", "runtime_parameters",
     "select_columns", "column_mapping", "shape", "filter_expression", "watermark_columns",
     "merge_keys", "hash_keys", "hash_exclude_columns", "custom_keys", "dedup_order_expr",
@@ -630,6 +631,46 @@ _KNOWN_PARAMS = {
     "annotations", "operations", "access", "preset", "presets", "applied_presets",
     "parent_run_id", "run_group_id", "master_job_id", "master_run_id",
 }
+
+
+def target_schema_name(plan: IngestionPlan) -> str:
+    """Schema físico do target; por padrão usa a camada lógica."""
+    return str(plan.target_schema or plan.layer).strip()
+
+
+def target_full_table_name(plan: IngestionPlan) -> str:
+    """Nome fully-qualified do target físico do plano."""
+    return full_table_name(plan.catalog, target_schema_name(plan), plan.target_table)
+
+
+def _normalize_target_block(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Normaliza ``target: {catalog, schema, table}`` para campos do plano."""
+    raw = kwargs.pop("target", None)
+    if raw is None:
+        return kwargs
+    target = _require_mapping(raw, "target")
+    unexpected = set(target) - {"catalog", "schema", "table"}
+    if unexpected:
+        raise ValueError(f"target possui campos não reconhecidos: {sorted(unexpected)}")
+    aliases = {
+        "catalog": "catalog",
+        "schema": "target_schema",
+        "table": "target_table",
+    }
+    for source_field, plan_field in aliases.items():
+        raw_value = target.get(source_field)
+        if raw_value is None or raw_value == "":
+            continue
+        value = str(raw_value).strip()
+        if not value:
+            raise ValueError(f"target.{source_field} não pode ser vazio")
+        existing = kwargs.get(plan_field)
+        if existing is not None and str(existing).strip() and str(existing).strip() != value:
+            raise ValueError(
+                f"target.{source_field}={value!r} conflita com {plan_field}={str(existing).strip()!r}"
+            )
+        kwargs[plan_field] = value
+    return kwargs
 
 
 def validate_plan_shape(plan: IngestionPlan) -> None:
@@ -650,6 +691,8 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
     for field_name, value in required_text_fields.items():
         if not str(value or "").strip():
             raise ValueError(f"{field_name} é obrigatório e não pode ser vazio")
+    if plan.target_schema is not None and not str(plan.target_schema).strip():
+        raise ValueError("target_schema não pode ser vazio")
     if not isinstance(plan.runtime_parameters, dict):
         raise ValueError("runtime_parameters deve ser dict")
     if any(not str(tag).strip() for tag in plan.tags):
@@ -711,7 +754,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
     Raises:
         ValueError: se houver kwargs desconhecidos ou ``mode`` inválido.
     """
-    kwargs = apply_preset(dict(kwargs))
+    kwargs = _normalize_target_block(apply_preset(dict(kwargs)))
     quality = normalize_quality_rules(kwargs.pop("quality_rules", None))
     custom = kwargs.pop("custom_keys", None) or {}
     normalized_custom = {k: as_list(v) for k, v in custom.items()}
@@ -719,6 +762,10 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
     unexpected = set(kwargs) - _KNOWN_PARAMS
     if unexpected:
         raise ValueError(f"Parâmetros não reconhecidos em ingest(): {sorted(unexpected)}")
+    if "source" not in kwargs:
+        raise ValueError("source é obrigatório")
+    if "target_table" not in kwargs:
+        raise ValueError("target_table é obrigatório ou use target.table")
 
     layer = _validate_enum(kwargs.get("layer", "bronze"), VALID_LAYERS, "layer", default="bronze")
     merge_strategy = _validate_enum(
@@ -753,6 +800,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         target_table=kwargs["target_table"],
         catalog=kwargs.get("catalog", CONFIG.default_catalog),
         layer=layer,  # type: ignore[arg-type]
+        target_schema=kwargs.get("target_schema"),
         mode=validate_write_mode(kwargs.get("mode", "scd0_append")),
         source_system=kwargs.get("source_system", CONFIG.default_source_system),
         ctrl_schema=kwargs.get("ctrl_schema", CONFIG.ctrl_schema),

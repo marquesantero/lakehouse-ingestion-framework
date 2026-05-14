@@ -18,6 +18,8 @@ from lakehouse_ingestion import (
 from lakehouse_ingestion.plan import (
     build_plan_from_kwargs,
     normalize_quality_rules,
+    target_full_table_name,
+    target_schema_name,
     validate_plan_shape,
     validate_write_mode,
 )
@@ -87,6 +89,43 @@ def test_build_plan_basic():
     assert plan.target_table == "b_orders"
     assert plan.mode == "scd0_append"
     assert plan.merge_keys == []
+    assert target_schema_name(plan) == "bronze"
+    assert target_full_table_name(plan) == "c1.bronze.b_orders"
+
+
+def test_build_plan_accepts_target_schema_override():
+    plan = build_plan_from_kwargs(
+        source="raw_orders",
+        target_table="orders",
+        catalog="main",
+        layer="silver",
+        target_schema="crm_curated",
+    )
+    assert plan.layer == "silver"
+    assert plan.target_schema == "crm_curated"
+    assert target_schema_name(plan) == "crm_curated"
+    assert target_full_table_name(plan) == "main.crm_curated.orders"
+
+
+def test_build_plan_accepts_target_block_alias():
+    plan = build_plan_from_kwargs(
+        source="raw_orders",
+        target={"catalog": "main", "schema": "custom_schema", "table": "orders"},
+        layer="gold",
+    )
+    assert plan.catalog == "main"
+    assert plan.target_schema == "custom_schema"
+    assert plan.target_table == "orders"
+    assert target_full_table_name(plan) == "main.custom_schema.orders"
+
+
+def test_build_plan_rejects_conflicting_target_block():
+    with pytest.raises(ValueError, match="conflita"):
+        build_plan_from_kwargs(
+            source="raw_orders",
+            target_table="orders",
+            target={"table": "other_orders"},
+        )
 
 
 def test_builtin_presets_cover_common_ingestion_modes():

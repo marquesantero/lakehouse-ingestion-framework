@@ -19,6 +19,8 @@ def test_yaml_schema_contains_new_contract_fields():
     assert "column_mapping" in props
     assert "delta_properties" in props
     assert "retry_attempts" in props
+    assert "target_schema" in props
+    assert "target" in props
     assert "annotations" in props
     assert "operations" in props
     assert "access" in props
@@ -141,6 +143,41 @@ def test_cli_init_generates_valid_split_contract(tmp_path, capsys):
     assert "OK" in capsys.readouterr().out
 
 
+def test_cli_init_supports_custom_target_schema_in_split_contract(tmp_path, capsys):
+    base = tmp_path / "contracts" / "sales" / "orders"
+
+    assert (
+        main(
+            [
+                "init",
+                "--output",
+                str(base),
+                "--source",
+                "landing.orders",
+                "--target-table",
+                "orders",
+                "--layer",
+                "silver",
+                "--target-schema",
+                "sales_curated",
+                "--mode",
+                "scd1_upsert",
+                "--merge-keys",
+                "order_id",
+                "--split",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    ingestion = (tmp_path / "contracts" / "sales" / "orders.ingestion.yaml").read_text(encoding="utf-8")
+    annotations = (tmp_path / "contracts" / "sales" / "orders.annotations.yaml").read_text(encoding="utf-8")
+    assert "target_schema: sales_curated" in ingestion
+    assert "schema: sales_curated" in annotations
+    assert main(["validate-bundle", str(base)]) == 0
+    assert "OK" in capsys.readouterr().out
+
+
 def test_cli_init_requires_keys_for_upsert(tmp_path, capsys):
     output = tmp_path / "contracts" / "silver" / "c_orders"
 
@@ -241,6 +278,29 @@ def test_cli_governance_preview_accepts_split_contract(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "main.gold.gd_orders" in output
     assert "COMMENT ON TABLE" in output
+
+
+def test_cli_governance_preview_uses_custom_target_schema(tmp_path, capsys):
+    base = tmp_path / "gd_orders"
+    (tmp_path / "gd_orders.ingestion.json").write_text(
+        json.dumps(
+            {
+                "source": "silver.orders",
+                "target_table": "gd_orders",
+                "layer": "gold",
+                "target_schema": "mart_sales",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "gd_orders.annotations.json").write_text(
+        json.dumps({"target": {"schema": "mart_sales", "table": "gd_orders"}, "table": {"description": "Gold orders"}}),
+        encoding="utf-8",
+    )
+
+    assert main(["governance-preview", str(base), "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert "main.mart_sales.gd_orders" in output
 
 
 def test_cli_governance_check_reports_missing_spark_schema(tmp_path, capsys):

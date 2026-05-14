@@ -10,7 +10,7 @@ from typing import Any, Iterable, List
 from .config import VALID_LAYERS, VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
 from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
-from .plan import build_plan_from_kwargs
+from .plan import build_plan_from_kwargs, target_full_table_name
 from .presets import apply_preset, list_presets, preset_details
 from .sources import diagnose_source_connectors, list_source_connector_details, source_connector_details
 
@@ -154,6 +154,7 @@ def _validate_project(paths: List[Path], indent: int) -> int:
                             "status": "SUCCESS",
                             "target_table": bundle.ingestion.target_table,
                             "layer": bundle.ingestion.layer,
+                            "target_schema": bundle.ingestion.target_schema or bundle.ingestion.layer,
                             "mode": bundle.ingestion.mode,
                             "split_files": bundle.paths or {},
                         }
@@ -166,7 +167,14 @@ def _validate_project(paths: List[Path], indent: int) -> int:
                     normalized = dict(item)
                     normalized.pop("_metadata", None)
                     plan = build_plan_from_kwargs(**normalized)
-                    targets.append({"target_table": plan.target_table, "layer": plan.layer, "mode": plan.mode})
+                    targets.append(
+                        {
+                            "target_table": plan.target_table,
+                            "layer": plan.layer,
+                            "target_schema": plan.target_schema or plan.layer,
+                            "mode": plan.mode,
+                        }
+                    )
                     count += 1
                 items.append({"path": str(path), "kind": kind, "status": "SUCCESS", "contracts": count, "targets": targets})
             except Exception as exc:
@@ -195,8 +203,12 @@ def _init_output_path(path: Path, *, split: bool) -> Path:
     return path.with_suffix(".ingestion.yaml")
 
 
-def _target_block(catalog: str, layer: str, target_table: str) -> dict[str, str]:
-    return {"catalog": catalog, "schema": layer, "table": target_table}
+def _target_schema_arg(args: argparse.Namespace) -> str:
+    return args.target_schema or args.layer
+
+
+def _target_block(catalog: str, schema: str, target_table: str) -> dict[str, str]:
+    return {"catalog": catalog, "schema": schema, "table": target_table}
 
 
 def _build_init_ingestion_contract(args: argparse.Namespace) -> dict[str, Any]:
@@ -217,6 +229,8 @@ def _build_init_ingestion_contract(args: argparse.Namespace) -> dict[str, Any]:
         "schema_policy": args.schema_policy,
         "ctrl_schema": args.ctrl_schema,
     }
+    if args.target_schema:
+        contract["target_schema"] = args.target_schema
     if args.preset:
         contract["preset"] = _csv_list(args.preset)
     if merge_keys:
@@ -233,7 +247,7 @@ def _build_init_ingestion_contract(args: argparse.Namespace) -> dict[str, Any]:
 
 def _build_init_annotations_contract(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "target": _target_block(args.catalog, _target_schema_arg(args), args.target_table),
         "table": {
             "description": args.description or f"TODO: descrever {args.target_table}",
             "aliases": [],
@@ -245,7 +259,7 @@ def _build_init_annotations_contract(args: argparse.Namespace) -> dict[str, Any]
 
 def _build_init_operations_contract(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "target": _target_block(args.catalog, _target_schema_arg(args), args.target_table),
         "ownership": {
             "business_owner": args.owner or "TODO",
             "technical_owner": args.technical_owner or "data-platform",
@@ -265,7 +279,7 @@ def _build_init_operations_contract(args: argparse.Namespace) -> dict[str, Any]:
 
 def _build_init_access_contract(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "target": _target_block(args.catalog, _target_schema_arg(args), args.target_table),
         "access_policy": {"mode": "validate_only", "on_drift": "warn", "revoke_unmanaged": False},
         "grants": [{"principal": args.access_principal or "data-engineers", "privileges": ["SELECT"]}],
     }
@@ -365,7 +379,6 @@ def _apply_access(paths: List[Path], *, force_revoke: bool = False) -> int:
 
 
 def _validate_access(paths: List[Path], indent: int) -> int:
-    from ._sql import full_table_name
     from .governance import access_drift_report, validate_governance_contract
 
     exit_code = 0
@@ -373,7 +386,7 @@ def _validate_access(paths: List[Path], indent: int) -> int:
         try:
             bundle = load_contract_bundle(path)
             plan = bundle.ingestion
-            target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+            target = target_full_table_name(plan)
             validation = validate_governance_contract(target, None, plan.access)
             drift = access_drift_report(target, plan.access)
             drift_failed = (
@@ -475,6 +488,10 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--target-table", required=True)
     init_parser.add_argument("--catalog", default="main")
     init_parser.add_argument("--layer", default="bronze", choices=sorted(VALID_LAYERS))
+    init_parser.add_argument(
+        "--target-schema",
+        help="Schema físico do target. Quando omitido, usa o valor de --layer.",
+    )
     init_parser.add_argument("--mode", default="scd0_append", choices=sorted(VALID_WRITE_MODES))
     init_parser.add_argument("--schema-policy", default="additive_only", choices=sorted(VALID_SCHEMA_POLICIES))
     init_parser.add_argument("--ctrl-schema", default="ops")

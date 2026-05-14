@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from ._sql import full_table_name
 from .governance import (
     AccessContract,
     AnnotationsContract,
@@ -17,7 +16,12 @@ from .governance import (
     annotation_sql_preview,
     validate_governance_contract,
 )
-from .plan import IngestionPlan, build_plan_from_kwargs
+from .plan import (
+    IngestionPlan,
+    build_plan_from_kwargs,
+    target_full_table_name,
+    target_schema_name,
+)
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -67,11 +71,11 @@ def _validate_target_compatibility(
     if declared is None:
         return
     catalog, schema, table = declared
-    expected = (plan.catalog, plan.layer, plan.target_table)
+    expected = (plan.catalog, target_schema_name(plan), plan.target_table)
     if catalog and catalog != expected[0]:
         raise ValueError(f"{kind}.target.catalog={catalog!r} diverge de ingestion.catalog={expected[0]!r}")
     if schema and schema != expected[1]:
-        raise ValueError(f"{kind}.target.schema={schema!r} diverge de ingestion.layer={expected[1]!r}")
+        raise ValueError(f"{kind}.target.schema={schema!r} diverge do target schema físico={expected[1]!r}")
     if table != expected[2]:
         raise ValueError(f"{kind}.target.table={table!r} diverge de ingestion.target_table={expected[2]!r}")
 
@@ -188,7 +192,7 @@ def load_contract_bundle(path: str | Path) -> ContractBundle:
 def governance_preview(bundle: ContractBundle) -> dict[str, Any]:
     """Retorna preview executavel das acoes de governanca do bundle."""
     plan = bundle.ingestion
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     return {
         "target_table": target,
         "annotations_sql": annotation_sql_preview(target, bundle.annotations),
@@ -217,7 +221,7 @@ def contract_metadata_warnings(bundle: ContractBundle) -> list[str]:
 def governance_check(bundle: ContractBundle) -> dict[str, Any]:
     """Valida governanca contra o catalogo alvo sem aplicar alteracoes."""
     plan = bundle.ingestion
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     validation = validate_governance_contract(target, bundle.annotations, bundle.access)
     access_drift = access_drift_report(target, bundle.access)
     metadata_warnings = contract_metadata_warnings(bundle)

@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 1.13.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.14.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.13.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.14.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -106,10 +106,34 @@ O fluxo usa `try/except/finally` — mesmo em falha, as tabelas de controle rece
 A tabela alvo é sempre montada como:
 
 ```
-{catalog}.{layer}.{target_table}
+{catalog}.{target_schema ou layer}.{target_table}
 ```
 
 Exemplo: `ingest(catalog="main", layer="silver", target_table="c_cliente")` → `main.silver.c_cliente`
+
+Quando a organização física não segue schemas por camada, informe `target_schema`:
+
+```python
+ingest(
+    source="raw.crm_cliente",
+    catalog="main",
+    layer="silver",              # camada lógica: validações, presets e observabilidade
+    target_schema="crm_curated", # schema físico do Unity Catalog
+    target_table="c_cliente",
+)
+# → main.crm_curated.c_cliente
+```
+
+Em YAML, o mesmo contrato pode usar campos planos ou o bloco `target`:
+
+```yaml
+source: raw.crm_cliente
+layer: silver
+target:
+  catalog: main
+  schema: crm_curated
+  table: c_cliente
+```
 
 ---
 
@@ -133,14 +157,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-1.13.0-py3-none-any.whl
+# → dist/contractforge-1.14.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.13.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.14.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.13.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -287,7 +311,8 @@ Ambas as funções retornam um `dict` com a seguinte estrutura:
 |-------|------|-----------|
 | `status` | `str` | `"SUCCESS"`, `"FAILED"`, `"DRY_RUN"` ou `"SKIPPED"` |
 | `run_id` | `str` | UUID v4 identificador único da execução |
-| `target_table` | `str` | Nome completo da tabela alvo (`cat.layer.tbl`) |
+| `target_table` | `str` | Nome completo da tabela alvo (`cat.<target_schema ou layer>.tbl`) |
+| `target_schema` | `str` | Schema físico resolvido do target |
 | `source_table` | `str` | Nome da fonte ou `"dataframe"` |
 | `mode` | `str` | Modo de escrita usado |
 | `rows_read` | `int` | Linhas lidas após preparação |
@@ -346,7 +371,8 @@ O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). To
 | `source` | `str \| DataFrame \| SourceSpec \| ConnectorSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark, Autoloader `available_now` ou conector declarativo |
 | `target_table` | `str` | (obrigatório) | Nome da tabela alvo **sem** catálogo/schema. Ex.: `"c_cliente"` |
 | `catalog` | `str` | `"main"` | Catálogo Unity Catalog onde alvo e ctrl tables residem |
-| `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion (usada como schema do alvo) |
+| `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion para presets, restrições e observabilidade |
+| `target_schema` | `str \| None` | `None` | Schema físico do target. Quando omitido, usa `layer` |
 | `mode` | `WriteMode` | `"scd0_append"` | Estratégia de escrita (ver §6) |
 | `source_system` | `str` | `"default"` | Identificador da origem, gravado como metadado técnico |
 | `ctrl_schema` | `str` | `"ops"` | Schema onde as tabelas de controle são criadas |
@@ -481,11 +507,12 @@ Cada tabela vira um arquivo YAML. Abaixo, um contrato anotado com todos os campo
 
 # --- Obrigatórios ---
 source: b_cliente                        # str: nome de tabela Unity Catalog
-target_table: c_cliente                  # str: nome da tabela alvo (sem catalog/layer)
+target_table: c_cliente                  # str: nome da tabela alvo (sem catalog/schema)
 
 # --- Identificação do ambiente ---
 catalog: main                            # default: "main"
-layer: silver                            # bronze | silver | gold
+layer: silver                            # camada lógica: bronze | silver | gold
+target_schema: crm_curated               # opcional; default = layer
 mode: scd1_upsert                        # modo de escrita (ver §6)
 source_system: crm                       # default: "default"
 ctrl_schema: ops                         # default: "ops" — schema das ctrl tables
@@ -3185,7 +3212,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.13.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.14.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.

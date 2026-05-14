@@ -6,6 +6,14 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.14.0 - 2026-05-14
+
+- Separa a camada lógica (`layer`) do schema físico do target com o novo parâmetro `target_schema`.
+- Mantém `layer` como default do schema físico quando `target_schema` não é informado.
+- Aceita contratos no formato `target: {catalog, schema, table}` como alternativa declarativa a `catalog`/`target_schema`/`target_table`.
+- Atualiza `contractforge init --target-schema` para gerar bundles split com annotations/operations/access apontando para o schema físico correto.
+- Atualiza preview/governança, stream, ingestão e resolução de source não qualificado para usar o schema físico resolvido.
+
 ## 1.13.0 - 2026-05-14
 
 - Adiciona `contractforge init` para gerar contratos YAML iniciais a partir da CLI.

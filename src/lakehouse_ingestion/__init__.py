@@ -47,6 +47,7 @@ from .sources import (
     source_connector_details,
 )
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
+from .plan import target_full_table_name, target_schema_name
 from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, ShapeJsonConfig, apply_shape
 from .writers import register_write_mode
 from .quality import register_quality_rule
@@ -106,6 +107,8 @@ __all__ = [
     "resolve_batch_source",
     "resolve_secrets",
     "source_connector_details",
+    "target_full_table_name",
+    "target_schema_name",
     "register_write_mode",
     "register_quality_rule",
     "validate_plan_shape",
@@ -113,4 +116,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.13.0"
+__version__ = "1.14.0"

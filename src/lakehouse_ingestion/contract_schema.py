@@ -112,7 +112,14 @@ def yaml_schema() -> Dict[str, Any]:
         "title": "ContractForge Contract Schema",
         "type": "object",
         "additionalProperties": False,
-        "required": ["source", "target_table"],
+        "required": ["source"],
+        "anyOf": [
+            {"required": ["target_table"]},
+            {
+                "required": ["target"],
+                "properties": {"target": {"required": ["table"]}},
+            },
+        ],
         "properties": {
             "_metadata": {"type": "object"},
             "preset": {"oneOf": [string_array, {"type": "string"}]},
@@ -137,6 +144,7 @@ def yaml_schema() -> Dict[str, Any]:
             "target_table": {"type": "string"},
             "catalog": {"type": "string"},
             "layer": {"enum": sorted(VALID_LAYERS)},
+            "target_schema": {"type": ["string", "null"]},
             "mode": {"enum": sorted(VALID_WRITE_MODES)},
             "source_system": {"type": "string"},
             "ctrl_schema": {"type": "string"},

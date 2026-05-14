@@ -7,7 +7,7 @@ Este guia mostra o menor fluxo funcional para validar o ContractForge sem montar
 No Databricks, instale o wheel versionado no cluster/job:
 
 ```bash
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.13.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl
 ```
 
 Para desenvolvimento local com Spark:
@@ -68,6 +68,8 @@ Resultado esperado:
 - `target_table = main.bronze.b_orders_quickstart`
 - `rows_read = 2`
 - `rows_written = 2`
+
+Por padrão, o schema físico do target é o próprio `layer`. Se sua organização usa schemas de negócio, adicione `target_schema`, por exemplo `target_schema="landing_orders"` para gravar em `main.landing_orders.b_orders_quickstart` mantendo `layer="bronze"` como camada lógica.
 
 ## 4. Consulte evidências operacionais
 

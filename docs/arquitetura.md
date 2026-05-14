@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.13.0`
+**Versão do pacote:** `1.14.0`
 **Pacote Python:** `contractforge`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -180,7 +180,7 @@ ingest_plan(plan)
     │
     ▼
 [1]  new_run_id, utc_now_str, today_str, utc_now_ts
-[2]  full_table_name(catalog, layer, target_table)  → target
+[2]  target_full_table_name(plan)                   → target
 [3]  ensure_ctrl_tables(catalog, ctrl_schema)        → tables{runs,state,...}
     │
     ▼   (try)
@@ -369,7 +369,9 @@ Frozen para passagem segura entre threads/jobs. Construtores aceitam dict via `n
 
 Frozen dataclass com 40+ campos. Agrupados por finalidade:
 
-**Identificação** — `source` (str, DataFrame, `SourceSpec` ou `ConnectorSpec`), `target_table`, `catalog`, `layer`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
+**Identificação** — `source` (str, DataFrame, `SourceSpec` ou `ConnectorSpec`), `target_table`, `catalog`, `layer`, `target_schema`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
+
+`layer` é a camada lógica Medallion usada por presets, restrições e observabilidade. `target_schema` é o schema físico do target; quando omitido, o framework usa `layer` para manter o padrão `{catalog}.{layer}.{target_table}`.
 
 **Metadados de contrato** — `description`, `owner`, `domain`, `tags`, `sla`, `runtime_parameters`. Não mudam a escrita; são propagados para retorno e `ctrl_ingestion_runs`.
 
@@ -1446,7 +1448,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-1.13.0-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-1.14.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

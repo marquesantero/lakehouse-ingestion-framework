@@ -18,6 +18,7 @@ Links principais:
 ## O Que Ele Resolve
 
 - Padroniza ingestões Bronze/Silver/Gold com contratos YAML ou chamadas Python.
+- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente`.
 - Suporta modos oficiais de escrita: append, overwrite, SCD1, hash-diff, SCD2 e snapshot com soft delete.
 - Aplica quality gates, quarentena, schema policy, watermarks, idempotência, locks e retry.
 - Registra observabilidade em ctrl tables: runs, erros, qualidade, quarentena, lineage, streaming, schema changes, annotations, operations e access.
@@ -62,6 +63,7 @@ result = ingest(
     target_table="s_orders",
     catalog="main",
     layer="silver",
+    target_schema="sales_curated",
     mode="scd1_upsert",
     merge_keys="order_id",
     column_mapping={"id": "order_id"},
@@ -89,8 +91,12 @@ source:
     user: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
 
-target_table: s_orders
-catalog: main
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+layer: silver
 merge_keys: order_id
 watermark_columns: updated_at
 schema_policy: additive_only
@@ -103,7 +109,7 @@ quality_rules:
 ## CLI
 
 ```bash
-contractforge init --output contracts/silver/s_orders --source raw.orders --target-table s_orders --layer silver --mode scd1_upsert --merge-keys order_id --split
+contractforge init --output contracts/silver/s_orders --source raw.orders --target-table s_orders --layer silver --target-schema sales_curated --mode scd1_upsert --merge-keys order_id --split
 contractforge validate-bundle contracts/silver/s_orders
 contractforge validate-project contracts
 contractforge presets list
@@ -140,8 +146,8 @@ Release:
 ```bash
 python -m build
 twine check dist/*
-git tag v1.13.0
-git push origin v1.13.0
+git tag v1.14.0
+git push origin v1.14.0
 ```
 
 O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.

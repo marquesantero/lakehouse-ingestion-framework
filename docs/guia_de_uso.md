@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-1.13.0-py3-none-any.whl
+# gera: dist/contractforge-1.14.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-1.13.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.14.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.13.0-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.13.0
+print(lakehouse_ingestion.__version__)  # 1.14.0
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.13.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==1.13.0
+%pip install --index-url https://<seu_pypi_privado> contractforge==1.14.0
 ```
 
 Em seguida:
@@ -326,7 +326,8 @@ Cada YAML é um contrato declarativo da ingestão dessa tabela.
 # obrigatórios
 target_table: c_clientes
 catalog: sandbox
-layer: silver
+layer: silver                 # camada lógica Medallion
+# target_schema: crm_curated  # opcional; default = layer. Destino: sandbox.crm_curated.c_clientes
 mode: scd1_upsert
 source: b_clientes              # str: nome de tabela; será resolvido com spark.read.table
 

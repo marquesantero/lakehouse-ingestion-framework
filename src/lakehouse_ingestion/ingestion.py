@@ -32,6 +32,8 @@ from .plan import (  # noqa: F401
     QualityRules,
     SourceSpec,
     build_plan_from_kwargs,
+    target_full_table_name,
+    target_schema_name,
     validate_plan_shape,
 )
 from .quality import evaluate_quality, is_abort_only_failure, write_quality_results, write_quarantine
@@ -114,6 +116,7 @@ def _contract_metadata(plan: IngestionPlan) -> Dict[str, Any]:
         "runtime_parameters": plan.runtime_parameters,
         "operations": plan.operations,
         "applied_presets": plan.applied_presets,
+        "target_schema": target_schema_name(plan),
     }
 
 
@@ -173,6 +176,7 @@ def _skip_result(
         "status": "SKIPPED",
         "run_id": run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "source_table": source_name,
         "source": source_metadata,
         "mode": plan.mode,
@@ -244,7 +248,7 @@ def _plan_with_connector_runtime(plan: IngestionPlan, wm_prev: Optional[str]) ->
         return plan
     runtime_parameters = dict(plan.runtime_parameters or {})
     runtime_parameters["_contractforge_watermark_previous"] = wm_prev
-    runtime_parameters["_contractforge_target_table"] = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    runtime_parameters["_contractforge_target_table"] = target_full_table_name(plan)
     return replace(plan, runtime_parameters=runtime_parameters)
 
 
@@ -252,14 +256,14 @@ def _resolve_source(plan: IngestionPlan) -> Tuple[DataFrame, str, Dict[str, Any]
     """Resolve ``plan.source`` em ``(DataFrame, nome_para_log, metadados)``.
 
     String é interpretada como nome de tabela; se não tiver pontos, é
-    qualificada com ``catalog.layer.<source>``. DataFrames passam direto e
-    recebem o rótulo ``"dataframe"`` no log.
+    qualificada com ``catalog.<target_schema ou layer>.<source>``. DataFrames
+    passam direto e recebem o rótulo ``"dataframe"`` no log.
     """
     if isinstance(plan.source, str):
         source_full = (
             plan.source
             if "." in plan.source
-            else full_table_name(plan.catalog, plan.layer, plan.source)
+            else full_table_name(plan.catalog, target_schema_name(plan), plan.source)
         )
         return spark.read.table(source_full), source_full, _source_metadata_for_legacy_source(source_full, "table")
     if isinstance(plan.source, ConnectorSpec):
@@ -599,6 +603,7 @@ def _build_dry_run_result(
         "source_table": source_name,
         "source": source_metadata,
         "mode": plan.mode,
+        "target_schema": target_schema_name(plan),
         "applied_presets": plan.applied_presets,
         "write_strategy": write_strategy(plan.mode),
         "rows_read": rows_read,
@@ -770,6 +775,7 @@ def _stream_result(
         "status": status,
         "stream_run_id": stream_run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "source_table": source_name,
         "mode": plan.mode,
         "applied_presets": plan.applied_presets,
@@ -805,7 +811,7 @@ def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
     stream_run_id = new_run_id()
     run_date = today_str()
     started_dt = utc_now_ts()
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     source_name = _stream_source_name(plan.source)
     runtime_meta = runtime_info()
     stage_durations: Dict[str, float] = {}
@@ -1112,7 +1118,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     run_ts = utc_now_str()
     run_date = today_str()
     started_dt = utc_now_ts()
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     runtime_meta = runtime_info()
     stage_durations: Dict[str, float] = {}
     if plan.dry_run:
@@ -1461,6 +1467,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "status": status,
         "run_id": run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "source_table": source_name,
         "source": source_metadata,
         "mode": plan.mode,
@@ -1542,7 +1549,7 @@ def apply_governance_bundle(
 
     bundle = load_contract_bundle(path)
     plan = bundle.ingestion
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     governance_run_id = run_id or new_run_id()
     tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
     stage_started = utc_now_ts()
@@ -1575,6 +1582,7 @@ def apply_governance_bundle(
         "status": "SUCCESS",
         "run_id": governance_run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "governance": results,
         "preview": governance_preview(bundle),
         "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
@@ -1589,7 +1597,7 @@ def apply_annotations_bundle(path: str, run_id: Optional[str] = None) -> Dict[st
 
     bundle = load_contract_bundle(path)
     plan = bundle.ingestion
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     annotations_run_id = run_id or new_run_id()
     tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
     stage_started = utc_now_ts()
@@ -1607,6 +1615,7 @@ def apply_annotations_bundle(path: str, run_id: Optional[str] = None) -> Dict[st
         "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
         "run_id": annotations_run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "validation": validation,
         "annotations": result,
         "preview": governance_preview(bundle),
@@ -1627,7 +1636,7 @@ def apply_access_bundle(
 
     bundle = load_contract_bundle(path)
     plan = bundle.ingestion
-    target = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    target = target_full_table_name(plan)
     access_run_id = run_id or new_run_id()
     tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
     stage_started = utc_now_ts()
@@ -1646,6 +1655,7 @@ def apply_access_bundle(
         "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
         "run_id": access_run_id,
         "target_table": target,
+        "target_schema": target_schema_name(plan),
         "validation": validation,
         "access": result,
         "check": governance_check(bundle),
