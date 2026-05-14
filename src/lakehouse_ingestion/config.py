@@ -10,8 +10,8 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
-FRAMEWORK_VERSION = "1.8.1"
-CTRL_SCHEMA_VERSION = 9
+FRAMEWORK_VERSION = "1.9.0"
+CTRL_SCHEMA_VERSION = 10
 
 #: Camadas reconhecidas (Medallion Architecture).
 Layer = Literal["bronze", "silver", "gold"]
@@ -51,7 +51,7 @@ AccessDriftPolicy = Literal["fail", "warn", "reconcile"]
 IdempotencyPolicy = Literal["always_run", "skip_if_success", "fail_if_success", "rerun_if_failed"]
 
 #: Fonte aceita pelo plano: nome de tabela, DataFrame em memória ou source declarativo.
-Source = Union[str, DataFrame, "SourceSpec"]  # noqa: F821
+Source = Union[str, DataFrame, "SourceSpec", "ConnectorSpec"]  # noqa: F821
 
 #: Conjunto usado em validação runtime (Literal só faz tipagem estática).
 VALID_WRITE_MODES = {
@@ -137,7 +137,29 @@ VALID_IDEMPOTENCY_POLICIES = {"always_run", "skip_if_success", "fail_if_success"
 VALID_EXPLAIN_FORMATS = {"simple", "extended", "codegen", "cost", "formatted"}
 
 #: Tipos de source declarativo aceitos.
-VALID_SOURCE_TYPES = {"autoloader"}
+VALID_SOURCE_TYPES = {"autoloader", "connector"}
+
+#: Conectores nativos de source. Conectores customizados podem ser registrados
+#: via ``register_source_resolver`` sem alterar esta lista.
+VALID_SOURCE_CONNECTORS = {
+    "autoloader",
+    "blob",
+    "csv",
+    "delta_table",
+    "jdbc",
+    "json",
+    "object_storage",
+    "parquet",
+    "rest_api",
+    "sql",
+    "table",
+    "text",
+    "view",
+}
+
+VALID_OBJECT_STORAGE_PROVIDERS = {"adls", "azure_blob", "gcs", "s3"}
+
+VALID_FILE_CONNECTOR_FORMATS = {"csv", "delta", "json", "orc", "parquet", "text"}
 
 #: Triggers aceitos para sources declarativos.
 VALID_SOURCE_TRIGGERS = {"available_now"}

@@ -26,6 +26,7 @@ from .governance import (
 )
 from .lineage import capture_explain, write_explain_plan, write_openlineage_event
 from .plan import (  # noqa: F401
+    ConnectorSpec,
     IngestionPlan,
     QualityExpression,
     QualityRules,
@@ -73,7 +74,7 @@ from .state import (
     upsert_state,
     with_retry,
 )
-from .sources import get_source_resolver
+from .sources import resolve_batch_source, get_source_resolver
 from .watermark import apply_watermark, compute_watermark, get_watermark
 from .writers import (
     affected_partition_values,
@@ -160,6 +161,7 @@ def _skip_result(
     run_id: str,
     target: str,
     source_name: str,
+    source_metadata: Dict[str, Any],
     metrics_source: str,
     runtime_meta: Dict[str, Optional[str]],
     skip_reason: str,
@@ -172,6 +174,7 @@ def _skip_result(
         "run_id": run_id,
         "target_table": target,
         "source_table": source_name,
+        "source": source_metadata,
         "mode": plan.mode,
         "applied_presets": plan.applied_presets,
         "rows_read": 0,
@@ -206,8 +209,46 @@ def _skip_result(
     }
 
 
-def _resolve_source(plan: IngestionPlan) -> Tuple[DataFrame, str]:
-    """Resolve ``plan.source`` em ``(DataFrame, nome_qualificado_para_log)``.
+def _source_metadata_for_legacy_source(source_name: str, source_type: str) -> Dict[str, Any]:
+    return {
+        "source_type": source_type,
+        "source_connector": source_type,
+        "source_name": source_name,
+        "source_provider": None,
+        "source_format": None,
+        "source_path": None,
+        "source_options_redacted": {},
+        "source_read_redacted": {},
+        "source_request_redacted": {},
+        "source_auth_redacted": {},
+        "source_pagination_redacted": {},
+        "source_response_redacted": {},
+        "source_incremental_redacted": {},
+        "source_limits_redacted": {},
+        "source_capabilities": {},
+    }
+
+
+def _source_is_complete(plan: IngestionPlan) -> bool:
+    if isinstance(plan.source, ConnectorSpec):
+        return bool(
+            plan.source.read.get("source_complete", False)
+            or plan.source.read.get("full_snapshot", False)
+        )
+    return False
+
+
+def _plan_with_connector_runtime(plan: IngestionPlan, wm_prev: Optional[str]) -> IngestionPlan:
+    if not isinstance(plan.source, ConnectorSpec):
+        return plan
+    runtime_parameters = dict(plan.runtime_parameters or {})
+    runtime_parameters["_contractforge_watermark_previous"] = wm_prev
+    runtime_parameters["_contractforge_target_table"] = full_table_name(plan.catalog, plan.layer, plan.target_table)
+    return replace(plan, runtime_parameters=runtime_parameters)
+
+
+def _resolve_source(plan: IngestionPlan) -> Tuple[DataFrame, str, Dict[str, Any]]:
+    """Resolve ``plan.source`` em ``(DataFrame, nome_para_log, metadados)``.
 
     String é interpretada como nome de tabela; se não tiver pontos, é
     qualificada com ``catalog.layer.<source>``. DataFrames passam direto e
@@ -219,8 +260,35 @@ def _resolve_source(plan: IngestionPlan) -> Tuple[DataFrame, str]:
             if "." in plan.source
             else full_table_name(plan.catalog, plan.layer, plan.source)
         )
-        return spark.read.table(source_full), source_full
-    return plan.source, "dataframe"
+        return spark.read.table(source_full), source_full, _source_metadata_for_legacy_source(source_full, "table")
+    if isinstance(plan.source, ConnectorSpec):
+        resolved = resolve_batch_source(plan.source, plan)
+        return resolved.df, resolved.label, resolved.metadata
+    return plan.source, "dataframe", _source_metadata_for_legacy_source("dataframe", "dataframe")
+
+
+def _autoloader_connector_to_source_spec(source: ConnectorSpec) -> SourceSpec:
+    path = str(source.path or "").strip()
+    schema_location = str(source.read.get("schema_location") or source.options.get("cloudFiles.schemaLocation") or "").strip()
+    checkpoint_location = str(source.read.get("checkpoint_location") or "").strip()
+    if not path:
+        raise ValueError("source.path é obrigatório para connector=autoloader")
+    if not schema_location:
+        raise ValueError("source.read.schema_location é obrigatório para connector=autoloader")
+    if not checkpoint_location:
+        raise ValueError("source.read.checkpoint_location é obrigatório para connector=autoloader")
+    return SourceSpec(
+        type="autoloader",
+        path=path,
+        format=str(source.format or "parquet"),
+        schema_location=schema_location,
+        checkpoint_location=checkpoint_location,
+        trigger="available_now",
+        options=source.options,
+        schema_hints=source.read.get("schema_hints"),
+        include_existing_files=bool(source.read.get("include_existing_files", True)),
+        max_files_per_trigger=source.read.get("max_files_per_trigger"),
+    )
 
 
 def _stream_source_name(source: SourceSpec) -> str:
@@ -476,10 +544,11 @@ def _validate_static_plan_options(plan: IngestionPlan) -> None:
                 "merge_partition_column quando ambos forem informados"
             )
     if plan.mode == "scd1_upsert" and plan.merge_strategy == "replace_partitions":
-        if not plan.replace_partitions_source_complete:
+        if not plan.replace_partitions_source_complete and not _source_is_complete(plan):
             raise ValueError(
                 "merge_strategy=replace_partitions exige replace_partitions_source_complete=True "
-                "para confirmar que o source contém o estado completo das partições afetadas"
+                "ou source.read.source_complete=true para confirmar que o source contém "
+                "o estado completo das partições afetadas"
             )
     if plan.mode == "snapshot_soft_delete":
         if plan.watermark_columns:
@@ -492,6 +561,11 @@ def _validate_static_plan_options(plan: IngestionPlan) -> None:
                 "snapshot_soft_delete exige snapshot completo. Remova filter_expression "
                 "ou troque o mode (ex.: scd1_upsert)."
             )
+        if isinstance(plan.source, ConnectorSpec) and not _source_is_complete(plan):
+            raise ValueError(
+                "snapshot_soft_delete com source connector exige source.read.source_complete=true "
+                "ou source.read.full_snapshot=true."
+            )
 
 
 def _build_dry_run_result(
@@ -499,6 +573,7 @@ def _build_dry_run_result(
     run_id: str,
     target: str,
     source_name: str,
+    source_metadata: Dict[str, Any],
     rows_read: int,
     rows_quarantined: int,
     wm_prev: Optional[str],
@@ -521,6 +596,7 @@ def _build_dry_run_result(
         "run_id": run_id,
         "target_table": target,
         "source_table": source_name,
+        "source": source_metadata,
         "mode": plan.mode,
         "applied_presets": plan.applied_presets,
         "write_strategy": write_strategy(plan.mode),
@@ -561,6 +637,7 @@ def _finalize_execution(
     run_ts: str,
     run_date: str,
     source_name: str,
+    source_metadata: Dict[str, Any],
     target: str,
     status: str,
     started_dt: datetime,
@@ -603,6 +680,21 @@ def _finalize_execution(
             "notebook_name": plan.notebook_name,
             "layer": plan.layer,
             "source_table": source_name,
+            "source_type": source_metadata.get("source_type"),
+            "source_connector": source_metadata.get("source_connector"),
+            "source_name": source_metadata.get("source_name"),
+            "source_provider": source_metadata.get("source_provider"),
+            "source_format": source_metadata.get("source_format"),
+            "source_path": source_metadata.get("source_path"),
+            "source_options_json": to_json(source_metadata.get("source_options_redacted")),
+            "source_read_json": to_json(source_metadata.get("source_read_redacted")),
+            "source_request_json": to_json(source_metadata.get("source_request_redacted")),
+            "source_auth_json": to_json(source_metadata.get("source_auth_redacted")),
+            "source_pagination_json": to_json(source_metadata.get("source_pagination_redacted")),
+            "source_response_json": to_json(source_metadata.get("source_response_redacted")),
+            "source_incremental_json": to_json(source_metadata.get("source_incremental_redacted")),
+            "source_limits_json": to_json(source_metadata.get("source_limits_redacted")),
+            "source_capabilities_json": to_json(source_metadata.get("source_capabilities")),
             "target_table": target,
             "mode": plan.mode,
             "status": status,
@@ -1009,6 +1101,8 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         Dict com status, run_id, contagens, watermarks, mudanças de schema,
         métricas Delta, evento OpenLineage e mensagem de erro (se houver).
     """
+    if isinstance(plan.source, ConnectorSpec) and plan.source.connector == "autoloader":
+        return ingest_stream_plan(replace(plan, source=_autoloader_connector_to_source_spec(plan.source)))
     if isinstance(plan.source, SourceSpec):
         return ingest_stream_plan(plan)
 
@@ -1052,6 +1146,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
     skipped_by_run_id: Optional[str] = None
     prepared_df: Optional[DataFrame] = None
     row_metrics: Dict[str, int] = {"rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
+    source_metadata = _source_metadata_for_legacy_source(source_name, "unknown")
 
     try:
         stage_started = utc_now_ts()
@@ -1070,7 +1165,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             skip_reason = "idempotency_key_already_succeeded"
             skipped_by_run_id = previous_run_id
             return _skip_result(
-                plan, run_id, target, source_name, metrics_source, runtime_meta,
+                plan, run_id, target, source_name, source_metadata, metrics_source, runtime_meta,
                 skip_reason, skipped_by_run_id, stage_durations,
             )
         if plan.idempotency_policy == "fail_if_success" and previous_status == "SUCCESS":
@@ -1090,12 +1185,12 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             stage_durations["hook_before_read"] = (utc_now_ts() - stage_started).total_seconds()
 
         stage_started = utc_now_ts()
-        raw_df, source_name = _resolve_source(plan)
         wm_prev = (
             get_watermark(tables["state"], target, plan.watermark_columns)
             if plan.watermark_columns
             else None
         )
+        raw_df, source_name, source_metadata = _resolve_source(_plan_with_connector_runtime(plan, wm_prev))
         stage_durations["read"] = (utc_now_ts() - stage_started).total_seconds()
 
         stage_started = utc_now_ts()
@@ -1184,7 +1279,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
 
         if plan.dry_run:
             return _build_dry_run_result(
-                plan, run_id, target, source_name, rows_read, rows_quarantined, wm_prev,
+                plan, run_id, target, source_name, source_metadata, rows_read, rows_quarantined, wm_prev,
                 wm_candidate, quality_status, schema_changes, started_dt, prepared_df, runtime_meta,
                 stage_durations,
             )
@@ -1328,9 +1423,9 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 logger.error(f"Falha ao registrar evento OpenLineage: {lineage_exc}")
             try:
                 _finalize_execution(
-                    tables, plan, run_id, run_ts, run_date, source_name, target, status, started_dt,
-                    finished_dt, rows_read, rows_written, rows_quarantined, wm_prev, wm_current,
-                    quality_status, schema_changes, operation_metrics, write_started_at,
+                    tables, plan, run_id, run_ts, run_date, source_name, source_metadata, target,
+                    status, started_dt, finished_dt, rows_read, rows_written, rows_quarantined,
+                    wm_prev, wm_current, quality_status, schema_changes, operation_metrics, write_started_at,
                     write_finished_at, delta_version_before, delta_version_after, write_committed,
                     error, row_metrics, metrics_source, runtime_meta,
                     skip_reason, skipped_by_run_id, stage_durations, governance_results,
@@ -1365,6 +1460,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "run_id": run_id,
         "target_table": target,
         "source_table": source_name,
+        "source": source_metadata,
         "mode": plan.mode,
         "applied_presets": plan.applied_presets,
         "rows_read": rows_read,

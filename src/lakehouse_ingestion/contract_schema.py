@@ -62,6 +62,50 @@ def yaml_schema() -> Dict[str, Any]:
             "removal_date": {"type": ["string", "null"]},
         },
     }
+    connector_source_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["type", "connector"],
+        "properties": {
+            "type": {"const": "connector"},
+            "connector": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+                "description": "Nome do resolver registrado. Pode ser nativo ou customizado.",
+            },
+            "name": {"type": ["string", "null"]},
+            "provider": {"type": ["string", "null"]},
+            "format": {"type": ["string", "null"]},
+            "path": {"type": ["string", "null"]},
+            "table": {"type": ["string", "null"]},
+            "query": {"type": ["string", "null"]},
+            "options": {"type": "object"},
+            "read": {"type": "object"},
+            "request": {"type": "object"},
+            "auth": {"type": "object"},
+            "pagination": {"type": "object"},
+            "response": {"type": "object"},
+            "incremental": {"type": "object"},
+            "limits": {"type": "object"},
+        },
+    }
+    autoloader_source_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["type", "path", "schema_location", "checkpoint_location"],
+        "properties": {
+            "type": {"enum": sorted(VALID_SOURCE_TYPES - {"connector"})},
+            "path": {"type": "string"},
+            "format": {"type": "string"},
+            "schema_location": {"type": "string"},
+            "checkpoint_location": {"type": "string"},
+            "trigger": {"enum": sorted(VALID_SOURCE_TRIGGERS)},
+            "options": {"type": "object"},
+            "schema_hints": {"type": ["string", "null"]},
+            "include_existing_files": {"type": "boolean"},
+            "max_files_per_trigger": {"type": "integer", "minimum": 1},
+        },
+    }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://github.com/marquesantero/contractforge/schema.json",
@@ -86,23 +130,8 @@ def yaml_schema() -> Dict[str, Any]:
             "source": {
                 "oneOf": [
                     {"type": "string"},
-                    {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["type", "path", "schema_location", "checkpoint_location"],
-                        "properties": {
-                            "type": {"enum": sorted(VALID_SOURCE_TYPES)},
-                            "path": {"type": "string"},
-                            "format": {"type": "string"},
-                            "schema_location": {"type": "string"},
-                            "checkpoint_location": {"type": "string"},
-                            "trigger": {"enum": sorted(VALID_SOURCE_TRIGGERS)},
-                            "options": {"type": "object"},
-                            "schema_hints": {"type": ["string", "null"]},
-                            "include_existing_files": {"type": "boolean"},
-                            "max_files_per_trigger": {"type": "integer", "minimum": 1},
-                        },
-                    },
+                    autoloader_source_schema,
+                    connector_source_schema,
                 ]
             },
             "target_table": {"type": "string"},

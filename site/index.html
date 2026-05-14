@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v1.8.1 — Documentação</title>
+<title>ContractForge v1.9.0 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.8.1 · MIT · Python ≥3.10</span>
+    <span class="version">v1.9.0 · MIT · Python ≥3.10</span>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
@@ -80,6 +80,7 @@
       <a href="#watermark-guide">Watermarks</a>
       <a href="#merge-guide">Estratégias merge</a>
       <a href="#yaml-guide">Contrato YAML</a>
+      <a href="#connectors-guide">Conectores</a>
       <a href="#presets-guide">Presets</a>
       <a href="#shape-guide">Shape</a>
       <a href="#governance-guide">Governança</a>
@@ -117,7 +118,7 @@
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v1.8.1</span>
+    <span class="badge" style="color:#79c0ff">v1.9.0</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
@@ -217,11 +218,11 @@ flowchart TB
 pip install build && python -m build
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.9.0-py3-none-any.whl \
   dbfs:/Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/
 
 # Notebook Databricks:
-%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.8.1-py3-none-any.whl
+%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.9.0-py3-none-any.whl
 dbutils.library.restartPython()</code></pre>
 
 <h3>Desenvolvimento Local</h3>
@@ -762,6 +763,102 @@ allow_type_widening: true   # int→bigint, float→double, etc.</code></pre></d
 schema_policy: strict</code></pre></div>
 </section>
 
+<!-- ============ CONNECTORS ============ -->
+<section id="connectors-guide">
+<h2>Conectores Declarativos</h2>
+<p><strong>Disponível em v1.9+.</strong> O campo <code>source</code> agora aceita <code>ConnectorSpec</code> para descrever fontes reais sem criar wrappers em notebooks.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Família</th><th>Conectores</th><th>Uso principal</th></tr>
+<tr><td>Catálogo</td><td><code>table</code>, <code>delta_table</code>, <code>view</code>, <code>sql</code></td><td>Table-to-table e queries declarativas.</td></tr>
+<tr><td>Arquivos</td><td><code>parquet</code>, <code>json</code>, <code>csv</code>, <code>text</code></td><td>Landing batch em Volumes, DBFS ou paths cloud configurados no runtime.</td></tr>
+<tr><td>Blob/Object storage</td><td><code>object_storage</code>, <code>blob</code></td><td>ADLS, Azure Blob, S3 e GCS via Spark reader.</td></tr>
+<tr><td>Sistemas externos</td><td><code>jdbc</code>, <code>rest_api</code></td><td>Bancos relacionais e APIs JSON paginadas.</td></tr>
+<tr><td>Streaming finito</td><td><code>autoloader</code></td><td>Auto Loader <code>available_now</code> com checkpoint e batches filhos.</td></tr>
+</table></div>
+
+<h3>Auto Loader</h3>
+<pre><code>source:
+  type: connector
+  connector: autoloader
+  path: /Volumes/main/landing/orders
+  format: json
+  read:
+    schema_location: /Volumes/main/ops/autoloader_schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders
+    include_existing_files: true
+  options:
+    cloudFiles.inferColumnTypes: "true"
+
+target_table: b_orders
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<h3>REST API</h3>
+<pre><code>source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    method: GET
+    params:
+      status: open
+  auth:
+    type: bearer_token
+    token: "{{ secret:integrations/orders_api_token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 50
+    timeout_seconds: 60
+    retry_attempts: 3
+    rate_limit_per_minute: 120
+
+target_table: b_orders_api
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<h3>JDBC e Snapshot Completo</h3>
+<pre><code>source:
+  type: connector
+  connector: jdbc
+  name: erp_customers
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.customers
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  read:
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 5000000
+    num_partitions: 16
+    source_complete: true
+  incremental:
+    watermark_column: updated_at
+    initial_value: "1970-01-01 00:00:00"
+
+target_table: c_customers
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: [customer_id]</code></pre>
+
+<div class="alert info"><strong>Observabilidade:</strong> <code>ctrl_ingestion_runs</code> registra conector, provider, formato, path, opções redigidas, request/auth/pagination/incremental/limits e capabilities. Secrets no formato <code>{{ secret:scope/key }}</code> são resolvidos via Databricks Secrets ou variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>.</div>
+<div class="alert info"><strong>Incremental:</strong> <code>source.incremental</code> empurra o watermark anterior para REST (<code>watermark_param</code>, <code>watermark_header</code>, <code>watermark_body_field</code>) ou JDBC (<code>watermark_column</code>/<code>predicate</code>). O controle oficial continua em <code>watermark_columns</code>.</div>
+<div class="alert info"><strong>Extensível:</strong> novos conectores podem ser registrados com <code>register_source_resolver("meu_conector", resolver)</code>. O YAML aceita nomes válidos de conectores customizados; a execução exige que o resolver esteja registrado no runtime.</div>
+</section>
+
 <!-- ============ PRESETS ============ -->
 <section id="presets-guide">
 <h2>Sistema de Presets Declarativos</h2>
@@ -1067,7 +1164,7 @@ contractforge drift-check contracts/silver/c_pedidos</code></pre>
 
 <div class="table-wrap"><table>
 <tr><th>Tabela</th><th>Conteúdo</th><th>Particionada</th></tr>
-<tr><td><code>ctrl_ingestion_runs</code></td><td>Histórico completo de execuções (30+ colunas)</td><td>✅ <code>run_date</code></td></tr>
+<tr><td><code>ctrl_ingestion_runs</code></td><td>Histórico completo de execuções, incluindo metadados redigidos de source/conector</td><td>✅ <code>run_date</code></td></tr>
 <tr><td><code>ctrl_ingestion_state</code></td><td>Estado atual: 1 linha por target_table (watermark, status)</td><td>❌</td></tr>
 <tr><td><code>ctrl_ingestion_quality</code></td><td>Falhas de regras por execução</td><td>❌</td></tr>
 <tr><td><code>ctrl_ingestion_quarantine</code></td><td>Linhas isoladas (record_payload JSON)</td><td>❌</td></tr>

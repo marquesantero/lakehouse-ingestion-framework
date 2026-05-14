@@ -1,6 +1,7 @@
 """Contratos declarativos: IngestionPlan, QualityRules e construtor a partir de kwargs."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -89,6 +90,21 @@ def _require_ratio(value: Any, field: str) -> float:
     return parsed
 
 
+_CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def _validate_connector_name(value: Any, field: str = "source.connector") -> str:
+    connector = str(value or "").strip()
+    if not connector:
+        raise ValueError(f"{field} é obrigatório quando source.type=connector")
+    if not _CONNECTOR_NAME_RE.match(connector):
+        raise ValueError(
+            f"{field}={connector!r} é inválido. Use letras, números, '_' ou '-', "
+            "começando por letra."
+        )
+    return connector
+
+
 def _normalize_named_list(value: Any, field: str) -> List[str]:
     if isinstance(value, Mapping):
         raise ValueError(f"{field} deve ser lista ou string separada por '|', não dict")
@@ -146,12 +162,35 @@ def _normalize_options(value: Any, field: str) -> Dict[str, Any]:
     return dict(_require_mapping(value, field))
 
 
+def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
+    connector = _validate_connector_name(raw.get("connector"))
+    return ConnectorSpec(
+        connector=connector,
+        name=(str(raw["name"]).strip() if raw.get("name") is not None else None),
+        provider=(str(raw["provider"]).strip() if raw.get("provider") is not None else None),
+        format=(str(raw["format"]).strip() if raw.get("format") is not None else None),
+        path=(str(raw["path"]).strip() if raw.get("path") is not None else None),
+        table=(str(raw["table"]).strip() if raw.get("table") is not None else None),
+        query=(str(raw["query"]).strip() if raw.get("query") is not None else None),
+        options=_normalize_options(raw.get("options"), "source.options"),
+        read=_normalize_options(raw.get("read"), "source.read"),
+        request=_normalize_options(raw.get("request"), "source.request"),
+        auth=_normalize_options(raw.get("auth"), "source.auth"),
+        pagination=_normalize_options(raw.get("pagination"), "source.pagination"),
+        response=_normalize_options(raw.get("response"), "source.response"),
+        incremental=_normalize_options(raw.get("incremental"), "source.incremental"),
+        limits=_normalize_options(raw.get("limits"), "source.limits"),
+    )
+
+
 def _normalize_source(value: Any) -> Source:
-    if isinstance(value, SourceSpec):
+    if isinstance(value, (SourceSpec, ConnectorSpec)):
         return value
     if isinstance(value, Mapping):
         raw = _require_mapping(value, "source")
         source_type = _validate_enum(raw.get("type"), VALID_SOURCE_TYPES, "source.type")
+        if source_type == "connector":
+            return _normalize_connector_source(raw)
         path = str(raw.get("path") or "").strip()
         if not path:
             raise ValueError("source.path é obrigatório quando source é declarativo")
@@ -257,6 +296,28 @@ class SourceSpec:
     schema_hints: Optional[str] = None
     include_existing_files: bool = True
     max_files_per_trigger: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ConnectorSpec:
+    """Source declarativo genérico resolvido por registry de conectores."""
+
+    type: Literal["connector"] = "connector"
+    connector: str = ""
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    format: Optional[str] = None
+    path: Optional[str] = None
+    table: Optional[str] = None
+    query: Optional[str] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+    read: Dict[str, Any] = field(default_factory=dict)
+    request: Dict[str, Any] = field(default_factory=dict)
+    auth: Dict[str, Any] = field(default_factory=dict)
+    pagination: Dict[str, Any] = field(default_factory=dict)
+    response: Dict[str, Any] = field(default_factory=dict)
+    incremental: Dict[str, Any] = field(default_factory=dict)
+    limits: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -525,6 +586,10 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
             raise ValueError("source.checkpoint_location é obrigatório para source.trigger=available_now")
         if plan.mode == "snapshot_soft_delete":
             raise ValueError("snapshot_soft_delete é incompatível com sources incrementais declarativos")
+    if isinstance(plan.source, ConnectorSpec):
+        if plan.source.type != "connector":
+            raise ValueError("ConnectorSpec.type deve ser 'connector'")
+        _validate_connector_name(plan.source.connector)
     if plan.quality_rules:
         if plan.quality_rules.min_rows is not None and plan.quality_rules.min_rows <= 0:
             raise ValueError("quality_rules.min_rows deve ser inteiro positivo")
