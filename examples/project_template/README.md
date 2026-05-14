@@ -27,6 +27,7 @@ databricks.yml
 ```bash
 contractforge validate contracts/bronze/b_orders.ingestion.yaml
 contractforge validate-bundle contracts/silver/c_orders
+contractforge validate-project contracts
 ```
 
 4. Execute o notebook genérico passando o parâmetro `contract`.

@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.12.0 - 2026-05-14
+
+- Adiciona `contractforge validate-project` para descobrir e validar recursivamente contratos standalone e bundles split em uma árvore de projeto.
+- Facilita uso em CI de projetos Databricks Asset Bundles sem listar arquivo por arquivo.
+- Atualiza documentação e template de projeto com o novo fluxo de validação.
+
 ## 1.11.0 - 2026-05-14
 
 - Adiciona `contractforge connectors doctor` para diagnosticar requisitos estáticos de conectores sem abrir SparkSession ou conexões externas.

@@ -25,7 +25,7 @@ examples/project_template/
 1. Copie o template para um novo repositório de dados.
 2. Ajuste `bundle.name`, `workspace.root_path`, `catalog`, schemas e paths.
 3. Publique o wheel do ContractForge em um Volume ou registry.
-4. Execute `contractforge validate-bundle contracts/silver/c_orders` localmente/CI.
+4. Execute `contractforge validate-project contracts` localmente/CI.
 5. Execute o notebook genérico passando o path do contrato como parâmetro.
 
 ## Princípio

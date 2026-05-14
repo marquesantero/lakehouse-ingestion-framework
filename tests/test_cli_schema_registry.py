@@ -57,6 +57,46 @@ def test_cli_validate_accepts_custom_source_connector(tmp_path, capsys):
     assert "OK" in capsys.readouterr().out
 
 
+def test_cli_validate_project_discovers_contract_tree(tmp_path, capsys):
+    contracts = tmp_path / "contracts"
+    bronze = contracts / "bronze"
+    silver = contracts / "silver"
+    bronze.mkdir(parents=True)
+    silver.mkdir(parents=True)
+    (bronze / "b_orders.ingestion.json").write_text(
+        json.dumps({"source": "raw.orders", "target_table": "b_orders", "layer": "bronze"}),
+        encoding="utf-8",
+    )
+    (silver / "c_orders.ingestion.json").write_text(
+        json.dumps({"source": "bronze.b_orders", "target_table": "c_orders", "layer": "silver"}),
+        encoding="utf-8",
+    )
+    (silver / "c_orders.annotations.json").write_text(
+        json.dumps({"table": {"description": "Curated orders"}}),
+        encoding="utf-8",
+    )
+
+    assert main(["validate-project", str(tmp_path), "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert '"status": "SUCCESS"' in output
+    assert '"total": 2' in output
+    assert "c_orders.annotations.json" in output
+
+
+def test_cli_validate_project_reports_invalid_contract(tmp_path, capsys):
+    contracts = tmp_path / "contracts"
+    contracts.mkdir()
+    (contracts / "bad.ingestion.json").write_text(
+        json.dumps({"source": "raw.orders"}),
+        encoding="utf-8",
+    )
+
+    assert main(["validate-project", str(tmp_path), "--indent", "0"]) == 1
+    output = capsys.readouterr().out
+    assert '"status": "FAILED"' in output
+    assert "target_table" in output
+
+
 def test_cli_validate_can_expand_presets(tmp_path, capsys):
     contract = {
         "preset": ["silver_scd1_upsert", "quality_quarantine"],
