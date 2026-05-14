@@ -1051,7 +1051,7 @@ contractforge validate --expand-presets contratos/silver/c_pedidos.ingestion.yam
 <!-- ============ SHAPE ============ -->
 <section id="shape-guide">
 <h2>Shape — Normalização de Estruturas Complexas</h2>
-<p><strong>Disponível em v1.8+.</strong> Transformação declarativa de JSON, structs aninhadas e arrays em colunas tabulares — sem código PySpark repetitivo.</p>
+<p><strong>Disponível em v1.8+.</strong> Transformação declarativa de JSON, strings JSON, structs aninhadas e arrays em colunas tabulares — sem código PySpark repetitivo.</p>
 
 <div class="card">
 <h4>O Problema</h4>
@@ -1061,22 +1061,38 @@ contractforge validate --expand-presets contratos/silver/c_pedidos.ingestion.yam
   "metadata": {"fonte":"api_v2"} }</code></pre>
 <h4>A Solução Declarativa (YAML)</h4>
 <pre><code>shape:
+  parse_json:                 # opcional: converte string JSON em struct/array antes do shape
+    - column: payload
+      schema: "STRUCT&lt;cliente: STRUCT&lt;id: BIGINT, nome: STRING, endereco: STRUCT&lt;cidade: STRING&gt;&gt;, itens: ARRAY&lt;STRUCT&lt;produto: STRING, qtd: BIGINT&gt;&gt;, metadata: STRUCT&lt;fonte: STRING&gt;&gt;"
+      alias: payload_json
   columns:                    # extrai campos aninhados como colunas top-level
-    cliente.id: { alias: cliente_id }
-    cliente.nome: { alias: nome_cliente }
-    cliente.endereco.cidade: { alias: cidade }
+    payload_json.cliente.id: { alias: cliente_id }
+    payload_json.cliente.nome: { alias: nome_cliente }
+    payload_json.cliente.endereco.cidade: { alias: cidade }
   arrays:                     # trata arrays com múltiplos modos
-    - path: itens
+    - path: payload_json.itens
       mode: size
       alias: qtd_itens
-    - path: itens
+    - path: payload_json.itens
       mode: first
       alias: item_principal
   flatten:                    # achata structs recursivamente
     enabled: true
     separator: "_"
-    exclude: ["metadata.config_interna"]</code></pre>
+    include: ["payload_json"]
+    exclude: ["payload_json.metadata.config_interna"]</code></pre>
 </div>
+
+<h3>String JSON antes de Shape</h3>
+<p>Quando uma API, arquivo CSV ou tabela landing entrega o payload JSON como <code>string</code>, use <code>shape.parse_json</code>. Essa etapa roda apenas dentro de <code>shape</code> e apenas para as colunas declaradas; sem <code>shape</code>, o framework não tenta converter strings automaticamente.</p>
+<div class="table-wrap"><table>
+<tr><th>Campo</th><th>Obrigatório</th><th>Descrição</th></tr>
+<tr><td><code>column</code></td><td>Sim</td><td>Coluna string ou path string que contém JSON válido.</td></tr>
+<tr><td><code>schema</code></td><td>Sim</td><td>DDL Spark usado por <code>from_json</code>. Mantém o contrato determinístico.</td></tr>
+<tr><td><code>alias</code></td><td>Não</td><td>Nome da coluna estruturada. Sem alias, sobrescreve a coluna original.</td></tr>
+<tr><td><code>drop_source</code></td><td>Não</td><td>Quando <code>true</code> e <code>alias</code> é diferente, remove a string original após o parse. Suportado apenas para coluna top-level.</td></tr>
+</table></div>
+<div class="alert info"><strong>Sem inferência por amostragem:</strong> o schema é explícito porque inferir em runtime exigiria ação Spark, poderia variar conforme o lote e mudaria contratos de produção sem revisão.</div>
 
 <h3>Modos de Array</h3>
 <div class="table-wrap"><table>
@@ -1104,16 +1120,21 @@ merge_keys: [order_id]
 dedup_order_expr: "updated_at DESC NULLS LAST"
 
 shape:
+  parse_json:
+    - column: payload
+      schema: "STRUCT&lt;customer: STRUCT&lt;id: BIGINT, email: STRING&gt;, items: ARRAY&lt;STRUCT&lt;sku: STRING, qty: BIGINT&gt;&gt;&gt;"
+      alias: payload_json
   columns:
-    customer.id: { alias: customer_id }
-    customer.email: { alias: customer_email }
+    payload_json.customer.id: { alias: customer_id }
+    payload_json.customer.email: { alias: customer_email }
   arrays:
-    - path: items
+    - path: payload_json.items
       mode: explode_outer
       alias: item
   flatten:
     enabled: true
-    separator: "_"</code></pre>
+    separator: "_"
+    include: ["payload_json"]</code></pre>
 </section>
 
 <!-- ============ GOVERNANCE ============ -->
