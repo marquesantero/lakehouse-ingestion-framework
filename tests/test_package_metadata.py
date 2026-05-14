@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import lakehouse_ingestion
+from scripts import check_release_tag
 from lakehouse_ingestion.config import FRAMEWORK_VERSION
 
 try:
@@ -38,3 +39,10 @@ def test_spark_dependencies_are_optional_for_databricks_wheels():
     assert dependencies == ["PyYAML>=6.0"]
     assert "pyspark>=3.4,<4" in optional_dependencies["spark"]
     assert "delta-spark>=3.0,<4" in optional_dependencies["spark"]
+
+
+def test_release_tag_matches_package_version():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    assert check_release_tag.main([f"v{project['version']}"]) == 0
+    assert check_release_tag.main(["v0.0.0"]) == 1
