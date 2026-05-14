@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v1.8.1 — Documentação</title>
+<title>ContractForge v1.9.0 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.8.1 · MIT · Python ≥3.10</span>
+    <span class="version">v1.9.0 · MIT · Python ≥3.10</span>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
@@ -80,6 +80,7 @@
       <a href="#watermark-guide">Watermarks</a>
       <a href="#merge-guide">Estratégias merge</a>
       <a href="#yaml-guide">Contrato YAML</a>
+      <a href="#connectors-guide">Conectores</a>
       <a href="#presets-guide">Presets</a>
       <a href="#shape-guide">Shape</a>
       <a href="#governance-guide">Governança</a>
@@ -117,7 +118,7 @@
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v1.8.1</span>
+    <span class="badge" style="color:#79c0ff">v1.9.0</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
@@ -217,11 +218,11 @@ flowchart TB
 pip install build && python -m build
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.9.0-py3-none-any.whl \
   dbfs:/Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/
 
 # Notebook Databricks:
-%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.8.1-py3-none-any.whl
+%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.9.0-py3-none-any.whl
 dbutils.library.restartPython()</code></pre>
 
 <h3>Desenvolvimento Local</h3>
@@ -762,6 +763,223 @@ allow_type_widening: true   # int→bigint, float→double, etc.</code></pre></d
 schema_policy: strict</code></pre></div>
 </section>
 
+<!-- ============ CONNECTORS ============ -->
+<section id="connectors-guide">
+<h2>Conectores Declarativos</h2>
+<p><strong>Disponível em v1.9+.</strong> O campo <code>source</code> agora aceita <code>ConnectorSpec</code> para descrever fontes reais sem criar wrappers em notebooks.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Família</th><th>Conectores</th><th>Uso principal</th></tr>
+<tr><td>Catálogo</td><td><code>table</code>, <code>delta_table</code>, <code>view</code>, <code>sql</code></td><td>Table-to-table e queries declarativas.</td></tr>
+<tr><td>Arquivos</td><td><code>parquet</code>, <code>json</code>, <code>csv</code>, <code>text</code></td><td>Landing batch em Volumes, DBFS ou paths cloud configurados no runtime.</td></tr>
+<tr><td>Blob/Object storage</td><td><code>object_storage</code>, <code>blob</code></td><td>ADLS, Azure Blob, S3 e GCS via Spark reader.</td></tr>
+<tr><td>Sistemas externos</td><td><code>jdbc</code>, <code>rest_api</code></td><td>Bancos relacionais e APIs JSON paginadas.</td></tr>
+<tr><td>Streaming finito</td><td><code>autoloader</code></td><td>Auto Loader <code>available_now</code> com checkpoint e batches filhos.</td></tr>
+</table></div>
+
+<h3>Matriz de Contrato</h3>
+<div class="table-wrap"><table>
+<tr><th>Conector</th><th>Campos obrigatórios</th><th>Campos comuns</th><th>Observações</th></tr>
+<tr><td><code>table</code>, <code>delta_table</code>, <code>view</code></td><td><code>table</code></td><td><code>read.source_complete</code></td><td>Usado para table-to-table, snapshots completos e reprocessamentos controlados.</td></tr>
+<tr><td><code>sql</code></td><td><code>query</code></td><td><code>name</code>, <code>read.source_complete</code></td><td>Permite uma query declarativa como origem; use com cuidado para manter rastreabilidade.</td></tr>
+<tr><td><code>parquet</code>, <code>json</code>, <code>csv</code>, <code>text</code></td><td><code>path</code></td><td><code>format</code>, <code>options</code>, <code>read.source_complete</code></td><td>Usa <code>spark.read.format(...).load(path)</code>; credenciais ficam no runtime.</td></tr>
+<tr><td><code>object_storage</code>, <code>blob</code></td><td><code>provider</code>, <code>format</code>, <code>path</code></td><td><code>options</code>, <code>read.source_complete</code></td><td><code>provider</code> aceita <code>adls</code>, <code>azure_blob</code>, <code>s3</code> e <code>gcs</code>.</td></tr>
+<tr><td><code>jdbc</code></td><td><code>options.url</code> + <code>options.dbtable</code> ou <code>options.query</code></td><td><code>read.partition_column</code>, <code>fetchsize</code>, <code>incremental</code></td><td>Suporta particionamento, secrets e pushdown incremental por watermark/predicate.</td></tr>
+<tr><td><code>rest_api</code></td><td><code>request.url</code></td><td><code>auth</code>, <code>pagination</code>, <code>response.records_path</code>, <code>limits</code>, <code>incremental</code></td><td>Batch JSON paginado; indicado para APIs administrativas e volumes controlados.</td></tr>
+<tr><td><code>autoloader</code></td><td><code>path</code>, <code>format</code>, <code>read.schema_location</code>, <code>read.checkpoint_location</code></td><td><code>read.include_existing_files</code>, <code>schema_hints</code>, <code>max_files_per_trigger</code></td><td>Executa streaming finito com <code>available_now</code>; cada batch vira run filho.</td></tr>
+</table></div>
+
+<h3>Auto Loader</h3>
+<pre><code>source:
+  type: connector
+  connector: autoloader
+  path: /Volumes/main/landing/orders
+  format: json
+  read:
+    schema_location: /Volumes/main/ops/autoloader_schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders
+    include_existing_files: true
+  options:
+    cloudFiles.inferColumnTypes: "true"
+
+target_table: b_orders
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<div class="alert warn"><strong>Quando usar Auto Loader:</strong> prefira para landing em arquivos, alto volume, chegada recorrente ou origem que pode ser descarregada em storage. Para APIs grandes ou contínuas, grave primeiro em arquivos e use Auto Loader, em vez de consultar REST diretamente em cada ingestão.</div>
+
+<h3>REST API</h3>
+<pre><code>source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    method: GET
+    params:
+      status: open
+  auth:
+    type: bearer_token
+    token: "{{ secret:integrations/orders_api_token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 50
+    timeout_seconds: 60
+    retry_attempts: 3
+    rate_limit_per_minute: 120
+
+target_table: b_orders_api
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<h4>REST: autenticação suportada</h4>
+<div class="table-wrap"><table>
+<tr><th><code>auth.type</code></th><th>Campos</th><th>Uso</th></tr>
+<tr><td><code>none</code></td><td>Nenhum</td><td>Endpoints públicos ou autenticação resolvida fora da chamada.</td></tr>
+<tr><td><code>bearer_token</code></td><td><code>token</code></td><td>Envia <code>Authorization: Bearer ...</code>.</td></tr>
+<tr><td><code>api_key</code></td><td><code>header</code>, <code>value</code> ou <code>key</code></td><td>Envia chave em header, por padrão <code>x-api-key</code>.</td></tr>
+<tr><td><code>basic</code></td><td><code>username</code>, <code>password</code></td><td>Envia autenticação HTTP Basic.</td></tr>
+<tr><td><code>oauth_client_credentials</code></td><td><code>token_url</code>, <code>client_id</code>, <code>client_secret</code>, <code>scope</code></td><td>Obtém token OAuth antes da leitura.</td></tr>
+</table></div>
+
+<h4>REST: paginação suportada</h4>
+<div class="table-wrap"><table>
+<tr><th><code>pagination.type</code></th><th>Campos principais</th><th>Comportamento</th></tr>
+<tr><td><code>none</code></td><td><code>limits.max_pages</code> opcional</td><td>Faz uma requisição.</td></tr>
+<tr><td><code>page</code></td><td><code>page_param</code>, <code>start_page</code></td><td>Incrementa número de página até <code>max_pages</code> ou página vazia.</td></tr>
+<tr><td><code>offset</code></td><td><code>offset_param</code>, <code>limit_param</code>, <code>page_size</code></td><td>Incrementa offset por tamanho de página.</td></tr>
+<tr><td><code>cursor</code></td><td><code>cursor_param</code>, <code>next_cursor_path</code></td><td>Lê o próximo cursor do JSON de resposta.</td></tr>
+<tr><td><code>link_header</code></td><td>Header HTTP <code>Link</code></td><td>Segue link com <code>rel="next"</code>.</td></tr>
+</table></div>
+
+<div class="grid">
+<div class="card"><h4>Paginação page</h4><pre><code>pagination:
+  type: page
+  page_param: page
+  start_page: 1
+limits:
+  max_pages: 25</code></pre></div>
+<div class="card"><h4>Paginação offset</h4><pre><code>pagination:
+  type: offset
+  offset_param: offset
+  limit_param: limit
+  page_size: 500
+limits:
+  max_pages: 20</code></pre></div>
+<div class="card"><h4>Paginação cursor</h4><pre><code>pagination:
+  type: cursor
+  cursor_param: cursor
+  next_cursor_path: $.next
+limits:
+  max_pages: 50</code></pre></div>
+<div class="card"><h4>Paginação link_header</h4><pre><code>pagination:
+  type: link_header
+limits:
+  max_pages: 50</code></pre></div>
+</div>
+
+<div class="alert warn"><strong>Quando não usar REST direto:</strong> não use o conector REST para alto volume contínuo, payloads enormes, APIs instáveis sem paginação confiável ou cargas que precisam de replay bruto. Nesses casos, descarregue a API para arquivos raw e use Auto Loader.</div>
+
+<h3>JDBC e Snapshot Completo</h3>
+<pre><code>source:
+  type: connector
+  connector: jdbc
+  name: erp_customers
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.customers
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  read:
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 5000000
+    num_partitions: 16
+    source_complete: true
+  incremental:
+    watermark_column: updated_at
+    initial_value: "1970-01-01 00:00:00"
+
+target_table: c_customers
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: [customer_id]</code></pre>
+
+<h4>JDBC incremental por predicate customizado</h4>
+<pre><code>watermark_columns: updated_at
+
+source:
+  type: connector
+  connector: jdbc
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    query: "SELECT * FROM public.orders WHERE status &lt;&gt; 'CANCELLED'"
+  incremental:
+    predicate: "updated_at &gt;= TIMESTAMP '{watermark_previous}'"</code></pre>
+
+<div class="alert warn"><strong>Snapshot completo:</strong> use <code>source.read.source_complete=true</code> apenas quando a origem contém o estado completo necessário para o modo. <code>snapshot_soft_delete</code> e <code>replace_partitions</code> dependem dessa garantia para evitar deleções ou substituições incorretas.</div>
+
+<div class="alert info"><strong>Observabilidade:</strong> <code>ctrl_ingestion_runs</code> registra conector, provider, formato, path, opções redigidas, request/auth/pagination/incremental/limits, capabilities e <code>source_metrics_json</code>. Em REST, as métricas incluem requests, páginas, registros, bytes, paginação, retry/rate limit e watermark aplicado. Em JDBC, incluem estratégia de leitura, incrementalidade, watermark, particionamento e fetchsize. Secrets no formato <code>{{ secret:scope/key }}</code> são resolvidos via Databricks Secrets ou variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>.</div>
+<div class="alert info"><strong>Incremental:</strong> <code>source.incremental</code> empurra o watermark anterior para REST (<code>watermark_param</code>, <code>watermark_header</code>, <code>watermark_body_field</code>) ou JDBC (<code>watermark_column</code>/<code>predicate</code>). O controle oficial continua em <code>watermark_columns</code>.</div>
+<div class="alert info"><strong>Extensível:</strong> novos conectores podem ser registrados com <code>register_source_resolver("meu_conector", resolver)</code>. O YAML aceita nomes válidos de conectores customizados; a execução exige que o resolver esteja registrado no runtime.</div>
+
+<h3>Secrets, validação e descoberta</h3>
+<p>Use <code>{{ secret:scope/key }}</code> em <code>options</code>, <code>request</code>, <code>auth</code>, <code>pagination</code>, <code>response</code> ou <code>limits</code>. A resolução tenta primeiro a variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>; se não existir, usa Databricks Secrets via <code>dbutils.secrets.get</code>. Valores sensíveis são redigidos antes de ir para logs e ctrl tables.</p>
+
+<pre><code># Descoberta e validação local
+contractforge connectors list
+contractforge connectors show rest_api jdbc
+contractforge validate contracts/bronze/b_orders_api.ingestion.yaml</code></pre>
+
+<h3>Conectores customizados</h3>
+<p>O registry permite acoplar novos conectores sem alterar o core. O contrato YAML aceita qualquer nome válido de conector customizado; em runtime, o resolver precisa estar registrado antes da execução.</p>
+<pre><code>from lakehouse_ingestion import (
+    ConnectorCapabilities,
+    SourceResolution,
+    register_source_resolver,
+)
+
+class SalesforceConnector:
+    def capabilities(self, spec):
+        return ConnectorCapabilities(batch=True, incremental_read=True)
+
+    def resolve_batch(self, spec, plan):
+        df = ...  # monta DataFrame Spark a partir da origem externa
+        return SourceResolution(
+            df=df,
+            label=f"salesforce:{spec.name}",
+            connector=spec.connector,
+            metadata={
+                "source_connector": spec.connector,
+                "source_name": spec.name,
+                "source_metrics": {"read_strategy": "salesforce_api"},
+            },
+            capabilities=self.capabilities(spec),
+        )
+
+register_source_resolver("salesforce", SalesforceConnector())</code></pre>
+
+<pre><code>source:
+  type: connector
+  connector: salesforce
+  name: crm_accounts
+  options:
+    object: Account
+  incremental:
+    watermark_column: SystemModstamp</code></pre>
+</section>
+
 <!-- ============ PRESETS ============ -->
 <section id="presets-guide">
 <h2>Sistema de Presets Declarativos</h2>
@@ -825,6 +1043,8 @@ register_preset("corp_silver_scd1",
 </div>
 <div class="tab-content active" data-lang="bash"><pre><code>contractforge presets list
 contractforge presets show silver_scd1_upsert
+contractforge connectors list
+contractforge connectors show rest_api jdbc
 contractforge validate --expand-presets contratos/silver/c_pedidos.ingestion.yaml</code></pre></div>
 </section>
 
@@ -1067,7 +1287,7 @@ contractforge drift-check contracts/silver/c_pedidos</code></pre>
 
 <div class="table-wrap"><table>
 <tr><th>Tabela</th><th>Conteúdo</th><th>Particionada</th></tr>
-<tr><td><code>ctrl_ingestion_runs</code></td><td>Histórico completo de execuções (30+ colunas)</td><td>✅ <code>run_date</code></td></tr>
+<tr><td><code>ctrl_ingestion_runs</code></td><td>Histórico completo de execuções, incluindo metadados redigidos de source/conector</td><td>✅ <code>run_date</code></td></tr>
 <tr><td><code>ctrl_ingestion_state</code></td><td>Estado atual: 1 linha por target_table (watermark, status)</td><td>❌</td></tr>
 <tr><td><code>ctrl_ingestion_quality</code></td><td>Falhas de regras por execução</td><td>❌</td></tr>
 <tr><td><code>ctrl_ingestion_quarantine</code></td><td>Linhas isoladas (record_payload JSON)</td><td>❌</td></tr>

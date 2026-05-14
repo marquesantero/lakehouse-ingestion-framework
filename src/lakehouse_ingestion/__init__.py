@@ -19,6 +19,7 @@ from .hooks import IngestionHooks
 from .ingestion import (
     FrameworkConfig,
     QualityExpression,
+    ConnectorSpec,
     IngestionPlan,
     QualityRules,
     SourceSpec,
@@ -31,7 +32,18 @@ from .ingestion import (
     ingest_stream_plan,
     validate_plan_shape,
 )
-from .sources import get_source_resolver, register_source_resolver
+from .sources import (
+    ConnectorCapabilities,
+    SourceResolution,
+    get_source_resolver,
+    list_source_connector_details,
+    list_source_resolvers,
+    redact_secrets,
+    register_source_resolver,
+    resolve_batch_source,
+    resolve_secrets,
+    source_connector_details,
+)
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
 from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, apply_shape
 from .writers import register_write_mode
@@ -41,6 +53,8 @@ __all__ = [
     "FrameworkConfig",
     "AccessContract",
     "AccessGrant",
+    "ConnectorCapabilities",
+    "ConnectorSpec",
     "UCCapabilities",
     "access_drift_report",
     "AnnotationsContract",
@@ -55,6 +69,7 @@ __all__ = [
     "QualityRules",
     "RowFilter",
     "SourceSpec",
+    "SourceResolution",
     "ShapeArrayConfig",
     "ShapeColumnConfig",
     "ShapeConfig",
@@ -77,9 +92,15 @@ __all__ = [
     "apply_shape",
     "get_preset",
     "list_presets",
+    "list_source_connector_details",
+    "list_source_resolvers",
     "preset_details",
     "register_preset",
     "register_source_resolver",
+    "redact_secrets",
+    "resolve_batch_source",
+    "resolve_secrets",
+    "source_connector_details",
     "register_write_mode",
     "register_quality_rule",
     "validate_plan_shape",
@@ -87,4 +108,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.8.1"
+__version__ = "1.9.0"

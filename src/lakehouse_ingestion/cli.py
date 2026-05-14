@@ -11,6 +11,7 @@ from .contract_bundle import governance_check, governance_preview, load_contract
 from .contract_schema import yaml_schema
 from .plan import build_plan_from_kwargs
 from .presets import apply_preset, list_presets, preset_details
+from .sources import list_source_connector_details, source_connector_details
 
 
 def _load_contract(path: Path) -> Any:
@@ -198,6 +199,22 @@ def _presets_show(names: List[str], indent: int) -> int:
     return exit_code
 
 
+def _connectors_list(indent: int) -> int:
+    print(json.dumps(list_source_connector_details(), indent=indent, sort_keys=True, default=str))
+    return 0
+
+
+def _connectors_show(names: List[str], indent: int) -> int:
+    exit_code = 0
+    for name in names:
+        try:
+            print(json.dumps(source_connector_details(name), indent=indent, sort_keys=True, default=str))
+        except Exception as exc:
+            exit_code = 1
+            print(f"ERRO {name}: {exc}", file=sys.stderr)
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="contractforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -278,6 +295,14 @@ def main(argv: list[str] | None = None) -> int:
     presets_show_parser.add_argument("names", nargs="+")
     presets_show_parser.add_argument("--indent", type=int, default=2)
 
+    connectors_parser = sub.add_parser("connectors", help="Lista ou detalha conectores de source")
+    connectors_sub = connectors_parser.add_subparsers(dest="connector_command", required=True)
+    connectors_list_parser = connectors_sub.add_parser("list", help="Lista conectores registrados")
+    connectors_list_parser.add_argument("--indent", type=int, default=2)
+    connectors_show_parser = connectors_sub.add_parser("show", help="Mostra detalhes de um ou mais conectores")
+    connectors_show_parser.add_argument("names", nargs="+")
+    connectors_show_parser.add_argument("--indent", type=int, default=2)
+
     args = parser.parse_args(argv)
     if args.command == "validate":
         return _validate(args.paths, expand_presets=args.expand_presets)
@@ -303,6 +328,11 @@ def main(argv: list[str] | None = None) -> int:
             return _presets_list(args.indent)
         if args.preset_command == "show":
             return _presets_show(args.names, args.indent)
+    if args.command == "connectors":
+        if args.connector_command == "list":
+            return _connectors_list(args.indent)
+        if args.connector_command == "show":
+            return _connectors_show(args.names, args.indent)
     parser.error(f"Comando não suportado: {args.command}")
     return 2
 

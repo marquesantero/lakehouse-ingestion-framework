@@ -15,8 +15,8 @@ def test_short_error_message_uses_last_traceback_line():
 
 
 def test_framework_and_ctrl_schema_versions_are_current():
-    assert FRAMEWORK_VERSION == "1.8.1"
-    assert CTRL_SCHEMA_VERSION == 9
+    assert FRAMEWORK_VERSION == "1.9.0"
+    assert CTRL_SCHEMA_VERSION == 11
 
 
 def test_logical_row_metrics_for_append_like_mode():

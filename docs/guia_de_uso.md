@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-1.8.1-py3-none-any.whl
+# gera: dist/contractforge-1.9.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.9.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.9.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.8.1
+print(lakehouse_ingestion.__version__)  # 1.9.0
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.9.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==1.8.1
+%pip install --index-url https://<seu_pypi_privado> contractforge==1.9.0
 ```
 
 Em seguida:
@@ -539,18 +539,20 @@ pytest tests/test_contracts.py -v
 
 Cada novo YAML que entrar no repo é automaticamente validado pelo CI.
 
-### 4.5 Fonte declarativa Autoloader
+### 4.5 Fontes e conectores declarativos
 
-Para landing zones em arquivo, use `SourceSpec` com Autoloader `available_now`:
+Para landing zones em arquivo, use Auto Loader `available_now` no formato unificado de conector:
 
 ```yaml
 source:
-  type: autoloader
+  type: connector
+  connector: autoloader
   path: /Volumes/main/raw/orders
   format: parquet
-  schema_location: /Volumes/main/ops/schemas/orders
-  checkpoint_location: /Volumes/main/ops/checkpoints/orders
-  trigger: available_now
+  read:
+    schema_location: /Volumes/main/ops/schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders
+    include_existing_files: true
 
 target_table: b_orders
 catalog: main
@@ -562,6 +564,89 @@ notebook_name: ingest_b_orders
 ```
 
 O stream é finito: processa os arquivos disponíveis e encerra. A execução externa aparece em `ctrl_ingestion_streams`, e cada batch aparece em `ctrl_ingestion_runs`.
+
+Para arquivos batch, JDBC e REST API, use o mesmo campo `source.type=connector`:
+
+```yaml
+source:
+  type: connector
+  connector: object_storage
+  provider: s3
+  format: parquet
+  path: s3://empresa-landing/orders/
+  read:
+    source_complete: true
+
+target_table: snapshot_orders
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: [order_id]
+```
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    method: GET
+    params:
+      status: open
+  auth:
+    type: oauth_client_credentials
+    token_url: https://login.example.com/oauth/token
+    client_id: "{{ secret:orders_api/client_id }}"
+    client_secret: "{{ secret:orders_api/client_secret }}"
+    scope: orders.read
+  pagination:
+    type: link_header
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 25
+    timeout_seconds: 60
+    retry_attempts: 3
+    rate_limit_per_minute: 120
+
+target_table: b_orders_api
+catalog: main
+layer: bronze
+mode: scd0_append
+```
+
+Secrets no formato `{{ secret:scope/key }}` são resolvidos via Databricks Secrets ou variável de ambiente `CONTRACTFORGE_SECRET_SCOPE_KEY`. As ctrl tables recebem metadados redigidos do source.
+
+A coluna `ctrl_ingestion_runs.source_metrics_json` complementa esses metadados com métricas operacionais do conector. Em REST, ela registra `request_count`, `pages_read`, `records_read`, `bytes_read`, tipo de paginação, retry/rate limit e watermark aplicado. Em JDBC, registra estratégia de leitura, incrementalidade aplicada, watermark, particionamento e `fetchsize`. Em tabelas, SQL e arquivos, registra a estratégia Spark usada e se a fonte foi declarada como completa.
+
+Descubra os conectores disponíveis sem Spark:
+
+```bash
+contractforge connectors list
+contractforge connectors show rest_api jdbc autoloader
+```
+
+`contractforge validate` também valida os campos obrigatórios dos conectores nativos, evitando descobrir em runtime que faltou `source.request.url`, `source.options.url`, `source.read.checkpoint_location` ou configuração completa de particionamento JDBC.
+
+Para cargas incrementais, combine o watermark normal da lib com `source.incremental`. O framework busca o watermark salvo antes de resolver a fonte e injeta esse valor no conector:
+
+```yaml
+watermark_columns: updated_at
+
+source:
+  type: connector
+  connector: jdbc
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.orders
+  incremental:
+    watermark_column: updated_at
+    initial_value: "1970-01-01 00:00:00"
+```
 
 ---
 

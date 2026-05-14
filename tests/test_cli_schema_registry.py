@@ -40,6 +40,23 @@ def test_cli_validate_accepts_json_contract(tmp_path, capsys):
     assert "OK" in capsys.readouterr().out
 
 
+def test_cli_validate_accepts_custom_source_connector(tmp_path, capsys):
+    contract = {
+        "source": {
+            "type": "connector",
+            "connector": "salesforce",
+            "name": "crm_accounts",
+        },
+        "target_table": "b_accounts",
+        "mode": "scd0_append",
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    assert main(["validate", str(path)]) == 0
+    assert "OK" in capsys.readouterr().out
+
+
 def test_cli_validate_can_expand_presets(tmp_path, capsys):
     contract = {
         "preset": ["silver_scd1_upsert", "quality_quarantine"],
@@ -65,6 +82,31 @@ def test_cli_presets_list_and_show(capsys):
     assert main(["presets", "show", "gold_full_refresh", "--indent", "0"]) == 0
     output = capsys.readouterr().out
     assert '"name": "gold_full_refresh"' in output
+
+
+def test_cli_connectors_list_and_show(capsys):
+    assert main(["connectors", "list", "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert '"name": "rest_api"' in output
+    assert '"incremental": true' in output
+
+    assert main(["connectors", "show", "jdbc", "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert '"name": "jdbc"' in output
+    assert '"partitioned_read"' in output
+
+
+def test_cli_validate_rejects_incomplete_native_connector(tmp_path, capsys):
+    contract = {
+        "source": {"type": "connector", "connector": "rest_api"},
+        "target_table": "b_orders",
+        "mode": "scd0_append",
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    assert main(["validate", str(path)]) == 1
+    assert "source.request.url" in capsys.readouterr().err
 
 
 def test_cli_governance_preview_accepts_split_contract(tmp_path, capsys):

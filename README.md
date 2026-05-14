@@ -86,19 +86,32 @@ result = ingest(
 )
 ```
 
-## Fontes Declarativas
+## Fontes e Conectores Declarativos
 
-Além de tabela e DataFrame, `source` aceita `SourceSpec` declarativo para Autoloader em modo finito `available_now`:
+Além de tabela e DataFrame, `source` aceita fontes declarativas. Use `SourceSpec` para o formato legado de Auto Loader ou `ConnectorSpec` (`source.type=connector`) para o modelo unificado de conectores.
+
+Conectores nativos:
+
+- Catálogo/SQL: `table`, `delta_table`, `view`, `sql`.
+- Arquivos: `parquet`, `json`, `csv`, `text`.
+- Object storage/blob: `object_storage`, `blob` com `provider=adls|azure_blob|s3|gcs`.
+- Sistemas externos: `jdbc`, `rest_api`.
+- Streaming finito: `autoloader` com `trigger=available_now`.
+
+Exemplo com Auto Loader no formato unificado:
 
 ```python
 result = ingest(
     source={
-        "type": "autoloader",
+        "type": "connector",
+        "connector": "autoloader",
         "path": "/Volumes/main/raw/orders",
         "format": "parquet",
-        "schema_location": "/Volumes/main/ops/schemas/orders",
-        "checkpoint_location": "/Volumes/main/ops/checkpoints/orders",
-        "trigger": "available_now",
+        "read": {
+            "schema_location": "/Volumes/main/ops/schemas/orders",
+            "checkpoint_location": "/Volumes/main/ops/checkpoints/orders",
+            "include_existing_files": True,
+        },
     },
     target_table="b_orders",
     catalog="main",
@@ -112,6 +125,78 @@ result = ingest(
 O stream usa `foreachBatch` e cada batch chama `ingest_plan` internamente. A execução externa é registrada em `ctrl_ingestion_streams`; os runs filhos ficam em `ctrl_ingestion_runs` com `parent_run_id = stream_run_id`.
 
 Escopo intencional: apenas Autoloader `available_now`. Streaming contínuo (`processingTime`/`continuous`) continua fora da lib.
+
+Exemplo com REST API paginada:
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    method: GET
+    params:
+      status: open
+    headers:
+      Accept: application/json
+  auth:
+    type: bearer_token
+    token: "{{ secret:integrations/orders_api_token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 50
+    timeout_seconds: 60
+    retry_attempts: 3
+    retry_backoff_seconds: 2
+    rate_limit_per_minute: 120
+
+target_table: b_orders_api
+catalog: main
+layer: bronze
+mode: scd0_append
+schema_policy: additive_only
+```
+
+Exemplo com JDBC:
+
+```yaml
+source:
+  type: connector
+  connector: jdbc
+  name: erp_orders
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.orders
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  read:
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 5000000
+    num_partitions: 16
+    fetchsize: 10000
+    source_complete: true
+
+target_table: b_erp_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+```
+
+`source.incremental` permite pushdown do watermark anterior para a origem sem mudar o controle de watermark do framework. Em REST, use `watermark_param`, `watermark_header` ou `watermark_body_field`; em JDBC, use `watermark_column` ou `predicate`. `initial_value` é usado apenas na primeira execução, quando ainda não há watermark salvo. A configuração incremental é auditada em `ctrl_ingestion_runs.source_incremental_json`.
+
+Cada execução com conector também grava observabilidade específica em `ctrl_ingestion_runs.source_metrics_json`. Para REST são registrados `request_count`, `pages_read`, `records_read`, `bytes_read`, paginação, retry, rate limit e watermark aplicado. Para JDBC são registrados estratégia de leitura, uso de incrementalidade, watermark aplicado, particionamento e `fetchsize`. Para arquivos/tabelas/SQL são registrados estratégia de leitura e sinalização de fonte completa.
+
+`source.read.source_complete=true` ou `full_snapshot=true` é a declaração explícita usada por modos que exigem fonte completa, como `snapshot_soft_delete` e `replace_partitions`. Credenciais com `{{ secret:scope/key }}` são resolvidas via Databricks Secrets ou variável de ambiente `CONTRACTFORGE_SECRET_SCOPE_KEY`; logs e ctrl tables recebem versões redigidas.
 
 ## Contrato declarativo
 
@@ -228,6 +313,8 @@ Comandos úteis:
 ```bash
 contractforge presets list
 contractforge presets show silver_scd1_upsert
+contractforge connectors list
+contractforge connectors show rest_api jdbc
 contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
@@ -343,8 +430,10 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `IngestionHooks` permite callbacks programáticos `before_read`, `after_prepare`, `before_write` e `after_write`. Hooks que recebem DataFrame devem retornar DataFrame.
 - `register_write_mode(mode, handler)` registra motores de escrita customizados quando houver necessidade real de extensão.
 - `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
+- `register_source_resolver(name, resolver)` registra conectores customizados. O contrato aceita qualquer `source.connector` com nome válido; a execução falha cedo se não houver resolver registrado.
 - `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
-- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `contractforge schema` imprime o schema.
+- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark e aplica validação estática dos conectores nativos. `contractforge schema` imprime o schema.
+- `contractforge connectors list|show` exibe conectores registrados, campos obrigatórios e capabilities.
 
 ## Matriz de runtime
 

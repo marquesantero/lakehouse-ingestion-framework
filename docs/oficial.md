@@ -1,8 +1,8 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 1.8.1 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.9.0 | **Licença:** MIT | **Python:** >= 3.10
 
-Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
+Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
 ---
 
@@ -13,7 +13,7 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 3. [Quick Start](#3-quick-start)
 4. [API Pública](#4-api-pública)
 5. [Referência Completa de Parâmetros do IngestionPlan](#5-referência-completa-de-parâmetros-do-ingestionplan)
-5C. [Fontes Declarativas com SourceSpec](#5c-fontes-declarativas-com-sourcespec)
+5C. [Fontes e Conectores Declarativos](#5c-fontes-e-conectores-declarativos)
 5D. [Presets Declarativos](#5d-presets-declarativos)
 5E. [Shape Declarativo para JSON, Structs e Arrays](#5e-shape-declarativo-para-json-structs-e-arrays)
 6. [Modos de Escrita — Guia Detalhado](#6-modos-de-escrita--guia-detalhado)
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.8.1 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.9.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -89,7 +89,7 @@ Cada chamada `ingest()` ou `ingest_plan()` segue este pipeline determinístico:
 10. Emite evento OpenLineage (se habilitado)
 ```
 
-Quando `source` é um `SourceSpec`, `ingest_plan()` despacha para `ingest_stream_plan()`: o framework abre um `readStream` Autoloader, executa `trigger(availableNow=True)` e processa cada micro-batch chamando `ingest_plan()` internamente com `source=batch_df`.
+Quando `source` é `SourceSpec` ou `ConnectorSpec(connector="autoloader")`, `ingest_plan()` despacha para `ingest_stream_plan()`: o framework abre um `readStream` Autoloader, executa `trigger(availableNow=True)` e processa cada micro-batch chamando `ingest_plan()` internamente com `source=batch_df`.
 
 O fluxo usa `try/except/finally` — mesmo em falha, as tabelas de controle recebem o registro com `status=FAILED` e stack trace completo em `ctrl_ingestion_errors`.
 
@@ -125,14 +125,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-1.8.1-py3-none-any.whl
+# → dist/contractforge-1.9.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.9.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.9.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -242,9 +242,10 @@ print(f"Run ID: {result['run_id']}")
 from lakehouse_ingestion import (
     ingest,              # Função procedural (kwargs)
     ingest_plan,         # Função recebendo IngestionPlan
-    ingest_stream_plan,  # Execução de SourceSpec Autoloader available_now
+    ingest_stream_plan,  # Execução de SourceSpec/ConnectorSpec Autoloader available_now
     IngestionPlan,       # Dataclass do contrato
-    SourceSpec,          # Source declarativo
+    SourceSpec,          # Source declarativo legado para Autoloader
+    ConnectorSpec,       # Source declarativo genérico via conectores
     QualityRules,        # Dataclass das regras de qualidade
     QualityExpression,   # Regra SQL declarativa com severidade
     FrameworkConfig,     # Configuração global (monkey-patch)
@@ -313,7 +314,7 @@ Ambas as funções retornam um `dict` com a seguinte estrutura:
 | `spark_version` | `str` or `None` | Versão do Spark |
 | `python_version` | `str` | Versão do Python |
 
-Para `SourceSpec`/Autoloader, o retorno externo usa `stream_run_id` em vez de `run_id`, inclui `batches_processed`, `total_rows_read`, `total_rows_written`, `total_rows_quarantined` e `batch_results`. Cada item em `batch_results` é o retorno normal de `ingest_plan()` de um micro-batch.
+Para `SourceSpec`/`ConnectorSpec` Autoloader, o retorno externo usa `stream_run_id` em vez de `run_id`, inclui `batches_processed`, `total_rows_read`, `total_rows_written`, `total_rows_quarantined` e `batch_results`. Cada item em `batch_results` é o retorno normal de `ingest_plan()` de um micro-batch.
 
 **Consumo típico:**
 
@@ -334,7 +335,7 @@ O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). To
 
 | Parâmetro | Tipo | Default | Descrição |
 |-----------|------|---------|-----------|
-| `source` | `str \| DataFrame \| SourceSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark ou source declarativo Autoloader `available_now` |
+| `source` | `str \| DataFrame \| SourceSpec \| ConnectorSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark, Autoloader `available_now` ou conector declarativo |
 | `target_table` | `str` | (obrigatório) | Nome da tabela alvo **sem** catálogo/schema. Ex.: `"c_cliente"` |
 | `catalog` | `str` | `"main"` | Catálogo Unity Catalog onde alvo e ctrl tables residem |
 | `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion (usada como schema do alvo) |
@@ -582,23 +583,57 @@ idempotency_policy: always_run           # always_run | skip_if_success | fail_i
 
 ---
 
-## 5C. Fontes Declarativas com `SourceSpec`
+## 5C. Fontes e Conectores Declarativos
 
-Além de tabela e `DataFrame`, `source` aceita um objeto declarativo para Autoloader em modo finito `available_now`. Esse recurso é adequado para landing zones de arquivos onde você quer checkpoint, inferência/evolução de schema do Autoloader e reaproveitamento dos mesmos modos de escrita do framework.
-
-### 5C.1 YAML com Autoloader
+Além de tabela e `DataFrame`, `source` aceita fontes declarativas. O formato antigo `SourceSpec` continua disponível para Auto Loader, mas o formato recomendado é `ConnectorSpec`:
 
 ```yaml
 source:
-  type: autoloader
+  type: connector
+  connector: <nome_do_conector>
+```
+
+Conectores nativos:
+
+| Conector | Uso | Campos principais |
+|----------|-----|-------------------|
+| `table`, `delta_table`, `view` | Tabelas/views do catálogo Spark/Unity Catalog | `table` |
+| `sql` | Query SQL declarativa | `query` |
+| `parquet`, `json`, `csv`, `text` | Arquivos batch | `path`, `options` |
+| `object_storage`, `blob` | Arquivos em ADLS/Azure Blob/S3/GCS | `provider`, `format`, `path`, `options` |
+| `jdbc` | Bancos relacionais via Spark JDBC | `options.url`, `options.dbtable` ou `options.query` |
+| `rest_api` | APIs REST JSON em batch | `request`, `auth`, `pagination`, `response`, `limits` |
+| `autoloader` | Auto Loader finito `available_now` | `path`, `format`, `read.schema_location`, `read.checkpoint_location` |
+
+O retorno de `ingest()` inclui `source` com metadados do conector. `ctrl_ingestion_runs` registra `source_connector`, `source_provider`, `source_format`, `source_path`, configurações redigidas, capabilities do source e métricas operacionais em `source_metrics_json`.
+
+`source_metrics_json` é preenchido pelo resolver do conector. Em REST, inclui quantidade de requests, páginas lidas, registros extraídos, bytes lidos, tipo de paginação, retry/rate limit e watermark aplicado. Em JDBC, inclui estratégia de leitura, se houve pushdown incremental, watermark aplicado, particionamento e `fetchsize`. Em fontes Spark nativas, registra a estratégia (`spark_table`, `spark_sql` ou `spark_files`) e se a fonte foi declarada como completa.
+
+`contractforge validate` faz validação estática dos conectores nativos sem abrir Spark: campos obrigatórios, tipos de paginação REST, auth REST, particionamento JDBC e formatos de object storage são verificados antes do job.
+
+Descoberta via CLI:
+
+```bash
+contractforge connectors list
+contractforge connectors show rest_api jdbc autoloader
+```
+
+### 5C.1 Auto Loader
+
+Formato recomendado:
+
+```yaml
+source:
+  type: connector
+  connector: autoloader
   path: /Volumes/main/landing/orders
   format: json
-  schema_location: /Volumes/main/ops/autoloader_schemas/orders
-  checkpoint_location: /Volumes/main/ops/checkpoints/orders
-  trigger: available_now
-  include_existing_files: true
-  max_files_per_trigger: 1000
-  schema_hints: "order_id BIGINT, amount DECIMAL(18,2)"
+  read:
+    schema_location: /Volumes/main/ops/autoloader_schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders
+    include_existing_files: true
+    max_files_per_trigger: 1000
+    schema_hints: "order_id BIGINT, amount DECIMAL(18,2)"
   options:
     cloudFiles.inferColumnTypes: "true"
 
@@ -610,7 +645,7 @@ schema_policy: additive_only
 notebook_name: bronze_orders_autoloader
 ```
 
-### 5C.2 Python com `SourceSpec`
+Formato legado equivalente:
 
 ```python
 from lakehouse_ingestion import SourceSpec, ingest
@@ -631,14 +666,231 @@ result = ingest(
 )
 ```
 
-### 5C.3 Semântica Operacional
+Semântica operacional:
 
 - O framework usa `spark.readStream.format("cloudFiles")` e `trigger(availableNow=True)`.
 - A execução externa é registrada em `ctrl_ingestion_streams`.
 - Cada micro-batch vira uma execução filha em `ctrl_ingestion_runs`, com `parent_run_id = stream_run_id`.
 - `idempotency_key` no stream gera chaves de batch no formato `<idempotency_key>:batch:<batch_id>`.
-- `snapshot_soft_delete` é incompatível com `SourceSpec`, porque snapshot exige source completo do estado atual.
+- `snapshot_soft_delete` não deve ser usado com Auto Loader; Auto Loader entrega arquivos incrementais, não snapshot completo.
 - Streaming contínuo não é suportado nesta versão; o contrato é deliberadamente finito.
+
+### 5C.2 Arquivos e Object Storage
+
+Leitura batch de JSON em Volume:
+
+```yaml
+source:
+  type: connector
+  connector: json
+  name: landing_orders_json
+  path: /Volumes/main/landing/orders_json
+  options:
+    multiline: true
+    inferSchema: true
+
+target_table: b_orders_json
+catalog: main
+layer: bronze
+mode: scd0_append
+schema_policy: additive_only
+```
+
+Leitura em S3/ADLS/GCS usa o mesmo mecanismo Spark, deixando credenciais e mounts sob responsabilidade do runtime:
+
+```yaml
+source:
+  type: connector
+  connector: object_storage
+  provider: s3
+  format: parquet
+  path: s3://company-landing/orders/
+  read:
+    source_complete: true
+
+target_table: snapshot_orders
+catalog: main
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: [order_id]
+```
+
+`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. A lib valida o contrato, mas não configura credenciais de cloud storage; isso deve estar no cluster/serverless/Unity Catalog external location.
+
+### 5C.3 JDBC
+
+```yaml
+source:
+  type: connector
+  connector: jdbc
+  name: erp_orders
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.orders
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  read:
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 5000000
+    num_partitions: 16
+    fetchsize: 10000
+    source_complete: true
+
+target_table: b_erp_orders
+catalog: main
+layer: bronze
+mode: scd0_append
+```
+
+Regras:
+
+- `source.options.url` é obrigatório.
+- Informe `source.options.dbtable` ou `source.options.query`.
+- Particionamento JDBC exige os quatro campos juntos: `partition_column`, `lower_bound`, `upper_bound`, `num_partitions`.
+- Use `source.read.source_complete=true` somente quando a query/tabela representar o estado completo necessário ao modo de escrita.
+
+### 5C.4 REST API
+
+REST API é batch e materializa a resposta JSON em DataFrame Spark. É adequado para APIs administrativas, catálogos pequenos/médios e endpoints paginados; para alto volume contínuo, prefira landing em arquivos + Auto Loader.
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    method: GET
+    params:
+      status: open
+    headers:
+      Accept: application/json
+  auth:
+    type: bearer_token
+    token: "{{ secret:integrations/orders_api_token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 50
+    timeout_seconds: 60
+    retry_attempts: 3
+    retry_backoff_seconds: 2
+    rate_limit_per_minute: 120
+
+target_table: b_orders_api
+catalog: main
+layer: bronze
+mode: scd0_append
+```
+
+Autenticação suportada:
+
+- `none`
+- `bearer_token` com `token`
+- `api_key` com `header` e `value`/`key`
+- `basic` com `username` e `password`
+- `oauth_client_credentials` com `token_url`, `client_id`, `client_secret` e `scope` opcional
+
+Paginação suportada:
+
+- `none`: uma requisição.
+- `page`: incrementa `page_param`.
+- `offset`: incrementa `offset_param` com `page_size`.
+- `cursor`: lê cursor em `next_cursor_path` e envia em `cursor_param`.
+- `link_header`: segue o header HTTP `Link` com `rel="next"`.
+
+Extração de registros usa JSON path simples no formato `$.campo.subcampo`, por exemplo `$.data.items`.
+
+Pushdown incremental:
+
+- `source.incremental.watermark_param`: injeta o watermark anterior como query param.
+- `source.incremental.watermark_header`: injeta o watermark anterior como header HTTP.
+- `source.incremental.watermark_body_field`: injeta o watermark anterior em `request.json` para chamadas `POST`.
+- `source.incremental.initial_value`: valor usado apenas quando ainda não existe watermark salvo.
+
+O pushdown incremental não substitui `watermark_columns`; ele só reduz o volume lido da origem. O watermark oficial continua sendo calculado após prepare/quality com base em `watermark_columns`.
+
+### 5C.4B JDBC Incremental
+
+JDBC também aceita pushdown incremental:
+
+```yaml
+watermark_columns: updated_at
+
+source:
+  type: connector
+  connector: jdbc
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    dbtable: public.orders
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  incremental:
+    watermark_column: updated_at
+    initial_value: "1970-01-01 00:00:00"
+```
+
+Quando houver watermark anterior, o conector transforma `dbtable` em subquery com `WHERE updated_at > '<watermark>'`. Para predicados customizados:
+
+```yaml
+source:
+  type: connector
+  connector: jdbc
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    query: "SELECT * FROM public.orders WHERE status <> 'CANCELLED'"
+  incremental:
+    predicate: "updated_at >= TIMESTAMP '{watermark_previous}'"
+```
+
+### 5C.5 Secrets e Observabilidade
+
+Use placeholders `{{ secret:scope/key }}` em `options`, `request`, `auth`, `pagination`, `response` ou `limits`. A resolução tenta primeiro a variável de ambiente `CONTRACTFORGE_SECRET_SCOPE_KEY`; se não existir, usa Databricks Secrets via `dbutils.secrets.get(scope, key)`.
+
+Os valores sensíveis são redigidos em logs e ctrl tables. A auditoria de execução persiste configurações redigidas em:
+
+- `source_options_json`
+- `source_read_json`
+- `source_request_json`
+- `source_auth_json`
+- `source_pagination_json`
+- `source_response_json`
+- `source_incremental_json`
+- `source_limits_json`
+- `source_capabilities_json`
+- `source_metrics_json`
+
+### 5C.6 Extensão
+
+Novos conectores podem ser acoplados sem alterar o dispatcher principal:
+
+```python
+from lakehouse_ingestion import ConnectorCapabilities, SourceResolution, register_source_resolver
+
+class MyConnector:
+    def capabilities(self, spec):
+        return ConnectorCapabilities(batch=True, source_complete=False)
+
+    def resolve_batch(self, spec, plan):
+        df = ...
+        return SourceResolution(
+            df=df,
+            label=f"my_connector:{spec.name}",
+            connector=spec.connector,
+            metadata={"source_connector": spec.connector},
+            capabilities=self.capabilities(spec),
+        )
+
+register_source_resolver("my_connector", MyConnector())
+```
 
 ---
 
@@ -689,7 +941,7 @@ delta_properties:
 
 | Preset | Camada | Modo/estratégia | Uso principal |
 |--------|--------|-----------------|---------------|
-| `bronze_autoloader_append` | Bronze | `scd0_append` + `SourceSpec` | Arquivos em landing/raw via Auto Loader `available_now` |
+| `bronze_autoloader_append` | Bronze | `scd0_append` + Autoloader declarativo | Arquivos em landing/raw via Auto Loader `available_now` |
 | `bronze_file_append` | Bronze | `scd0_append` | Batch de arquivos/DataFrame já resolvido |
 | `bronze_table_append` | Bronze | `scd0_append` | Replicação simples table-to-table |
 | `bronze_full_overwrite` | Bronze | `scd0_overwrite` | Snapshot completo pequeno/médio |
@@ -725,6 +977,8 @@ delta_properties:
 ```bash
 contractforge presets list
 contractforge presets show silver_scd1_upsert
+contractforge connectors list
+contractforge connectors show rest_api jdbc
 contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
@@ -1238,7 +1492,7 @@ notebook_name: silver_customer_snapshot
 
 > ⚠️ **Restrição crítica:** snapshot_soft_delete **NÃO aceita** `watermark_columns` nem `filter_expression`. O framework rejeita com `ValueError`. Um source filtrado faria todas as linhas fora do filtro virarem `is_active=false` erroneamente. Para sincronização incremental, use `scd1_upsert`.
 
-Também não use `SourceSpec`/Autoloader para esse modo. Autoloader `available_now` entrega micro-batches de arquivos novos; isso é carga incremental, não snapshot completo.
+Também não use Autoloader para esse modo. Autoloader `available_now` entrega micro-batches de arquivos novos; isso é carga incremental, não snapshot completo.
 
 ### 6.8 Restrições de Modo por Camada
 
@@ -1839,7 +2093,7 @@ As tabelas de controle são criadas automaticamente no schema `ctrl_schema` (def
 
 Histórico completo de todas as execuções. Particionada por `run_date`.
 
-**Colunas principais:** `run_id`, `run_ts_utc`, `run_date`, `notebook_name`, `layer`, `source_table`, `target_table`, `mode`, `status`, `rows_read`, `rows_written`, `rows_inserted`, `rows_updated`, `rows_deleted`, `rows_quarantined`, `watermark_previous`, `watermark_current`, `duration_seconds`, `quality_status`, `schema_policy`, `schema_changes_json`, `stage_durations_json`, `operation_metrics_json`, `write_committed`, `delta_version_before`, `delta_version_after`, `error_message`, `idempotency_key`, `idempotency_policy`, `skip_reason`, `skipped_by_run_id`, `contract_description`, `contract_owner`, `contract_domain`, `contract_tags_json`, `contract_sla`, `runtime_parameters_json`, `metrics_source`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`.
+**Colunas principais:** `run_id`, `run_ts_utc`, `run_date`, `notebook_name`, `layer`, `source_table`, `source_type`, `source_connector`, `source_name`, `source_provider`, `source_format`, `source_path`, `source_options_json`, `source_read_json`, `source_request_json`, `source_auth_json`, `source_pagination_json`, `source_response_json`, `source_incremental_json`, `source_limits_json`, `source_capabilities_json`, `source_metrics_json`, `target_table`, `mode`, `status`, `rows_read`, `rows_written`, `rows_inserted`, `rows_updated`, `rows_deleted`, `rows_quarantined`, `watermark_previous`, `watermark_current`, `duration_seconds`, `quality_status`, `schema_policy`, `schema_changes_json`, `stage_durations_json`, `operation_metrics_json`, `write_committed`, `delta_version_before`, `delta_version_after`, `error_message`, `idempotency_key`, `idempotency_policy`, `skip_reason`, `skipped_by_run_id`, `contract_description`, `contract_owner`, `contract_domain`, `contract_tags_json`, `contract_sla`, `runtime_parameters_json`, `metrics_source`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`.
 
 ### 12.2 `ctrl_ingestion_state`
 
@@ -1895,7 +2149,7 @@ Histórico de evolução estrutural (adições de colunas, mudanças de tipo).
 
 ### 12.11 `ctrl_ingestion_streams`
 
-Histórico das execuções externas de `SourceSpec`/Autoloader `available_now`.
+Histórico das execuções externas de Autoloader `available_now`.
 
 **Colunas:** `stream_run_id`, `idempotency_key`, `idempotency_policy`, `skip_reason`, `skipped_by_stream_run_id`, `target_table`, `target_catalog`, `target_layer`, `notebook_name`, `source_type`, `source_path`, `trigger`, `checkpoint_location`, `status`, `started_at_utc`, `ended_at_utc`, `duration_seconds`, `batches_processed`, `total_rows_read`, `total_rows_written`, `total_rows_quarantined`, `framework_version`, `ctrl_schema_version`, `runtime_type`, `spark_version`, `python_version`, `error_message`, `master_job_id`, `master_run_id`, `parent_run_id`, `run_group_id`.
 
@@ -2266,9 +2520,18 @@ register_write_mode("custom_append", my_writer)
 
 ### 16B.3 Registry de Sources
 
-`register_source_resolver(source_type, resolver)` adiciona resolvers declarativos. O resolver precisa implementar `resolve_stream(spec, plan)` e retornar `(stream_df, source_label)`.
+`register_source_resolver(source_type, resolver)` adiciona conectores declarativos sem alterar o core. O contrato aceita qualquer `source.connector` com nome válido (`letras`, `números`, `_` e `-`, começando por letra); na execução, o registry precisa ter um resolver registrado para esse nome.
 
-O resolver nativo registrado é `autoloader`, usado por `SourceSpec(type="autoloader")`.
+Para batch, implemente `resolve_batch(spec, plan)` e retorne `SourceResolution`. Para streaming finito, implemente `resolve_stream(spec, plan)` e retorne `(stream_df, source_label)`.
+
+Resolvers nativos registrados incluem `autoloader`, `table`, `delta_table`, `view`, `sql`, `parquet`, `json`, `csv`, `text`, `object_storage`, `blob`, `jdbc` e `rest_api`.
+
+Use a CLI para auditar capabilities disponíveis no runtime atual:
+
+```bash
+contractforge connectors list
+contractforge connectors show rest_api
+```
 
 ---
 
@@ -2815,7 +3078,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.8.1 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.9.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.

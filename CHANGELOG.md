@@ -6,6 +6,21 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.9.0 - 2026-05-14
+
+- Adiciona camada declarativa de conectores de source com `ConnectorSpec` e registry `register_source_resolver`.
+- Inclui conectores nativos para tabela/view, SQL, arquivos (`parquet`, `json`, `csv`, `text`), object storage/blob (`adls`, `azure_blob`, `s3`, `gcs`), JDBC e REST API.
+- Permite conectores customizados em YAML/JSON usando qualquer `source.connector` com nome válido, desde que um resolver seja registrado no runtime.
+- Adiciona CLI `contractforge connectors list|show` e validação estática dos campos obrigatórios dos conectores nativos em `contractforge validate`.
+- Suporta REST API batch com autenticação `bearer_token`, `api_key`, `basic` e `oauth_client_credentials`, paginação `page`, `offset`, `cursor` e `link_header`, retry/backoff, timeout e rate limit simples.
+- Suporta pushdown incremental em REST (`watermark_param`, `watermark_header`, `watermark_body_field`) e JDBC (`watermark_column`/`predicate`) usando o watermark anterior registrado pela lib.
+- Permite Auto Loader também no formato unificado `source.type=connector` com `connector=autoloader`.
+- Registra metadados redigidos de source em `ctrl_ingestion_runs` (`source_connector`, provider, formato, path, opções, request/auth/pagination/incremental/limits e capabilities).
+- Registra observabilidade específica de conectores em `ctrl_ingestion_runs.source_metrics_json`, incluindo requests/páginas/bytes/registros para REST e estratégia/incrementalidade/particionamento para JDBC.
+- Permite declarar `source.read.source_complete=true` ou `full_snapshot=true` em conectores para modos que exigem snapshot completo.
+- Atualiza JSON Schema, exports públicos e documentação com exemplos YAML de conectores.
+- Eleva `ctrl_schema_version` para 11.
+
 ## 1.8.1 - 2026-05-13
 
 - Renomeia o produto/pacote distribuído para `contractforge`, mantendo o namespace Python `lakehouse_ingestion`.

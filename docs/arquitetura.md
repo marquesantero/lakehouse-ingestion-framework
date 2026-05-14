@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.8.1`
+**Versão do pacote:** `1.9.0`
 **Pacote Python:** `contractforge`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -369,7 +369,7 @@ Frozen para passagem segura entre threads/jobs. Construtores aceitam dict via `n
 
 Frozen dataclass com 40+ campos. Agrupados por finalidade:
 
-**Identificação** — `source` (str, DataFrame ou `SourceSpec`), `target_table`, `catalog`, `layer`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
+**Identificação** — `source` (str, DataFrame, `SourceSpec` ou `ConnectorSpec`), `target_table`, `catalog`, `layer`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
 
 **Metadados de contrato** — `description`, `owner`, `domain`, `tags`, `sla`, `runtime_parameters`. Não mudam a escrita; são propagados para retorno e `ctrl_ingestion_runs`.
 
@@ -419,7 +419,8 @@ Pontos importantes:
 - **`column_mapping`** renomeia colunas source -> target antes da validação do plano; colisões, destinos duplicados e nomes técnicos reservados são bloqueados.
 - **`delta_properties`** aplica TBLPROPERTIES na criação da tabela Delta.
 - **`retry_attempts`/`retry_backoff_seconds`** sobrescrevem retry global por plano.
-- **`SourceSpec`** aceita Autoloader declarativo com `trigger="available_now"`, `schema_location` e `checkpoint_location` obrigatórios.
+- **`SourceSpec`** aceita Autoloader declarativo legado com `trigger="available_now"`, `schema_location` e `checkpoint_location` obrigatórios.
+- **`ConnectorSpec`** é o modelo unificado para sources declarativos: catálogo/SQL, arquivos, object storage/blob, JDBC, REST API e Autoloader.
 - **`preset`/`presets`** são expandidos antes da normalização. O contrato explícito vence defaults e o plano guarda `applied_presets`.
 
 ### 4.5 `presets.py` — Defaults declarativos acopláveis
@@ -898,7 +899,7 @@ WHEN NOT MATCHED BY SOURCE AND t.is_active = true THEN UPDATE SET
 
 `is_active=false → set` na cláusula matched garante "ressuscitar" um registro que voltou a aparecer (deletado e reinserido).
 
-**Bloqueio por design:** o orquestrador **rejeita** com `ValueError` a combinação `mode=snapshot_soft_delete` + `watermark_columns`, `filter_expression` ou `SourceSpec`. Snapshot parcial faria com que todas as linhas fora do filtro virassem inativas erroneamente. Para sincronização incremental, use `scd1_upsert`, `scd1_hash_diff` ou outro modo incremental.
+**Bloqueio por design:** o orquestrador **rejeita** com `ValueError` a combinação `mode=snapshot_soft_delete` + `watermark_columns` ou `filter_expression`. Quando `source` é `ConnectorSpec`, o contrato precisa declarar `source.read.source_complete=true` ou `source.read.full_snapshot=true`. Snapshot parcial faria com que todas as linhas fora do filtro virassem inativas erroneamente. Para sincronização incremental, use `scd1_upsert`, `scd1_hash_diff` ou outro modo incremental.
 
 #### 4.9.10 `write_scd2`
 
@@ -964,11 +965,11 @@ Eventos OpenLineage 1.0.5 com facets:
 Mantém apenas:
 
 - Imports e logger.
-- `_resolve_source(plan)` — abre table OU usa DataFrame. Quando `source` é `SourceSpec`, `ingest_plan` despacha para `ingest_stream_plan`.
+- `_resolve_source(plan)` — abre table, usa DataFrame ou resolve `ConnectorSpec` via registry. Quando `source` é `SourceSpec` ou `ConnectorSpec(connector="autoloader")`, `ingest_plan` despacha para `ingest_stream_plan`.
 
 ### Streaming `available_now`
 
-`SourceSpec(type="autoloader")` usa `spark.readStream.format("cloudFiles")` com `trigger(availableNow=True)`. O stream é finito: processa arquivos disponíveis no checkpoint e termina.
+`SourceSpec(type="autoloader")` ou `ConnectorSpec(connector="autoloader")` usa `spark.readStream.format("cloudFiles")` com `trigger(availableNow=True)`. O stream é finito: processa arquivos disponíveis no checkpoint e termina.
 
 Cada micro-batch chama `ingest_plan` com `source=batch_df`, `parent_run_id=stream_run_id`, `lock_enabled=False` e `idempotency_key="<stream-key>:batch:<batch_id>"`. Isso preserva a semântica at-least-once do `foreachBatch` sem duplicar batches já concluídos.
 
@@ -1445,7 +1446,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-1.8.1-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-1.9.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
@@ -1529,7 +1530,7 @@ Queries pontuais e conhecidas. Builder seria over-engineering. A separação `q`
 ### 15.10 Por que erro em `snapshot_soft_delete + watermark/filter`?
 
 - `snapshot_soft_delete` define que o source é o estado completo atual.
-- `watermark_columns`, `filter_expression` e `SourceSpec` tornam o source parcial.
+- `watermark_columns` e `filter_expression` tornam o source parcial. Para `ConnectorSpec`, snapshot exige `source.read.source_complete=true` ou `source.read.full_snapshot=true`.
 - Source parcial faria linhas fora do recorte virarem `is_active=false` incorretamente.
 - Por isso a validação falha cedo com `ValueError`, em vez de emitir warning.
 - A decisão completa está registrada em [ADR-003](./adrs/ADR-003-snapshot-soft-delete-sql-merge.md).

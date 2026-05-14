@@ -1,6 +1,7 @@
 """Contratos declarativos: IngestionPlan, QualityRules e construtor a partir de kwargs."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -16,9 +17,11 @@ from .config import (
     SchemaPolicy,
     Source,
     VALID_EXPLAIN_FORMATS,
+    VALID_FILE_CONNECTOR_FORMATS,
     VALID_IDEMPOTENCY_POLICIES,
     VALID_LAYERS,
     VALID_MERGE_STRATEGIES,
+    VALID_OBJECT_STORAGE_PROVIDERS,
     VALID_QUALITY_FAIL_ACTIONS,
     VALID_QUALITY_RULE_SEVERITIES,
     VALID_SCHEMA_POLICIES,
@@ -89,6 +92,21 @@ def _require_ratio(value: Any, field: str) -> float:
     return parsed
 
 
+_CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def _validate_connector_name(value: Any, field: str = "source.connector") -> str:
+    connector = str(value or "").strip()
+    if not connector:
+        raise ValueError(f"{field} é obrigatório quando source.type=connector")
+    if not _CONNECTOR_NAME_RE.match(connector):
+        raise ValueError(
+            f"{field}={connector!r} é inválido. Use letras, números, '_' ou '-', "
+            "começando por letra."
+        )
+    return connector
+
+
 def _normalize_named_list(value: Any, field: str) -> List[str]:
     if isinstance(value, Mapping):
         raise ValueError(f"{field} deve ser lista ou string separada por '|', não dict")
@@ -146,12 +164,111 @@ def _normalize_options(value: Any, field: str) -> Dict[str, Any]:
     return dict(_require_mapping(value, field))
 
 
+def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
+    connector = _validate_connector_name(raw.get("connector"))
+    return ConnectorSpec(
+        connector=connector,
+        name=(str(raw["name"]).strip() if raw.get("name") is not None else None),
+        provider=(str(raw["provider"]).strip() if raw.get("provider") is not None else None),
+        format=(str(raw["format"]).strip() if raw.get("format") is not None else None),
+        path=(str(raw["path"]).strip() if raw.get("path") is not None else None),
+        table=(str(raw["table"]).strip() if raw.get("table") is not None else None),
+        query=(str(raw["query"]).strip() if raw.get("query") is not None else None),
+        options=_normalize_options(raw.get("options"), "source.options"),
+        read=_normalize_options(raw.get("read"), "source.read"),
+        request=_normalize_options(raw.get("request"), "source.request"),
+        auth=_normalize_options(raw.get("auth"), "source.auth"),
+        pagination=_normalize_options(raw.get("pagination"), "source.pagination"),
+        response=_normalize_options(raw.get("response"), "source.response"),
+        incremental=_normalize_options(raw.get("incremental"), "source.incremental"),
+        limits=_normalize_options(raw.get("limits"), "source.limits"),
+    )
+
+
+def _connector_value(spec: "ConnectorSpec", attr: str) -> Any:
+    value = getattr(spec, attr)
+    if value is not None and value != "":
+        return value
+    return spec.options.get(attr)
+
+
+def _validate_native_connector_contract(spec: "ConnectorSpec") -> None:
+    connector = spec.connector
+    if connector == "autoloader":
+        if not spec.path:
+            raise ValueError("source.path é obrigatório para connector=autoloader")
+        schema_location = spec.read.get("schema_location") or spec.options.get("cloudFiles.schemaLocation")
+        if not schema_location:
+            raise ValueError("source.read.schema_location é obrigatório para connector=autoloader")
+        if not spec.read.get("checkpoint_location"):
+            raise ValueError("source.read.checkpoint_location é obrigatório para connector=autoloader")
+        return
+    if connector in {"table", "delta_table", "view"}:
+        if not _connector_value(spec, "table") and not spec.path:
+            raise ValueError("source.table é obrigatório para connector=table/delta_table/view")
+        return
+    if connector == "sql":
+        if not _connector_value(spec, "query"):
+            raise ValueError("source.query é obrigatório para connector=sql")
+        return
+    if connector in {"parquet", "json", "csv", "text"}:
+        if not spec.path and not spec.options.get("path"):
+            raise ValueError(f"source.path é obrigatório para connector={connector}")
+        return
+    if connector in {"object_storage", "blob"}:
+        provider = str(spec.provider or "").strip()
+        if provider and provider not in VALID_OBJECT_STORAGE_PROVIDERS:
+            raise ValueError(
+                f"source.provider={provider!r} não é suportado. "
+                f"Valores válidos: {sorted(VALID_OBJECT_STORAGE_PROVIDERS)}"
+            )
+        fmt = str(spec.format or "").strip()
+        if not fmt:
+            raise ValueError("source.format é obrigatório para connector=object_storage/blob")
+        if fmt not in VALID_FILE_CONNECTOR_FORMATS:
+            raise ValueError(f"source.format={fmt!r} não é suportado. Válidos: {sorted(VALID_FILE_CONNECTOR_FORMATS)}")
+        if not spec.path and not spec.options.get("path"):
+            raise ValueError("source.path é obrigatório para connector=object_storage/blob")
+        return
+    if connector == "jdbc":
+        if "url" not in spec.options:
+            raise ValueError("source.options.url é obrigatório para connector=jdbc")
+        if "dbtable" not in spec.options and "query" not in spec.options:
+            raise ValueError("connector=jdbc requer source.options.dbtable ou source.options.query")
+        partition_fields = {"partition_column", "lower_bound", "upper_bound", "num_partitions"}
+        provided = {field for field in partition_fields if spec.read.get(field) is not None}
+        if provided and provided != partition_fields:
+            raise ValueError(
+                "JDBC partitioning requer partition_column, lower_bound, upper_bound e num_partitions juntos"
+            )
+        return
+    if connector == "rest_api":
+        request = spec.request or {}
+        if not request.get("url") and not spec.path:
+            raise ValueError("source.request.url é obrigatório para connector=rest_api")
+        method = str(request.get("method") or "GET").upper()
+        if method not in {"GET", "POST"}:
+            raise ValueError("connector=rest_api suporta apenas GET e POST")
+        auth_type = str((spec.auth or {}).get("type") or "none")
+        if auth_type not in {"none", "bearer_token", "api_key", "basic", "oauth_client_credentials"}:
+            raise ValueError(f"auth.type={auth_type!r} não suportado para connector=rest_api")
+        page_type = str((spec.pagination or {}).get("type") or "none")
+        if page_type not in {"none", "page", "offset", "cursor", "link_header"}:
+            raise ValueError(f"pagination.type={page_type!r} não suportado")
+        if page_type == "cursor" and not spec.pagination.get("next_cursor_path"):
+            raise ValueError("pagination.next_cursor_path é obrigatório quando pagination.type=cursor")
+        if spec.incremental.get("watermark_body_field") and "json" not in request:
+            raise ValueError("source.incremental.watermark_body_field exige source.request.json")
+
+
 def _normalize_source(value: Any) -> Source:
-    if isinstance(value, SourceSpec):
+    if isinstance(value, (SourceSpec, ConnectorSpec)):
         return value
     if isinstance(value, Mapping):
         raw = _require_mapping(value, "source")
         source_type = _validate_enum(raw.get("type"), VALID_SOURCE_TYPES, "source.type")
+        if source_type == "connector":
+            return _normalize_connector_source(raw)
         path = str(raw.get("path") or "").strip()
         if not path:
             raise ValueError("source.path é obrigatório quando source é declarativo")
@@ -257,6 +374,28 @@ class SourceSpec:
     schema_hints: Optional[str] = None
     include_existing_files: bool = True
     max_files_per_trigger: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ConnectorSpec:
+    """Source declarativo genérico resolvido por registry de conectores."""
+
+    type: Literal["connector"] = "connector"
+    connector: str = ""
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    format: Optional[str] = None
+    path: Optional[str] = None
+    table: Optional[str] = None
+    query: Optional[str] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+    read: Dict[str, Any] = field(default_factory=dict)
+    request: Dict[str, Any] = field(default_factory=dict)
+    auth: Dict[str, Any] = field(default_factory=dict)
+    pagination: Dict[str, Any] = field(default_factory=dict)
+    response: Dict[str, Any] = field(default_factory=dict)
+    incremental: Dict[str, Any] = field(default_factory=dict)
+    limits: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -525,6 +664,11 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
             raise ValueError("source.checkpoint_location é obrigatório para source.trigger=available_now")
         if plan.mode == "snapshot_soft_delete":
             raise ValueError("snapshot_soft_delete é incompatível com sources incrementais declarativos")
+    if isinstance(plan.source, ConnectorSpec):
+        if plan.source.type != "connector":
+            raise ValueError("ConnectorSpec.type deve ser 'connector'")
+        _validate_connector_name(plan.source.connector)
+        _validate_native_connector_contract(plan.source)
     if plan.quality_rules:
         if plan.quality_rules.min_rows is not None and plan.quality_rules.min_rows <= 0:
             raise ValueError("quality_rules.min_rows deve ser inteiro positivo")
