@@ -27,6 +27,7 @@ contractforge = "lakehouse_ingestion.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/marquesantero/contractforge"
+Documentation = "https://marquesantero.github.io/contractforge/"
 Changelog = "https://github.com/marquesantero/contractforge/blob/main/CHANGELOG.md"
 Issues = "https://github.com/marquesantero/contractforge/issues"
 
