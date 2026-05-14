@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v1.9.0 — Documentação</title>
+<title>ContractForge v1.10.0 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.9.0 · MIT · Python ≥3.10</span>
+    <span class="version">v1.10.0 · MIT · Python ≥3.10</span>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
@@ -118,7 +118,7 @@
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v1.9.0</span>
+    <span class="badge" style="color:#79c0ff">v1.10.0</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
@@ -218,11 +218,11 @@ flowchart TB
 pip install build && python -m build
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.9.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.10.0-py3-none-any.whl \
   dbfs:/Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/
 
 # Notebook Databricks:
-%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.9.0-py3-none-any.whl
+%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.10.0-py3-none-any.whl
 dbutils.library.restartPython()</code></pre>
 
 <h3>Desenvolvimento Local</h3>
@@ -771,9 +771,9 @@ schema_policy: strict</code></pre></div>
 <div class="table-wrap"><table>
 <tr><th>Família</th><th>Conectores</th><th>Uso principal</th></tr>
 <tr><td>Catálogo</td><td><code>table</code>, <code>delta_table</code>, <code>view</code>, <code>sql</code></td><td>Table-to-table e queries declarativas.</td></tr>
-<tr><td>Arquivos</td><td><code>parquet</code>, <code>json</code>, <code>csv</code>, <code>text</code></td><td>Landing batch em Volumes, DBFS ou paths cloud configurados no runtime.</td></tr>
-<tr><td>Blob/Object storage</td><td><code>object_storage</code>, <code>blob</code></td><td>ADLS, Azure Blob, S3 e GCS via Spark reader.</td></tr>
-<tr><td>Sistemas externos</td><td><code>jdbc</code>, <code>rest_api</code></td><td>Bancos relacionais e APIs JSON paginadas.</td></tr>
+<tr><td>Arquivos</td><td><code>parquet</code>, <code>delta</code>, <code>json</code>, <code>csv</code>, <code>orc</code>, <code>text</code></td><td>Landing batch em Volumes, DBFS ou paths cloud configurados no runtime.</td></tr>
+<tr><td>Blob/Object storage</td><td><code>object_storage</code>, <code>blob</code>, <code>s3</code>, <code>adls</code>, <code>azure_blob</code>, <code>gcs</code></td><td>ADLS, Azure Blob, S3 e GCS via Spark reader.</td></tr>
+<tr><td>Sistemas externos</td><td><code>jdbc</code>, <code>postgres</code>, <code>sqlserver</code>, <code>mysql</code>, <code>oracle</code>, <code>snowflake</code>, <code>bigquery</code>, <code>rest_api</code></td><td>Bancos relacionais, Spark connectors externos e APIs JSON paginadas.</td></tr>
 <tr><td>Streaming finito</td><td><code>autoloader</code></td><td>Auto Loader <code>available_now</code> com checkpoint e batches filhos.</td></tr>
 </table></div>
 
@@ -782,9 +782,10 @@ schema_policy: strict</code></pre></div>
 <tr><th>Conector</th><th>Campos obrigatórios</th><th>Campos comuns</th><th>Observações</th></tr>
 <tr><td><code>table</code>, <code>delta_table</code>, <code>view</code></td><td><code>table</code></td><td><code>read.source_complete</code></td><td>Usado para table-to-table, snapshots completos e reprocessamentos controlados.</td></tr>
 <tr><td><code>sql</code></td><td><code>query</code></td><td><code>name</code>, <code>read.source_complete</code></td><td>Permite uma query declarativa como origem; use com cuidado para manter rastreabilidade.</td></tr>
-<tr><td><code>parquet</code>, <code>json</code>, <code>csv</code>, <code>text</code></td><td><code>path</code></td><td><code>format</code>, <code>options</code>, <code>read.source_complete</code></td><td>Usa <code>spark.read.format(...).load(path)</code>; credenciais ficam no runtime.</td></tr>
-<tr><td><code>object_storage</code>, <code>blob</code></td><td><code>provider</code>, <code>format</code>, <code>path</code></td><td><code>options</code>, <code>read.source_complete</code></td><td><code>provider</code> aceita <code>adls</code>, <code>azure_blob</code>, <code>s3</code> e <code>gcs</code>.</td></tr>
-<tr><td><code>jdbc</code></td><td><code>options.url</code> + <code>options.dbtable</code> ou <code>options.query</code></td><td><code>read.partition_column</code>, <code>fetchsize</code>, <code>incremental</code></td><td>Suporta particionamento, secrets e pushdown incremental por watermark/predicate.</td></tr>
+<tr><td><code>parquet</code>, <code>delta</code>, <code>json</code>, <code>csv</code>, <code>orc</code>, <code>text</code></td><td><code>path</code></td><td><code>format</code>, <code>options</code>, <code>read.source_complete</code></td><td>Usa <code>spark.read.format(...).load(path)</code>; credenciais ficam no runtime.</td></tr>
+<tr><td><code>object_storage</code>, <code>blob</code>, <code>s3</code>, <code>adls</code>, <code>azure_blob</code>, <code>gcs</code></td><td><code>format</code>, <code>path</code></td><td><code>provider</code>, <code>options</code>, <code>read.source_complete</code></td><td>Aliases diretos definem o provider automaticamente; <code>object_storage</code>/<code>blob</code> aceitam provider explícito.</td></tr>
+<tr><td><code>jdbc</code>, <code>postgres</code>, <code>postgresql</code>, <code>sqlserver</code>, <code>mysql</code>, <code>oracle</code></td><td><code>options.url</code> + <code>options.dbtable</code> ou <code>options.query</code></td><td><code>read.partition_column</code>, <code>fetchsize</code>, <code>incremental</code></td><td>Suporta particionamento, secrets e pushdown incremental por watermark/predicate.</td></tr>
+<tr><td><code>snowflake</code>, <code>bigquery</code></td><td><code>table</code>, <code>query</code> ou opções equivalentes</td><td><code>options</code>, <code>read.source_complete</code></td><td>Usa Spark connector instalado no runtime: <code>format("snowflake")</code> ou <code>format("bigquery")</code>.</td></tr>
 <tr><td><code>rest_api</code></td><td><code>request.url</code></td><td><code>auth</code>, <code>pagination</code>, <code>response.records_path</code>, <code>limits</code>, <code>incremental</code></td><td>Batch JSON paginado; indicado para APIs administrativas e volumes controlados.</td></tr>
 <tr><td><code>autoloader</code></td><td><code>path</code>, <code>format</code>, <code>read.schema_location</code>, <code>read.checkpoint_location</code></td><td><code>read.include_existing_files</code>, <code>schema_hints</code>, <code>max_files_per_trigger</code></td><td>Executa streaming finito com <code>available_now</code>; cada batch vira run filho.</td></tr>
 </table></div>
@@ -893,10 +894,10 @@ limits:
 <h3>JDBC e Snapshot Completo</h3>
 <pre><code>source:
   type: connector
-  connector: jdbc
+  connector: postgres
   name: erp_customers
   options:
-    url: "{{ secret:erp/jdbc_url }}"
+    url: "{{ secret:erp/postgres_url }}"
     dbtable: public.customers
     user: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
@@ -916,6 +917,8 @@ layer: silver
 mode: snapshot_soft_delete
 merge_keys: [customer_id]</code></pre>
 
+<p>Aliases <code>postgres</code>, <code>postgresql</code>, <code>sqlserver</code>, <code>mysql</code> e <code>oracle</code> usam o mesmo executor JDBC e mantêm o conector declarado na observabilidade. Os drivers continuam responsabilidade do runtime.</p>
+
 <h4>JDBC incremental por predicate customizado</h4>
 <pre><code>watermark_columns: updated_at
 
@@ -928,9 +931,67 @@ source:
   incremental:
     predicate: "updated_at &gt;= TIMESTAMP '{watermark_previous}'"</code></pre>
 
+<h3>Storage Multi-Cloud</h3>
+<pre><code>source:
+  type: connector
+  connector: s3
+  format: parquet
+  path: s3://company-landing/orders/
+  read:
+    source_complete: true
+
+target_table: b_orders_s3
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<pre><code>source:
+  type: connector
+  connector: object_storage
+  provider: gcs
+  format: json
+  path: gs://company-landing/events/
+  options:
+    multiline: true
+
+target_table: b_events_gcs
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<h3>Snowflake e BigQuery</h3>
+<pre><code>source:
+  type: connector
+  connector: snowflake
+  options:
+    sfURL: "{{ secret:snowflake/url }}"
+    sfUser: "{{ secret:snowflake/user }}"
+    sfPassword: "{{ secret:snowflake/password }}"
+    sfDatabase: RAW
+    sfSchema: PUBLIC
+    sfWarehouse: INGEST_WH
+    dbtable: ORDERS
+
+target_table: b_snowflake_orders
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
+<pre><code>source:
+  type: connector
+  connector: bigquery
+  table: my-project.raw.orders
+  options:
+    parentProject: my-project
+
+target_table: b_bigquery_orders
+catalog: main
+layer: bronze
+mode: scd0_append</code></pre>
+
 <div class="alert warn"><strong>Snapshot completo:</strong> use <code>source.read.source_complete=true</code> apenas quando a origem contém o estado completo necessário para o modo. <code>snapshot_soft_delete</code> e <code>replace_partitions</code> dependem dessa garantia para evitar deleções ou substituições incorretas.</div>
 
-<div class="alert info"><strong>Observabilidade:</strong> <code>ctrl_ingestion_runs</code> registra conector, provider, formato, path, opções redigidas, request/auth/pagination/incremental/limits, capabilities e <code>source_metrics_json</code>. Em REST, as métricas incluem requests, páginas, registros, bytes, paginação, retry/rate limit e watermark aplicado. Em JDBC, incluem estratégia de leitura, incrementalidade, watermark, particionamento e fetchsize. Secrets no formato <code>{{ secret:scope/key }}</code> são resolvidos via Databricks Secrets ou variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>.</div>
+<div class="alert info"><strong>Observabilidade:</strong> <code>ctrl_ingestion_runs</code> registra conector, provider, formato, path, opções redigidas, request/auth/pagination/incremental/limits, capabilities e <code>source_metrics_json</code>. Em REST, as métricas incluem requests, páginas, registros, bytes, paginação, retry/rate limit e watermark aplicado. Em JDBC, incluem estratégia de leitura, incrementalidade, watermark, particionamento e fetchsize. Em Snowflake/BigQuery, incluem o formato Spark externo usado e se a origem foi declarada como completa. Secrets no formato <code>{{ secret:scope/key }}</code> são resolvidos via Databricks Secrets ou variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>.</div>
 <div class="alert info"><strong>Incremental:</strong> <code>source.incremental</code> empurra o watermark anterior para REST (<code>watermark_param</code>, <code>watermark_header</code>, <code>watermark_body_field</code>) ou JDBC (<code>watermark_column</code>/<code>predicate</code>). O controle oficial continua em <code>watermark_columns</code>.</div>
 <div class="alert info"><strong>Extensível:</strong> novos conectores podem ser registrados com <code>register_source_resolver("meu_conector", resolver)</code>. O YAML aceita nomes válidos de conectores customizados; a execução exige que o resolver esteja registrado no runtime.</div>
 
@@ -939,7 +1000,7 @@ source:
 
 <pre><code># Descoberta e validação local
 contractforge connectors list
-contractforge connectors show rest_api jdbc
+contractforge connectors show rest_api postgres s3 bigquery
 contractforge validate contracts/bronze/b_orders_api.ingestion.yaml</code></pre>
 
 <h3>Conectores customizados</h3>
@@ -1044,7 +1105,7 @@ register_preset("corp_silver_scd1",
 <div class="tab-content active" data-lang="bash"><pre><code>contractforge presets list
 contractforge presets show silver_scd1_upsert
 contractforge connectors list
-contractforge connectors show rest_api jdbc
+contractforge connectors show rest_api postgres s3 bigquery
 contractforge validate --expand-presets contratos/silver/c_pedidos.ingestion.yaml</code></pre></div>
 </section>
 
