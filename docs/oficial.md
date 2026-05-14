@@ -57,6 +57,14 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
+### 1.2B Leitura recomendada
+
+- `docs/quickstart.md`: menor fluxo funcional para validar instalação, ingestão e ctrl tables.
+- `docs/compatibilidade_conectores.md`: matriz de conectores, dependências externas e suporte por runtime.
+- `docs/performance.md`: recomendações por modo, JDBC, REST, cache e Delta layout.
+- `docs/seguranca.md`: tratamento de secrets, explain, OpenLineage, ctrl tables e quarentena.
+- `docs/template_projeto.md` e `examples/project_template/`: estrutura inicial para um repositório de dados com DAB.
+
 ### 1.3 Arquitetura Medallion
 
 O framework adota o modelo de camadas:
@@ -3246,7 +3254,22 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 | `scd2_historical` | ✅ | ✅ (via SQL MERGE) | ✅ |
 | `snapshot_soft_delete` | ✅ | ✅ (via SQL MERGE) | ✅ |
 
-### 23.2 Requisitos de Software
+### 23.2 Conectores por Runtime
+
+| Conector | Databricks Classic | Databricks Serverless | PySpark Local | Dependência externa | Observação |
+|----------|:---:|:---:|:---:|---------------------|------------|
+| `table`, `delta_table`, `view`, `sql` | ✅ | ✅ | ✅ | Spark catalog | Depende de permissões no catálogo/schema/tabela. |
+| `parquet`, `delta`, `json`, `csv`, `orc`, `text` | ✅ | ✅ | ✅ | Spark/Hadoop file readers | Path precisa estar acessível ao Spark. |
+| `object_storage`, `blob`, `s3`, `adls`, `azure_blob`, `gcs` | ✅ | ✅ | Parcial | Credenciais cloud no runtime | A lib não configura IAM/storage credentials. |
+| `jdbc`, `postgres`, `postgresql`, `sqlserver`, `mysql`, `oracle` | ✅ | ✅ se driver disponível | ✅ se driver disponível | Driver JDBC | Use particionamento e `fetchsize` para volume grande. |
+| `rest_api` | ✅ | ✅ | ✅ | Biblioteca padrão Python | Indicado para APIs paginadas de volume controlado. |
+| `snowflake` | ✅ se conector instalado | ✅ se suportado pelo runtime | ✅ se instalado | Spark Snowflake connector | Delegado a `spark.read.format("snowflake")`. |
+| `bigquery` | ✅ se conector instalado | ✅ se suportado pelo runtime | ✅ se instalado | Spark BigQuery connector | Delegado a `spark.read.format("bigquery")`. |
+| `autoloader` | ✅ | ✅ | ❌ | Databricks Auto Loader | Apenas `available_now`. |
+
+Referência completa: `docs/compatibilidade_conectores.md`.
+
+### 23.3 Requisitos de Software
 
 | Componente | Mínimo | Recomendado |
 |-----------|--------|-------------|
@@ -3256,7 +3279,7 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 | Databricks Runtime | 13.3 LTS | 14.3 LTS+ |
 | Java (standalone) | 11 | 17 |
 
-### 23.3 Status dos Testes Locais
+### 23.4 Status dos Testes Locais
 
 A suite completa da lib foi validada localmente com Spark/Delta standalone:
 
@@ -3268,7 +3291,7 @@ Ambiente usado na validação: Python 3.11, PySpark 3.5.x, delta-spark 3.x e Jav
 Em hosts sem runtime Spark/Delta funcional, `SKIP_SPARK_TESTS=1` continua disponível para
 executar apenas os testes puros.
 
-### 23.4 Estrutura do Pacote
+### 23.5 Estrutura do Pacote
 
 ```
 src/lakehouse_ingestion/

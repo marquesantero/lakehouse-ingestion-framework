@@ -1,0 +1,21 @@
+source:
+  type: connector
+  connector: autoloader
+  path: /Volumes/main/landing/orders
+  format: json
+  read:
+    schema_location: /Volumes/main/ops/autoloader_schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders
+    include_existing_files: true
+  options:
+    cloudFiles.inferColumnTypes: "true"
+
+catalog: main
+layer: bronze
+target_table: b_orders
+mode: scd0_append
+schema_policy: additive_only
+ctrl_schema: ops
+
+quality_rules:
+  not_null: [order_id]

@@ -1,0 +1,25 @@
+target:
+  catalog: main
+  schema: silver
+  table: c_orders
+
+table:
+  description: Curated customer orders.
+  aliases: [orders, pedidos]
+  tags:
+    domain: sales
+    data_product: orders
+
+columns:
+  order_id:
+    description: Unique order identifier.
+    tags:
+      business_key: "true"
+  customer_id:
+    description: Customer identifier.
+    pii:
+      enabled: false
+      sensitivity: internal
+  amount:
+    description: Order amount in source currency.
+

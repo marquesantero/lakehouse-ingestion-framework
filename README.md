@@ -3,11 +3,19 @@
 Framework de ingestão para Databricks e Delta Lake, com contratos declarativos por tabela, suporte a Bronze/Silver/Gold, quality gates, watermarks tipados, SCD, snapshot com soft delete, explain mode e emissão de eventos OpenLineage em JSON.
 
 Documentação:
+- [docs/quickstart.md](docs/quickstart.md) — fluxo mínimo funcional em poucos minutos, com tabela de origem, execução e consultas nas ctrl tables.
 - [docs/guia_de_uso.md](docs/guia_de_uso.md) — passo a passo prático para testar como pacote ou script, padrão YAML + notebook genérico, orquestração com `for_each_task` e com master, troubleshooting e FAQ.
 - [docs/arquitetura.md](docs/arquitetura.md) — referência técnica detalhada de cada submódulo, fluxo de execução, esquemas das ctrl tables e decisões de design (~70 KB).
 - [docs/oficial.md](docs/oficial.md) — documentação oficial completa de uso, contratos, modos, observabilidade e extensão.
+- [docs/compatibilidade_conectores.md](docs/compatibilidade_conectores.md) — matriz de conectores, dependências externas e suporte por runtime.
+- [docs/performance.md](docs/performance.md) — guidelines por modo, cache, JDBC, REST, Delta layout e métricas de custo.
+- [docs/seguranca.md](docs/seguranca.md) — práticas para secrets, explain, lineage, ctrl tables e quarentena.
+- [docs/template_projeto.md](docs/template_projeto.md) — estrutura recomendada para projetos com contratos e Databricks Asset Bundles.
 - [docs/adrs/README.md](docs/adrs/README.md) — decisões arquiteturais registradas como ADRs.
 - [CHANGELOG.md](CHANGELOG.md) — histórico de versões e política de release.
+
+Template de projeto:
+- [examples/project_template](examples/project_template) — exemplo pronto com `contracts/`, notebook genérico e `databricks.yml`.
 
 ## Posicionamento
 

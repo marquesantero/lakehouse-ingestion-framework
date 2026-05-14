@@ -1,0 +1,25 @@
+source:
+  type: connector
+  connector: table
+  table: main.bronze.b_orders
+  read:
+    source_complete: true
+
+catalog: main
+layer: silver
+target_table: c_orders
+mode: scd1_upsert
+merge_keys: [order_id]
+dedup_order_expr: ingestion_ts_utc DESC NULLS LAST
+schema_policy: additive_only
+ctrl_schema: ops
+
+quality_rules:
+  not_null: [order_id, customer_id]
+  unique_key: [order_id]
+  expressions:
+    - name: positive_amount
+      expression: amount >= 0
+      severity: quarantine
+      message: Amount cannot be negative.
+

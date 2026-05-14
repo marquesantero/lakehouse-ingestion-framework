@@ -38,6 +38,7 @@
       <a href="#arquitetura-visual">Como funciona</a>
       <a href="#instalacao">Instalação</a>
       <a href="#quickstart">Quick start</a>
+      <a href="#onboarding-guide">Onboarding</a>
     </details>
 
     <details class="nav-section" open>
@@ -81,6 +82,9 @@
       <a href="#merge-guide">Estratégias merge</a>
       <a href="#yaml-guide">Contrato YAML</a>
       <a href="#connectors-guide">Conectores</a>
+      <a href="#connector-compatibility">Compatibilidade</a>
+      <a href="#performance-guide">Performance</a>
+      <a href="#security-guide">Segurança</a>
       <a href="#presets-guide">Presets</a>
       <a href="#shape-guide">Shape</a>
       <a href="#governance-guide">Governança</a>
@@ -290,6 +294,52 @@ result = ingest_plan(plan)
 
 print(f"Status: {result['status']}")</code></pre>
 </div>
+</section>
+
+<!-- ============ ONBOARDING ============ -->
+<section id="onboarding-guide">
+<h2>Onboarding Operacional</h2>
+<p>Para começar sem absorver toda a documentação de uma vez, use os artefatos abaixo como trilha curta.</p>
+
+<div class="grid">
+<div class="card">
+<h3>Quick start validável</h3>
+<p>Cria uma origem mínima, executa uma ingestão e consulta evidências em <code>ctrl_ingestion_runs</code> e <code>ctrl_ingestion_quality</code>.</p>
+<pre><code>docs/quickstart.md</code></pre>
+</div>
+<div class="card">
+<h3>Template de projeto</h3>
+<p>Estrutura inicial com contratos Bronze/Silver, notebook genérico e <code>databricks.yml</code> para Databricks Asset Bundles.</p>
+<pre><code>examples/project_template/</code></pre>
+</div>
+<div class="card">
+<h3>Compatibilidade</h3>
+<p>Matriz de conectores por runtime, dependências externas, drivers e limitações conhecidas.</p>
+<pre><code>docs/compatibilidade_conectores.md</code></pre>
+</div>
+</div>
+
+<h3>Estrutura recomendada</h3>
+<pre><code>contracts/
+  bronze/
+    b_orders.ingestion.yaml
+  silver/
+    c_orders.ingestion.yaml
+    c_orders.annotations.yaml
+    c_orders.operations.yaml
+    c_orders.access.yaml
+notebooks/
+  run_contract.py
+databricks.yml</code></pre>
+
+<p>O notebook deve ser genérico. A lógica por tabela fica no contrato versionado:</p>
+<pre><code>from lakehouse_ingestion import ingest_bundle, load_contract_bundle
+
+bundle = load_contract_bundle(dbutils.widgets.get("contract"))
+result = ingest_bundle(bundle)
+display(result)</code></pre>
+
+<div class="alert info"><strong>Regra prática:</strong> se uma alteração muda comportamento de ingestão, ela deve aparecer no YAML e passar por revisão. O notebook só carrega e executa o contrato.</div>
 </section>
 
 <!-- ============ API PÚBLICA ============ -->
@@ -789,6 +839,18 @@ schema_policy: strict</code></pre></div>
 <tr><td><code>rest_api</code></td><td><code>request.url</code></td><td><code>auth</code>, <code>pagination</code>, <code>response.records_path</code>, <code>limits</code>, <code>incremental</code></td><td>Batch JSON paginado; indicado para APIs administrativas e volumes controlados.</td></tr>
 <tr><td><code>autoloader</code></td><td><code>path</code>, <code>format</code>, <code>read.schema_location</code>, <code>read.checkpoint_location</code></td><td><code>read.include_existing_files</code>, <code>schema_hints</code>, <code>max_files_per_trigger</code></td><td>Executa streaming finito com <code>available_now</code>; cada batch vira run filho.</td></tr>
 </table></div>
+
+<h3 id="connector-compatibility">Compatibilidade por Runtime</h3>
+<div class="table-wrap"><table>
+<tr><th>Família</th><th>Classic</th><th>Serverless</th><th>Local</th><th>Dependência</th></tr>
+<tr><td>Catálogo/SQL</td><td>Sim</td><td>Sim</td><td>Sim</td><td>Spark catalog e permissões.</td></tr>
+<tr><td>Arquivos e object storage</td><td>Sim</td><td>Sim</td><td>Parcial</td><td>Credenciais, external locations ou configs Hadoop/cloud no runtime.</td></tr>
+<tr><td>JDBC e aliases</td><td>Sim</td><td>Se driver disponível</td><td>Se driver disponível</td><td>Driver JDBC e rede para a origem.</td></tr>
+<tr><td>REST API</td><td>Sim</td><td>Sim</td><td>Sim</td><td>Rede, autenticação e paginação confiáveis.</td></tr>
+<tr><td>Snowflake/BigQuery</td><td>Se conector instalado</td><td>Se runtime suportar</td><td>Se instalado</td><td>Spark connector externo configurado.</td></tr>
+<tr><td>Auto Loader</td><td>Sim</td><td>Sim</td><td>Não</td><td>Databricks Auto Loader.</td></tr>
+</table></div>
+<p>Referência completa no repositório: <code>docs/compatibilidade_conectores.md</code>.</p>
 
 <h3>Auto Loader</h3>
 <pre><code>source:
@@ -1879,6 +1941,40 @@ ORDER BY change_ts_utc DESC;</code></pre>
 <div class="card"><h4>O <code>shape</code> funciona em qualquer camada?</h4><p>Sim, mas <code>explode</code>/<code>explode_outer</code> são bloqueados em Bronze por default (mudam cardinalidade). Use <code>allow_cardinality_change_on_bronze: true</code> para liberar.</p></div>
 <div class="card"><h4>Diferença entre <code>ingest()</code> e <code>ingest_bundle()</code>?</h4><p><code>ingest()</code> executa só ingestion. <code>ingest_bundle()</code> carrega os 4 contratos e aplica ingestion + metadata + ownership. Access requer chamada separada com permissões elevadas.</p></div>
 <div class="card"><h4>Preciso de todos os 4 contratos YAML?</h4><p>Não. O mínimo é <code>*.ingestion.yaml</code>. Adicione os demais conforme maturidade: annotations para catálogo, operations para SLAs, access para grants/filters/masks.</p></div>
+</section>
+
+<!-- ============ PERFORMANCE ============ -->
+<section id="performance-guide">
+<h2>Guidelines de Performance</h2>
+<div class="table-wrap"><table>
+<tr><th>Cenário</th><th>Recomendação</th></tr>
+<tr><td>Landing append-only</td><td>Use <code>scd0_append</code> com idempotência quando houver reprocessamento.</td></tr>
+<tr><td>JDBC grande</td><td>Configure particionamento, <code>fetchsize</code> e pushdown incremental.</td></tr>
+<tr><td>REST de alto volume</td><td>Descarregue para arquivos raw e processe com Auto Loader.</td></tr>
+<tr><td>SCD2/hash-diff</td><td>Use <code>dedup_order_expr</code> determinístico e reduza colunas de comparação quando possível.</td></tr>
+<tr><td>Cache</td><td>Use <code>use_cache=true</code> só quando o DataFrame preparado for reutilizado; desligue em caso de pressão de memória.</td></tr>
+<tr><td>Delta layout</td><td>Prefira <code>cluster_columns</code> para novas tabelas Databricks quando houver padrão claro de filtros.</td></tr>
+</table></div>
+<pre><code>SELECT target_table, mode,
+       AVG(duration_seconds) AS avg_duration,
+       AVG(rows_written / NULLIF(duration_seconds, 0)) AS avg_rows_per_second
+FROM main.ops.ctrl_ingestion_runs
+WHERE status = 'SUCCESS'
+GROUP BY target_table, mode
+ORDER BY avg_duration DESC;</code></pre>
+<p>Referência completa: <code>docs/performance.md</code>.</p>
+</section>
+
+<!-- ============ SECURITY ============ -->
+<section id="security-guide">
+<h2>Segurança e Secrets</h2>
+<div class="grid">
+<div class="card"><h3>Secrets</h3><p>Use sempre <code>{{ secret:scope/key }}</code>. A resolução tenta variável de ambiente e depois Databricks Secrets.</p></div>
+<div class="card"><h3>Redação</h3><p>Chaves contendo <code>password</code>, <code>secret</code>, <code>token</code>, <code>api_key</code>, <code>authorization</code> ou <code>key</code> são redigidas nas ctrl tables.</p></div>
+<div class="card"><h3>Ctrl tables</h3><p>Restrinja o schema <code>ops</code>. Quarentena e erros podem conter dados sensíveis ou stack traces completos.</p></div>
+</div>
+<div class="alert warn"><strong>Explain e lineage:</strong> não coloque credenciais ou literais sensíveis em SQL, filtros ou expressões. <code>explain_mode</code> e OpenLineage devem carregar metadados operacionais, não payloads confidenciais.</div>
+<p>Referência completa: <code>docs/seguranca.md</code>.</p>
 </section>
 
 <!-- ============ CHECKLIST ============ -->
