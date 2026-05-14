@@ -50,7 +50,7 @@ Para desenvolvimento e testes:
 pip install -e ".[dev]"
 ```
 
-## Build para PyPI
+## Build e Release
 
 ```bash
 python -m pip install build twine
@@ -58,6 +58,17 @@ python scripts/check_release.py
 python -m build
 twine check dist/*
 ```
+
+Para publicar uma release no GitHub, crie uma tag semântica igual à versão do pacote:
+
+```bash
+git tag v1.13.0
+git push origin v1.13.0
+```
+
+O workflow `Release` valida `pyproject.toml`, `lakehouse_ingestion.__version__`,
+`FRAMEWORK_VERSION`, `CHANGELOG.md`, confere se a tag bate com a versão, gera o
+wheel/source distribution e anexa os artefatos à GitHub Release.
 
 ## Requisitos de runtime
 
