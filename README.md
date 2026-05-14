@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/assets/logo/contractforge-logo.jpg" alt="ContractForge" width="520">
+</p>
+
 # ContractForge
 
 Framework de ingestão para Databricks e Delta Lake, com contratos declarativos por tabela, suporte a Bronze/Silver/Gold, quality gates, watermarks tipados, SCD, snapshot com soft delete, explain mode e emissão de eventos OpenLineage em JSON.
