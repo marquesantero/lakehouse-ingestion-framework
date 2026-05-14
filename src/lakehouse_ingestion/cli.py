@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, List
 
+from .config import VALID_LAYERS, VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
 from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .plan import build_plan_from_kwargs
@@ -24,6 +25,23 @@ def _load_contract(path: Path) -> Any:
     except Exception as exc:
         raise RuntimeError("Validação de YAML requer PyYAML instalado") from exc
     return yaml.safe_load(text)
+
+
+def _write_yaml(path: Path, payload: dict[str, Any], *, force: bool = False) -> None:
+    if path.exists() and not force:
+        raise FileExistsError(f"{path} ja existe; use --force para sobrescrever")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import yaml  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("Geracao de YAML requer PyYAML instalado") from exc
+    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
+def _csv_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _iter_contracts(payload: Any) -> Iterable[dict[str, Any]]:
@@ -163,6 +181,119 @@ def _validate_project(paths: List[Path], indent: int) -> int:
     }
     print(json.dumps(report, indent=indent, sort_keys=True, default=str))
     return 1 if failed else 0
+
+
+def _init_output_path(path: Path, *, split: bool) -> Path:
+    if split:
+        name = path.name
+        for marker in (".ingestion.yaml", ".ingestion.yml", ".ingestion.json"):
+            if name.endswith(marker):
+                return path.with_name(name[: -len(marker)])
+        return path
+    if path.suffix.lower() in _CONTRACT_FILE_SUFFIXES:
+        return path
+    return path.with_suffix(".ingestion.yaml")
+
+
+def _target_block(catalog: str, layer: str, target_table: str) -> dict[str, str]:
+    return {"catalog": catalog, "schema": layer, "table": target_table}
+
+
+def _build_init_ingestion_contract(args: argparse.Namespace) -> dict[str, Any]:
+    mode = args.mode
+    merge_keys = _csv_list(args.merge_keys)
+    hash_keys = _csv_list(args.hash_keys) or merge_keys
+    watermark_columns = _csv_list(args.watermark_columns)
+    if mode in {"scd1_upsert", "scd2_historical", "snapshot_soft_delete"} and not merge_keys:
+        raise ValueError(f"--merge-keys e obrigatorio para mode={mode}")
+    if mode == "scd1_hash_diff" and not hash_keys:
+        raise ValueError("--hash-keys ou --merge-keys e obrigatorio para mode=scd1_hash_diff")
+    contract: dict[str, Any] = {
+        "source": args.source,
+        "target_table": args.target_table,
+        "catalog": args.catalog,
+        "layer": args.layer,
+        "mode": mode,
+        "schema_policy": args.schema_policy,
+        "ctrl_schema": args.ctrl_schema,
+    }
+    if args.preset:
+        contract["preset"] = _csv_list(args.preset)
+    if merge_keys:
+        contract["merge_keys"] = merge_keys
+    if hash_keys and mode == "scd1_hash_diff":
+        contract["hash_keys"] = hash_keys
+    if watermark_columns:
+        contract["watermark_columns"] = watermark_columns
+    not_null = merge_keys or hash_keys
+    if not_null:
+        contract["quality_rules"] = {"not_null": not_null}
+    return contract
+
+
+def _build_init_annotations_contract(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "table": {
+            "description": args.description or f"TODO: descrever {args.target_table}",
+            "aliases": [],
+            "tags": {"domain": args.domain or "TODO"},
+        },
+        "columns": {},
+    }
+
+
+def _build_init_operations_contract(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "ownership": {
+            "business_owner": args.owner or "TODO",
+            "technical_owner": args.technical_owner or "data-platform",
+            "support_group": args.support_group or "data-platform",
+        },
+        "operations": {
+            "criticality": args.criticality,
+            "expected_frequency": args.expected_frequency,
+            "freshness_sla_minutes": args.freshness_sla_minutes,
+            "alert_on_failure": True,
+            "alert_on_quality_fail": True,
+            "runbook_url": args.runbook_url or "TODO",
+            "tags": {},
+        },
+    }
+
+
+def _build_init_access_contract(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "target": _target_block(args.catalog, args.layer, args.target_table),
+        "access_policy": {"mode": "validate_only", "on_drift": "warn", "revoke_unmanaged": False},
+        "grants": [{"principal": args.access_principal or "data-engineers", "privileges": ["SELECT"]}],
+    }
+
+
+def _init_contract(args: argparse.Namespace) -> int:
+    try:
+        output = _init_output_path(args.output, split=args.split)
+        written = []
+        ingestion = _build_init_ingestion_contract(args)
+        if args.split:
+            files = {
+                output.with_suffix(".ingestion.yaml"): ingestion,
+                output.with_suffix(".annotations.yaml"): _build_init_annotations_contract(args),
+                output.with_suffix(".operations.yaml"): _build_init_operations_contract(args),
+                output.with_suffix(".access.yaml"): _build_init_access_contract(args),
+            }
+            for path, payload in files.items():
+                _write_yaml(path, payload, force=args.force)
+                written.append(str(path))
+        else:
+            _write_yaml(output, ingestion, force=args.force)
+            written.append(str(output))
+        print(json.dumps({"status": "SUCCESS", "written": written}, indent=args.indent, sort_keys=True))
+        return 0
+    except Exception as exc:
+        print(f"ERRO init: {exc}", file=sys.stderr)
+        return 1
 
 
 def _preview_governance(paths: List[Path], indent: int) -> int:
@@ -335,6 +466,40 @@ def main(argv: list[str] | None = None) -> int:
     validate_project_parser.add_argument("paths", nargs="+", type=Path)
     validate_project_parser.add_argument("--indent", type=int, default=2)
 
+    init_parser = sub.add_parser(
+        "init",
+        help="Gera um contrato inicial YAML para acelerar novos pipelines",
+    )
+    init_parser.add_argument("--output", required=True, type=Path)
+    init_parser.add_argument("--source", required=True)
+    init_parser.add_argument("--target-table", required=True)
+    init_parser.add_argument("--catalog", default="main")
+    init_parser.add_argument("--layer", default="bronze", choices=sorted(VALID_LAYERS))
+    init_parser.add_argument("--mode", default="scd0_append", choices=sorted(VALID_WRITE_MODES))
+    init_parser.add_argument("--schema-policy", default="additive_only", choices=sorted(VALID_SCHEMA_POLICIES))
+    init_parser.add_argument("--ctrl-schema", default="ops")
+    init_parser.add_argument("--merge-keys")
+    init_parser.add_argument("--hash-keys")
+    init_parser.add_argument("--watermark-columns")
+    init_parser.add_argument("--preset")
+    init_parser.add_argument("--description")
+    init_parser.add_argument("--domain")
+    init_parser.add_argument("--owner")
+    init_parser.add_argument("--technical-owner")
+    init_parser.add_argument("--support-group")
+    init_parser.add_argument("--criticality", default="medium", choices=["low", "medium", "high", "critical"])
+    init_parser.add_argument(
+        "--expected-frequency",
+        default="daily",
+        choices=["hourly", "daily", "weekly", "monthly", "ad_hoc"],
+    )
+    init_parser.add_argument("--freshness-sla-minutes", type=int, default=1440)
+    init_parser.add_argument("--runbook-url")
+    init_parser.add_argument("--access-principal")
+    init_parser.add_argument("--split", action="store_true", help="Gera ingestion, annotations, operations e access")
+    init_parser.add_argument("--force", action="store_true", help="Sobrescreve arquivos existentes")
+    init_parser.add_argument("--indent", type=int, default=2)
+
     governance_preview_parser = sub.add_parser(
         "governance-preview",
         help="Gera preview SQL de annotations/access e payload operacional",
@@ -418,6 +583,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate_bundles(args.paths)
     if args.command == "validate-project":
         return _validate_project(args.paths, args.indent)
+    if args.command == "init":
+        return _init_contract(args)
     if args.command == "governance-preview":
         return _preview_governance(args.paths, args.indent)
     if args.command in {"governance-check", "drift-check"}:

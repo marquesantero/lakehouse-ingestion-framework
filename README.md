@@ -395,6 +395,7 @@ contractforge presets show silver_scd1_upsert
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
 contractforge connectors doctor rest_api postgres s3 bigquery
+contractforge init --output contracts/bronze/b_orders.ingestion.yaml --source raw.orders --target-table b_orders
 contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
@@ -414,6 +415,7 @@ register_preset("company_silver_default", {
 Validação local sem Spark:
 
 ```bash
+contractforge init --output contracts/silver/c_orders --source bronze.b_orders --target-table c_orders --layer silver --mode scd1_upsert --merge-keys order_id --split
 contractforge validate-bundle contracts/gold/gd_orders
 contractforge validate-project contracts
 contractforge governance-preview contracts/gold/gd_orders
@@ -513,7 +515,7 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
 - `register_source_resolver(name, resolver)` registra conectores customizados. O contrato aceita qualquer `source.connector` com nome válido; a execução falha cedo se não houver resolver registrado.
 - `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
-- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark e aplica validação estática dos conectores nativos. `contractforge validate-project contracts` valida uma árvore inteira de contratos para CI. `contractforge schema` imprime o schema.
+- A CLI `contractforge init` gera contratos YAML iniciais. `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark e aplica validação estática dos conectores nativos. `contractforge validate-project contracts` valida uma árvore inteira de contratos para CI. `contractforge schema` imprime o schema.
 - `contractforge connectors list|show|doctor` exibe conectores registrados, campos obrigatórios, capabilities e requisitos estáticos de runtime.
 
 ## Matriz de runtime

@@ -503,7 +503,9 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 Antes de subir um YAML, valide localmente que ele é parseável e produz um `IngestionPlan` válido:
 
 ```bash
+contractforge init --output contracts/silver/c_pedidos --source bronze.b_pedidos --target-table c_pedidos --layer silver --mode scd1_upsert --merge-keys pedido_id --split
 contractforge validate contracts/silver/c_pedidos.yaml
+contractforge validate-project contracts
 contractforge schema > lakehouse_ingestion.schema.json
 ```
 

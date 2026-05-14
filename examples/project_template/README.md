@@ -25,6 +25,7 @@ databricks.yml
 3. Valide contratos no CI:
 
 ```bash
+contractforge init --output contracts/bronze/b_orders.ingestion.yaml --source main.raw.orders --target-table b_orders
 contractforge validate contracts/bronze/b_orders.ingestion.yaml
 contractforge validate-bundle contracts/silver/c_orders
 contractforge validate-project contracts

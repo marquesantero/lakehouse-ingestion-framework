@@ -97,6 +97,74 @@ def test_cli_validate_project_reports_invalid_contract(tmp_path, capsys):
     assert "target_table" in output
 
 
+def test_cli_init_generates_valid_single_contract(tmp_path, capsys):
+    output = tmp_path / "contracts" / "bronze" / "b_orders.ingestion.yaml"
+
+    assert main(["init", "--output", str(output), "--source", "raw.orders", "--target-table", "b_orders"]) == 0
+    result = capsys.readouterr().out
+    assert '"status": "SUCCESS"' in result
+    assert output.exists()
+    assert main(["validate", str(output)]) == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_cli_init_generates_valid_split_contract(tmp_path, capsys):
+    base = tmp_path / "contracts" / "silver" / "c_orders"
+
+    assert (
+        main(
+            [
+                "init",
+                "--output",
+                str(base),
+                "--source",
+                "bronze.b_orders",
+                "--target-table",
+                "c_orders",
+                "--layer",
+                "silver",
+                "--mode",
+                "scd1_upsert",
+                "--merge-keys",
+                "order_id",
+                "--split",
+                "--domain",
+                "sales",
+            ]
+        )
+        == 0
+    )
+    result = capsys.readouterr().out
+    assert "c_orders.access.yaml" in result
+    assert (tmp_path / "contracts" / "silver" / "c_orders.ingestion.yaml").exists()
+    assert main(["validate-bundle", str(base)]) == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_cli_init_requires_keys_for_upsert(tmp_path, capsys):
+    output = tmp_path / "contracts" / "silver" / "c_orders"
+
+    assert (
+        main(
+            [
+                "init",
+                "--output",
+                str(output),
+                "--source",
+                "bronze.b_orders",
+                "--target-table",
+                "c_orders",
+                "--layer",
+                "silver",
+                "--mode",
+                "scd1_upsert",
+            ]
+        )
+        == 1
+    )
+    assert "--merge-keys" in capsys.readouterr().err
+
+
 def test_cli_validate_can_expand_presets(tmp_path, capsys):
     contract = {
         "preset": ["silver_scd1_upsert", "quality_quarantine"],

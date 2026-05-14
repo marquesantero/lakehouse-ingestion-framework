@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.13.0 - 2026-05-14
+
+- Adiciona `contractforge init` para gerar contratos YAML iniciais a partir da CLI.
+- Suporta geração de contrato único ou bundle split com `.ingestion.yaml`, `.annotations.yaml`, `.operations.yaml` e `.access.yaml`.
+- Valida chaves obrigatórias para modos que precisam de `merge_keys`/`hash_keys`.
+- Atualiza documentação, site e template de projeto com o fluxo `init -> validate-project`.
+
 ## 1.12.0 - 2026-05-14
 
 - Adiciona `contractforge validate-project` para descobrir e validar recursivamente contratos standalone e bundles split em uma árvore de projeto.
