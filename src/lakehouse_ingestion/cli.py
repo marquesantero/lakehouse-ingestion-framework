@@ -14,6 +14,7 @@ from .maintenance import apply_ctrl_retention
 from .plan import build_plan_from_kwargs, target_full_table_name
 from .presets import apply_preset, list_presets, preset_details
 from .sources import diagnose_source_connectors, list_source_connector_details, source_connector_details
+from .templates import contract_template_details, contract_template_files, get_contract_template, list_contract_templates
 
 
 def _load_contract(path: Path) -> Any:
@@ -455,6 +456,52 @@ def _connectors_doctor(names: List[str], indent: int) -> int:
         return 1
 
 
+def _template_output_base(path: Path) -> Path:
+    name = path.name
+    for marker in (".ingestion.yaml", ".ingestion.yml", ".ingestion.json"):
+        if name.endswith(marker):
+            return path.with_name(name[: -len(marker)])
+    return path
+
+
+def _templates_list(indent: int) -> int:
+    details = [contract_template_details(name) for name in list_contract_templates()]
+    print(json.dumps(details, indent=indent, sort_keys=True, default=str))
+    return 0
+
+
+def _templates_show(name: str, indent: int, *, metadata_only: bool = False) -> int:
+    try:
+        payload = contract_template_details(name) if metadata_only else get_contract_template(name)
+        print(json.dumps(payload, indent=indent, sort_keys=True, default=str))
+        return 0
+    except Exception as exc:
+        print(f"ERRO template {name}: {exc}", file=sys.stderr)
+        return 1
+
+
+def _templates_write(args: argparse.Namespace) -> int:
+    try:
+        output = _template_output_base(args.output)
+        files = contract_template_files(args.name)
+        written = []
+        for kind, payload in files.items():
+            path = output.with_suffix(f".{kind}.yaml")
+            _write_yaml(path, payload, force=args.force)
+            written.append(str(path))
+        print(
+            json.dumps(
+                {"status": "SUCCESS", "template": args.name, "written": written},
+                indent=args.indent,
+                sort_keys=True,
+            )
+        )
+        return 0
+    except Exception as exc:
+        print(f"ERRO templates write: {exc}", file=sys.stderr)
+        return 1
+
+
 def _maintenance_ctrl_retention(args: argparse.Namespace) -> int:
     try:
         result = apply_ctrl_retention(
@@ -612,6 +659,20 @@ def main(argv: list[str] | None = None) -> int:
     connectors_doctor_parser.add_argument("names", nargs="*")
     connectors_doctor_parser.add_argument("--indent", type=int, default=2)
 
+    templates_parser = sub.add_parser("templates", help="Lista, exibe ou grava templates de contratos")
+    templates_sub = templates_parser.add_subparsers(dest="template_command", required=True)
+    templates_list_parser = templates_sub.add_parser("list", help="Lista templates de contratos")
+    templates_list_parser.add_argument("--indent", type=int, default=2)
+    templates_show_parser = templates_sub.add_parser("show", help="Mostra um template de contrato")
+    templates_show_parser.add_argument("name")
+    templates_show_parser.add_argument("--metadata-only", action="store_true")
+    templates_show_parser.add_argument("--indent", type=int, default=2)
+    templates_write_parser = templates_sub.add_parser("write", help="Grava um template como bundle YAML split")
+    templates_write_parser.add_argument("name")
+    templates_write_parser.add_argument("--output", required=True, type=Path)
+    templates_write_parser.add_argument("--force", action="store_true", help="Sobrescreve arquivos existentes")
+    templates_write_parser.add_argument("--indent", type=int, default=2)
+
     maintenance_parser = sub.add_parser("maintenance", help="Operacoes de manutencao operacional")
     maintenance_sub = maintenance_parser.add_subparsers(dest="maintenance_command", required=True)
     retention_parser = maintenance_sub.add_parser(
@@ -672,6 +733,13 @@ def main(argv: list[str] | None = None) -> int:
             return _connectors_show(args.names, args.indent)
         if args.connector_command == "doctor":
             return _connectors_doctor(args.names, args.indent)
+    if args.command == "templates":
+        if args.template_command == "list":
+            return _templates_list(args.indent)
+        if args.template_command == "show":
+            return _templates_show(args.name, args.indent, metadata_only=args.metadata_only)
+        if args.template_command == "write":
+            return _templates_write(args)
     if args.command == "maintenance":
         if args.maintenance_command == "ctrl-retention":
             return _maintenance_ctrl_retention(args)

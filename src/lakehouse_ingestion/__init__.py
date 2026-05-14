@@ -47,6 +47,12 @@ from .sources import (
     resolve_secrets,
     source_connector_details,
 )
+from .templates import (
+    contract_template_details,
+    contract_template_files,
+    get_contract_template,
+    list_contract_templates,
+)
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
 from .plan import target_full_table_name, target_schema_name
 from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, ShapeJsonConfig, apply_shape
@@ -59,6 +65,8 @@ __all__ = [
     "AccessGrant",
     "ConnectorCapabilities",
     "ConnectorSpec",
+    "contract_template_details",
+    "contract_template_files",
     "UCCapabilities",
     "access_drift_report",
     "AnnotationsContract",
@@ -99,7 +107,9 @@ __all__ = [
     "apply_preset",
     "apply_shape",
     "get_preset",
+    "get_contract_template",
     "list_presets",
+    "list_contract_templates",
     "list_source_connector_details",
     "list_source_resolvers",
     "preset_details",
