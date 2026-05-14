@@ -54,6 +54,20 @@ Padrões cobertos:
 - Evite colocar SQL com literais sensíveis em `source.query`, `filter_expression`, `dedup_order_expr` ou quality expressions.
 - Eventos OpenLineage devem carregar metadados operacionais, não credenciais ou payloads de negócio. O evento é redigido antes de ser salvo, mas não use OpenLineage como canal para payloads sensíveis.
 - Se um conector externo exigir opções sensíveis com nomes não padronizados, prefira nomes contendo `secret`, `token`, `password` ou `key` para garantir redação automática.
+- Metadados de conectores, incluindo `source_path`, `source_table`, labels e opções serializadas, passam por redação antes de serem gravados em ctrl tables.
+
+## Auditoria de Redação
+
+A suíte de testes cobre:
+
+- Redação recursiva de `dict`, listas e tuplas.
+- Placeholders `{{ secret:scope/key }}`.
+- Headers `Bearer`/`Basic`.
+- URLs com usuário/senha.
+- Query strings e parâmetros JDBC com `password`, `token`, `api_key` e equivalentes.
+- Metadados de conectores REST/JDBC antes de persistência em `ctrl_ingestion_runs`.
+
+Se criar um conector customizado, não grave credenciais em `metadata` diretamente. Retorne metadados operacionais e use nomes sensíveis padronizados para qualquer campo que precise ser redigido.
 
 ## Ctrl tables
 

@@ -7,6 +7,7 @@ from lakehouse_ingestion.ingestion import _validate_static_plan_options, ingest_
 from lakehouse_ingestion.plan import ConnectorSpec, build_plan_from_kwargs
 from lakehouse_ingestion.sources import (
     ConnectorCapabilities,
+    FileConnector,
     JdbcConnector,
     RestApiConnector,
     SparkFormatConnector,
@@ -18,6 +19,18 @@ from lakehouse_ingestion.sources import (
     register_source_resolver,
     resolve_batch_source,
 )
+
+
+def _assert_text_not_present(value, text: str) -> None:
+    if isinstance(value, dict):
+        for item in value.values():
+            _assert_text_not_present(item, text)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _assert_text_not_present(item, text)
+        return
+    assert text not in str(value)
 
 
 def test_build_plan_accepts_connector_source():
@@ -144,6 +157,43 @@ def test_redact_text_covers_free_form_secret_patterns():
     assert "{{ secret:scope/key }}" not in redacted
     assert "api_key=plain" not in redacted
     assert redacted.count("***REDACTED***") >= 6
+
+
+def test_connector_metadata_redacts_sensitive_identifiers_and_paths(monkeypatch):
+    calls = {"format": None, "options": {}, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="json",
+        name="orders?token=source-name-secret",
+        path="s3://bucket/orders?api_key=path-secret&status=open",
+        options={"header": "Bearer option-secret"},
+    )
+
+    resolved = FileConnector("json").resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert "source-name-secret" not in resolved.label
+    assert "path-secret" not in resolved.label
+    _assert_text_not_present(resolved.metadata, "source-name-secret")
+    _assert_text_not_present(resolved.metadata, "path-secret")
+    _assert_text_not_present(resolved.metadata, "option-secret")
+    assert calls["options"]["header"] == "Bearer option-secret"
 
 
 def test_file_connector_uses_spark_reader(monkeypatch):
@@ -325,6 +375,38 @@ def test_named_jdbc_connector_uses_jdbc_reader(monkeypatch):
     assert captured["dbtable"] == "public.orders"
     assert captured["fetchsize"] == "5000"
     assert resolved.metadata["source_connector"] == "postgres"
+
+
+def test_jdbc_connector_metadata_never_exposes_credentials(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={
+            "url": "jdbc:postgresql://user:jdbc-secret@host/db?password=param-secret",
+            "dbtable": "public.orders",
+            "user": "plain-user",
+            "password": "plain-password",
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    _assert_text_not_present(resolved.metadata, "jdbc-secret")
+    _assert_text_not_present(resolved.metadata, "param-secret")
+    _assert_text_not_present(resolved.metadata, "plain-password")
 
 
 def test_spark_format_connector_uses_table_from_source(monkeypatch):
@@ -515,6 +597,35 @@ def test_rest_api_connector_validates_missing_bearer_token():
 
     with pytest.raises(ValueError, match="auth.token"):
         RestApiConnector()._headers(spec)
+
+
+def test_rest_api_connector_metadata_never_exposes_auth_or_request_secrets(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, method, headers, body, timeout):
+        return {"data": [{"id": 1}]}, {}, url, 24
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        request={
+            "url": "https://api.example.com/orders?api_key=query-secret",
+            "headers": {"X-Api-Key": "header-secret"},
+            "json": {"client_secret": "body-secret"},
+        },
+        auth={"type": "bearer_token", "token": "bearer-secret"},
+        response={"records_path": "$.data"},
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    _assert_text_not_present(resolved.metadata, "query-secret")
+    _assert_text_not_present(resolved.metadata, "header-secret")
+    _assert_text_not_present(resolved.metadata, "body-secret")
+    _assert_text_not_present(resolved.metadata, "bearer-secret")
 
 
 def test_ingest_plan_dispatches_autoloader_connector_to_stream(monkeypatch):
