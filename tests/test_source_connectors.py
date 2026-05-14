@@ -11,6 +11,7 @@ from lakehouse_ingestion.sources import (
     RestApiConnector,
     SparkFormatConnector,
     SourceResolution,
+    diagnose_source_connectors,
     list_source_resolvers,
     redact_secrets,
     redact_text,
@@ -361,6 +362,18 @@ def test_spark_format_connector_uses_table_from_source(monkeypatch):
     assert captured["table"] == "project.dataset.orders"
     assert resolved.metadata["source_metrics"]["spark_format"] == "bigquery"
     assert resolved.metadata["source_options_redacted"]["api_key"] == "***REDACTED***"
+
+
+def test_diagnose_source_connectors_reports_runtime_requirements():
+    diagnostics = diagnose_source_connectors(["rest_api", "snowflake", "s3"])
+    by_name = {item["name"]: item for item in diagnostics}
+
+    assert by_name["rest_api"]["status"] == "ok"
+    assert "urllib" in by_name["rest_api"]["runtime"]
+    assert by_name["snowflake"]["status"] == "runtime_required"
+    assert "Snowflake" in by_name["snowflake"]["runtime"]
+    assert by_name["s3"]["status"] == "runtime_required"
+    assert "S3" in by_name["s3"]["runtime"]
 
 
 def test_snapshot_connector_requires_source_complete():

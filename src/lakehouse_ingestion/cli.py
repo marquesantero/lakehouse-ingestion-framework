@@ -11,7 +11,7 @@ from .contract_bundle import governance_check, governance_preview, load_contract
 from .contract_schema import yaml_schema
 from .plan import build_plan_from_kwargs
 from .presets import apply_preset, list_presets, preset_details
-from .sources import list_source_connector_details, source_connector_details
+from .sources import diagnose_source_connectors, list_source_connector_details, source_connector_details
 
 
 def _load_contract(path: Path) -> Any:
@@ -215,6 +215,16 @@ def _connectors_show(names: List[str], indent: int) -> int:
     return exit_code
 
 
+def _connectors_doctor(names: List[str], indent: int) -> int:
+    try:
+        diagnostics = diagnose_source_connectors(names or None)
+        print(json.dumps(diagnostics, indent=indent, sort_keys=True, default=str))
+        return 1 if any(item["status"] == "missing_python_package" for item in diagnostics) else 0
+    except Exception as exc:
+        print(f"ERRO connectors doctor: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="contractforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -302,6 +312,12 @@ def main(argv: list[str] | None = None) -> int:
     connectors_show_parser = connectors_sub.add_parser("show", help="Mostra detalhes de um ou mais conectores")
     connectors_show_parser.add_argument("names", nargs="+")
     connectors_show_parser.add_argument("--indent", type=int, default=2)
+    connectors_doctor_parser = connectors_sub.add_parser(
+        "doctor",
+        help="Diagnostica requisitos estáticos de conectores sem abrir conexões",
+    )
+    connectors_doctor_parser.add_argument("names", nargs="*")
+    connectors_doctor_parser.add_argument("--indent", type=int, default=2)
 
     args = parser.parse_args(argv)
     if args.command == "validate":
@@ -333,6 +349,8 @@ def main(argv: list[str] | None = None) -> int:
             return _connectors_list(args.indent)
         if args.connector_command == "show":
             return _connectors_show(args.names, args.indent)
+        if args.connector_command == "doctor":
+            return _connectors_doctor(args.names, args.indent)
     parser.error(f"Comando não suportado: {args.command}")
     return 2
 

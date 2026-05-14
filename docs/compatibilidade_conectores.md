@@ -35,6 +35,9 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 ```bash
 contractforge connectors list
 contractforge connectors show s3 postgres snowflake bigquery rest_api
+contractforge connectors doctor s3 postgres snowflake bigquery rest_api
 contractforge validate contracts/bronze/b_orders.ingestion.yaml
 ```
+
+`connectors doctor` não abre conexão, não cria SparkSession e não valida credenciais. Ele mostra requisitos estáticos por conector, como driver JDBC, connector Spark externo, Auto Loader ou configuração cloud no runtime. Use esse comando em PRs e notebooks de diagnóstico antes de executar ingestões reais.
 

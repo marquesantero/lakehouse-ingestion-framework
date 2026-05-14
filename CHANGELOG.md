@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.11.0 - 2026-05-14
+
+- Adiciona `contractforge connectors doctor` para diagnosticar requisitos estáticos de conectores sem abrir SparkSession ou conexões externas.
+- Expõe `diagnose_source_connectors()` na API pública.
+- Documenta requisitos de runtime para Auto Loader, object storage, JDBC, Snowflake e BigQuery.
+- Atualiza README, documentação oficial, guia de uso e site com o novo comando.
+
 ## 1.10.0 - 2026-05-14
 
 - Adiciona aliases nativos de object storage: `s3`, `adls`, `azure_blob` e `gcs`, com provider inferido para observabilidade.

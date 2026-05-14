@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
 import os
 import re
@@ -207,6 +208,118 @@ BUILTIN_CONNECTOR_METADATA: Dict[str, Dict[str, Any]] = {
     },
 }
 
+CONNECTOR_RUNTIME_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
+    "autoloader": {
+        "status": "runtime_required",
+        "runtime": "Databricks Runtime com Auto Loader",
+        "python_packages": [],
+        "notes": ["Requer cloudFiles no runtime; não é validável sem executar em Databricks."],
+    },
+    "delta": {
+        "status": "runtime_required",
+        "runtime": "Delta Lake disponível no Spark",
+        "python_packages": [],
+        "notes": ["Em Spark local use o extra contractforge[spark] ou configure delta-spark manualmente."],
+    },
+    "object_storage": {
+        "status": "runtime_required",
+        "runtime": "Credenciais e conector cloud configurados no Spark",
+        "python_packages": [],
+        "notes": ["Acesso deve vir de UC external locations, volumes, instance profile ou service principal."],
+    },
+    "blob": {
+        "status": "runtime_required",
+        "runtime": "Credenciais e conector cloud configurados no Spark",
+        "python_packages": [],
+        "notes": ["Alias genérico de object storage; declare provider para auditoria."],
+    },
+    "s3": {
+        "status": "runtime_required",
+        "runtime": "Acesso S3 configurado no Spark",
+        "python_packages": [],
+        "notes": ["Requer credenciais/IAM e suporte Hadoop S3A no runtime."],
+    },
+    "adls": {
+        "status": "runtime_required",
+        "runtime": "Acesso ADLS configurado no Spark",
+        "python_packages": [],
+        "notes": ["Em Databricks prefira external locations ou volumes Unity Catalog."],
+    },
+    "azure_blob": {
+        "status": "runtime_required",
+        "runtime": "Acesso Azure Blob configurado no Spark",
+        "python_packages": [],
+        "notes": ["Em Databricks prefira external locations ou volumes Unity Catalog."],
+    },
+    "gcs": {
+        "status": "runtime_required",
+        "runtime": "Acesso GCS configurado no Spark",
+        "python_packages": [],
+        "notes": ["Requer connector/credenciais GCS disponíveis no runtime."],
+    },
+    "jdbc": {
+        "status": "runtime_required",
+        "runtime": "Driver JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Valide o driver no cluster/serverless antes de executar contratos produtivos."],
+    },
+    "postgres": {
+        "status": "runtime_required",
+        "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Alias JDBC; a lib não instala o driver."],
+    },
+    "postgresql": {
+        "status": "runtime_required",
+        "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Alias JDBC; a lib não instala o driver."],
+    },
+    "sqlserver": {
+        "status": "runtime_required",
+        "runtime": "Driver Microsoft SQL Server JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Alias JDBC; a lib não instala o driver."],
+    },
+    "mysql": {
+        "status": "runtime_required",
+        "runtime": "Driver MySQL/MariaDB JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Alias JDBC; a lib não instala o driver."],
+    },
+    "oracle": {
+        "status": "runtime_required",
+        "runtime": "Driver Oracle JDBC no classpath do Spark",
+        "python_packages": [],
+        "notes": ["Driver Oracle costuma exigir gestão/licença controlada pelo runtime."],
+    },
+    "snowflake": {
+        "status": "runtime_required",
+        "runtime": "Spark Snowflake connector instalado no runtime",
+        "python_packages": [],
+        "notes": ["Delegado a spark.read.format('snowflake'); valide JAR/package no cluster/serverless."],
+    },
+    "bigquery": {
+        "status": "runtime_required",
+        "runtime": "Spark BigQuery connector instalado no runtime",
+        "python_packages": [],
+        "notes": ["Delegado a spark.read.format('bigquery'); valide JAR/package no cluster/serverless."],
+    },
+    "rest_api": {
+        "status": "ok",
+        "runtime": "Python urllib + SparkSession ativa para materializar DataFrame",
+        "python_packages": [],
+        "notes": ["Não requer biblioteca HTTP externa; adequado para volumes controlados."],
+    },
+}
+
+_STANDARD_CONNECTOR_STATUS = {
+    "status": "ok",
+    "runtime": "Spark reader/catalog padrão",
+    "python_packages": [],
+    "notes": [],
+}
+
 
 def _source_complete(spec: ConnectorSpec) -> bool:
     return bool(spec.read.get("source_complete", False) or spec.read.get("full_snapshot", False))
@@ -395,6 +508,42 @@ def source_connector_details(name: str) -> Dict[str, Any]:
 def list_source_connector_details() -> list[Dict[str, Any]]:
     """Lista metadata/capabilities de todos os conectores registrados."""
     return [source_connector_details(name) for name in list_source_resolvers()]
+
+
+def diagnose_source_connectors(names: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
+    """Diagnostica requisitos estáticos dos conectores sem abrir Spark/conexões."""
+    connector_names = list(names) if names is not None else list_source_resolvers()
+    diagnostics = []
+    for raw_name in connector_names:
+        name = str(raw_name or "").strip()
+        details = source_connector_details(name)
+        requirements = dict(CONNECTOR_RUNTIME_REQUIREMENTS.get(name, _STANDARD_CONNECTOR_STATUS))
+        python_packages = list(requirements.get("python_packages") or [])
+        missing_packages = [
+            package for package in python_packages if importlib.util.find_spec(package.replace("-", "_")) is None
+        ]
+        status = str(requirements.get("status") or "ok")
+        if missing_packages:
+            status = "missing_python_package"
+        if name not in BUILTIN_CONNECTOR_METADATA:
+            status = "custom"
+            requirements.setdefault("runtime", "Conector customizado registrado pela aplicação")
+            requirements.setdefault("notes", ["Validação depende do resolver customizado."])
+        diagnostics.append(
+            {
+                "name": name,
+                "status": status,
+                "family": details.get("family"),
+                "registered": True,
+                "builtin": name in BUILTIN_CONNECTOR_METADATA,
+                "capabilities": details.get("capabilities", {}),
+                "runtime": requirements.get("runtime"),
+                "python_packages": python_packages,
+                "missing_python_packages": missing_packages,
+                "notes": list(requirements.get("notes") or []),
+            }
+        )
+    return diagnostics
 
 
 def resolve_batch_source(spec: ConnectorSpec, plan: IngestionPlan) -> SourceResolution:

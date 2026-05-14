@@ -35,6 +35,7 @@ from .ingestion import (
 from .sources import (
     ConnectorCapabilities,
     SourceResolution,
+    diagnose_source_connectors,
     get_source_resolver,
     list_source_connector_details,
     list_source_resolvers,
@@ -77,6 +78,7 @@ __all__ = [
     "ShapeFlattenConfig",
     "ShapeJsonConfig",
     "TableAnnotations",
+    "diagnose_source_connectors",
     "get_source_resolver",
     "get_uc_capabilities",
     "governance_check",
@@ -111,4 +113,4 @@ __all__ = [
     "yaml_schema",
 ]
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"

@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 1.10.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.11.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.10.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.11.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -133,14 +133,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-1.10.0-py3-none-any.whl
+# → dist/contractforge-1.11.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.10.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.11.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.10.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.11.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -625,7 +625,10 @@ Descoberta via CLI:
 ```bash
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery autoloader
+contractforge connectors doctor rest_api postgres s3 bigquery autoloader
 ```
+
+`connectors doctor` é diagnóstico estático: não abre conexão, não cria SparkSession e não valida credenciais. Ele informa se o conector depende de recurso do runtime, como Auto Loader, driver JDBC, connector Spark externo ou configuração cloud.
 
 ### 5C.1 Auto Loader
 
@@ -1040,6 +1043,7 @@ contractforge presets list
 contractforge presets show silver_scd1_upsert
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
+contractforge connectors doctor rest_api postgres s3 bigquery
 contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
@@ -3179,7 +3183,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.10.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.11.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.

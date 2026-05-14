@@ -628,6 +628,7 @@ Descubra os conectores disponíveis sem Spark:
 ```bash
 contractforge connectors list
 contractforge connectors show rest_api jdbc autoloader
+contractforge connectors doctor rest_api jdbc autoloader
 ```
 
 `contractforge validate` também valida os campos obrigatórios dos conectores nativos, evitando descobrir em runtime que faltou `source.request.url`, `source.options.url`, `source.read.checkpoint_location` ou configuração completa de particionamento JDBC.

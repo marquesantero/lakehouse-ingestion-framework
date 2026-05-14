@@ -96,6 +96,15 @@ def test_cli_connectors_list_and_show(capsys):
     assert '"partitioned_read"' in output
 
 
+def test_cli_connectors_doctor_reports_static_requirements(capsys):
+    assert main(["connectors", "doctor", "rest_api", "snowflake", "--indent", "0"]) == 0
+    output = capsys.readouterr().out
+    assert '"name": "rest_api"' in output
+    assert '"status": "ok"' in output
+    assert '"name": "snowflake"' in output
+    assert '"status": "runtime_required"' in output
+
+
 def test_cli_validate_rejects_incomplete_native_connector(tmp_path, capsys):
     contract = {
         "source": {"type": "connector", "connector": "rest_api"},

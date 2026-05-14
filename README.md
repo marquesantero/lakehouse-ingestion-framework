@@ -394,6 +394,7 @@ contractforge presets list
 contractforge presets show silver_scd1_upsert
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
+contractforge connectors doctor rest_api postgres s3 bigquery
 contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 

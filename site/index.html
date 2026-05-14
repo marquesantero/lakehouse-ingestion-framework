@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v1.10.0 — Documentação</title>
+<title>ContractForge v1.11.0 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.10.0 · MIT · Python ≥3.10</span>
+    <span class="version">v1.11.0 · MIT · Python ≥3.10</span>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
@@ -122,7 +122,7 @@
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v1.10.0</span>
+    <span class="badge" style="color:#79c0ff">v1.11.0</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
@@ -222,11 +222,11 @@ flowchart TB
 pip install build && python -m build
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.10.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.11.0-py3-none-any.whl \
   dbfs:/Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/
 
 # Notebook Databricks:
-%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.10.0-py3-none-any.whl
+%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-1.11.0-py3-none-any.whl
 dbutils.library.restartPython()</code></pre>
 
 <h3>Desenvolvimento Local</h3>
@@ -1063,7 +1063,10 @@ mode: scd0_append</code></pre>
 <pre><code># Descoberta e validação local
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
+contractforge connectors doctor rest_api postgres s3 bigquery
 contractforge validate contracts/bronze/b_orders_api.ingestion.yaml</code></pre>
+
+<p><code>connectors doctor</code> não abre conexão nem cria SparkSession. Ele informa requisitos estáticos como driver JDBC, connector Spark externo, Auto Loader ou credenciais cloud no runtime.</p>
 
 <h3>Conectores customizados</h3>
 <p>O registry permite acoplar novos conectores sem alterar o core. O contrato YAML aceita qualquer nome válido de conector customizado; em runtime, o resolver precisa estar registrado antes da execução.</p>
@@ -1168,6 +1171,7 @@ register_preset("corp_silver_scd1",
 contractforge presets show silver_scd1_upsert
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
+contractforge connectors doctor rest_api postgres s3 bigquery
 contractforge validate --expand-presets contratos/silver/c_pedidos.ingestion.yaml</code></pre></div>
 </section>
 
