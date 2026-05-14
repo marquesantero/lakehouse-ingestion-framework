@@ -29,6 +29,7 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 - Para `snapshot_soft_delete`, declare `source.read.source_complete=true` apenas quando a fonte representar o estado completo.
 - Para JDBC em tabelas grandes, configure `partition_column`, `lower_bound`, `upper_bound`, `num_partitions` e `fetchsize`.
 - Para Snowflake/BigQuery, valide o conector Spark no runtime antes de usar o contrato em produção.
+- Para conectores que usam credenciais, use `{{ secret:scope/key }}` e valide que `contractforge validate`/`connectors doctor` não exibem segredo literal.
 
 ## Exemplos de validação
 
@@ -40,4 +41,73 @@ contractforge validate contracts/bronze/b_orders.ingestion.yaml
 ```
 
 `connectors doctor` não abre conexão, não cria SparkSession e não valida credenciais. Ele mostra requisitos estáticos por conector, como driver JDBC, connector Spark externo, Auto Loader ou configuração cloud no runtime. Use esse comando em PRs e notebooks de diagnóstico antes de executar ingestões reais.
+
+## Exemplo JDBC Incremental
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:erp/postgres_url }}"
+    dbtable: public.orders
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  incremental:
+    watermark_column: updated_at
+  read:
+    fetchsize: 10000
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 10000000
+    num_partitions: 16
+
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+layer: silver
+mode: scd1_upsert
+merge_keys: order_id
+watermark_columns: updated_at
+```
+
+## Exemplo REST API Incremental
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    params:
+      status: open
+  auth:
+    type: bearer_token
+    token: "{{ secret:orders_api/token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    watermark_header: X-Watermark
+  limits:
+    max_pages: 100
+    timeout_seconds: 60
+    retry_attempts: 3
+
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_api
+
+layer: bronze
+mode: scd0_append
+watermark_columns: updated_at
+```
 

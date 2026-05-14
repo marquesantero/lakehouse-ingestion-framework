@@ -6,6 +6,15 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.15.0 - 2026-05-14
+
+- Adiciona `contractforge maintenance ctrl-retention` para gerar ou aplicar limpeza das ctrl tables históricas.
+- Expõe `build_ctrl_retention_plan()` e `apply_ctrl_retention()` na API pública.
+- Mantém `ctrl_ingestion_state` e `ctrl_ingestion_metadata` fora da limpeza automática.
+- Fortalece redaction de metadados de conectores, incluindo labels, paths e tabelas com padrões sensíveis.
+- Adiciona testes de auditoria para garantir que metadados REST/JDBC não exponham credenciais.
+- Adiciona documentação operacional de retenção, anti-patterns e exemplos YAML de JDBC/REST.
+
 ## 1.14.0 - 2026-05-14
 
 - Separa a camada lógica (`layer`) do schema físico do target com o novo parâmetro `target_schema`.

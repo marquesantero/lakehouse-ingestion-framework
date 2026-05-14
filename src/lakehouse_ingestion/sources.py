@@ -356,11 +356,11 @@ def _connector_metadata(spec: ConnectorSpec, capabilities: ConnectorCapabilities
     return {
         "source_type": spec.type,
         "source_connector": spec.connector,
-        "source_name": spec.name,
+        "source_name": _redact_optional_text(spec.name),
         "source_provider": spec.provider,
         "source_format": spec.format,
-        "source_path": spec.path,
-        "source_table": spec.table,
+        "source_path": _redact_optional_text(spec.path),
+        "source_table": _redact_optional_text(spec.table),
         "source_query": bool(spec.query),
         "source_options_redacted": redact_secrets(spec.options),
         "source_read_redacted": redact_secrets(spec.read),
@@ -373,6 +373,12 @@ def _connector_metadata(spec: ConnectorSpec, capabilities: ConnectorCapabilities
         "source_capabilities": asdict(capabilities),
         "source_metrics": {},
     }
+
+
+def _redact_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return redact_text(str(value))
 
 
 def redact_secrets(value: Any) -> Any:
@@ -608,7 +614,7 @@ class TableConnector:
         }
         return SourceResolution(
             spark.read.table(str(table)),
-            f"{spec.connector}:{table}",
+            redact_text(f"{spec.connector}:{table}"),
             spec.connector,
             metadata,
             capabilities,
@@ -677,7 +683,7 @@ class FileConnector:
         }
         return SourceResolution(
             df,
-            f"{spec.connector}:{path}",
+            redact_text(f"{spec.connector}:{path}"),
             spec.connector,
             metadata,
             capabilities,
@@ -750,13 +756,13 @@ class SparkFormatConnector:
         metadata["source_metrics"] = {
             "read_strategy": "spark_format",
             "spark_format": self.spark_format,
-            "source_table": options.get("table") or options.get("dbtable") or spec.table,
+            "source_table": _redact_optional_text(options.get("table") or options.get("dbtable") or spec.table),
             "source_query": bool(options.get("query")),
             "source_complete": capabilities.source_complete,
         }
         return SourceResolution(
             df,
-            f"{spec.connector}:{spec.name or options.get('table') or options.get('dbtable') or 'query'}",
+            redact_text(f"{spec.connector}:{spec.name or options.get('table') or options.get('dbtable') or 'query'}"),
             spec.connector,
             metadata,
             capabilities,
@@ -820,7 +826,7 @@ class JdbcConnector:
         }
         return SourceResolution(
             df,
-            f"{spec.connector}:{spec.name or options.get('dbtable') or 'query'}",
+            redact_text(f"{spec.connector}:{spec.name or options.get('dbtable') or 'query'}"),
             spec.connector,
             metadata,
             capabilities,
@@ -1117,7 +1123,7 @@ class RestApiConnector:
         }
         return SourceResolution(
             df,
-            f"rest_api:{spec.name or urllib.parse.urlparse(url).netloc}",
+            redact_text(f"rest_api:{spec.name or urllib.parse.urlparse(url).netloc}"),
             spec.connector,
             metadata,
             capabilities,

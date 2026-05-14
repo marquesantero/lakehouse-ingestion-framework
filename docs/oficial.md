@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 1.14.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.15.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.14.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 1.15.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -61,8 +61,10 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - `docs/quickstart.md`: menor fluxo funcional para validar instalação, ingestão e ctrl tables.
 - `docs/compatibilidade_conectores.md`: matriz de conectores, dependências externas e suporte por runtime.
+- `docs/operacao.md`: retenção das ctrl tables, limpeza operacional e VACUUM.
 - `docs/performance.md`: recomendações por modo, JDBC, REST, cache e Delta layout.
 - `docs/seguranca.md`: tratamento de secrets, explain, OpenLineage, ctrl tables e quarentena.
+- `docs/antipadroes.md`: configurações perigosas e alternativas recomendadas.
 - `docs/template_projeto.md` e `examples/project_template/`: estrutura inicial para um repositório de dados com DAB.
 
 ### 1.3 Arquitetura Medallion
@@ -157,14 +159,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-1.14.0-py3-none-any.whl
+# → dist/contractforge-1.15.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.14.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.15.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.15.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -3212,7 +3214,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.14.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.15.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
@@ -3221,9 +3223,11 @@ Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o 
 Os nomes vêm de `FrameworkConfig.ctrl_table_*`. Para alterar, faça monkey-patch do `CONFIG` ou, preferencialmente, use `ctrl_schema` no plan para isolar ambientes.
 
 **P: Como removo dados antigos das ctrl tables?**
-`DELETE` por partição é eficiente:
-```sql
-DELETE FROM ops.ctrl_ingestion_runs WHERE run_date < current_date() - 90;
+Use o comando de manutenção. Sem `--apply`, ele apenas mostra o plano:
+
+```bash
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90 --vacuum --apply
 ```
 
 **P: Posso usar `select_columns` para renomear colunas?**

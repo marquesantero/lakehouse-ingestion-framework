@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-1.14.0-py3-none-any.whl
+# gera: dist/contractforge-1.15.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-1.14.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.15.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.15.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.14.0
+print(lakehouse_ingestion.__version__)  # 1.15.0
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.14.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.15.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==1.14.0
+%pip install --index-url https://<seu_pypi_privado> contractforge==1.15.0
 ```
 
 Em seguida:
@@ -1325,11 +1325,16 @@ Suporta apenas Autoloader com `trigger: available_now`. Streaming contínuo (`pr
 Os nomes vêm de `FrameworkConfig.ctrl_table_*`. Para customizar, monkey-patch o `CONFIG` antes de qualquer chamada (não recomendado em produção). O caminho oficial é via `ctrl_schema` no plan.
 
 **P: Como removo dados antigos das ctrl tables?**
-`ctrl_ingestion_runs` é particionada por `run_date` — `DELETE` por partição é eficiente:
+Use o comando de manutenção em modo preview:
 
-```sql
-DELETE FROM ops.ctrl_ingestion_runs WHERE run_date < current_date() - 90;
-VACUUM ops.ctrl_ingestion_runs RETAIN 168 HOURS;
+```bash
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90
+```
+
+Para aplicar:
+
+```bash
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90 --vacuum --apply
 ```
 
 **P: O master_run_id e o {{job.run_id}} são a mesma coisa?**

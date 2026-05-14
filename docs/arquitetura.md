@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.14.0`
+**Versão do pacote:** `1.15.0`
 **Pacote Python:** `contractforge`
 **Import principal:** `lakehouse_ingestion`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -106,6 +106,7 @@ lakehouse_ingestion_pkg/
 │       ├── contract_schema.py # JSON Schema do contrato declarativo
 │       ├── config.py       # FrameworkConfig + tipos (Layer, WriteMode, ...)
 │       ├── hooks.py        # hooks opcionais de pré/pós-ingestão
+│       ├── maintenance.py  # manutenção operacional de ctrl tables
 │       ├── plan.py         # IngestionPlan, QualityRules, build_plan_from_kwargs
 │       ├── presets.py      # presets declarativos e registry customizado
 │       ├── shape.py        # shape declarativo para JSON, structs e arrays
@@ -1448,7 +1449,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-1.14.0-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-1.15.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

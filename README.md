@@ -114,6 +114,7 @@ contractforge validate-bundle contracts/silver/s_orders
 contractforge validate-project contracts
 contractforge presets list
 contractforge connectors doctor postgres rest_api s3
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
 ```
 
 ## Contratos Separados
@@ -133,6 +134,13 @@ O arquivo `*.ingestion.yaml` define a execução. `annotations` documenta tabela
 
 Comece pelo [guia rápido](docs/quickstart.md). Para navegação completa por tema, use [docs/README.md](docs/README.md). A documentação web publicada em GitHub Pages fica em https://marquesantero.github.io/contractforge/.
 
+Guias operacionais úteis:
+
+- [Operação e manutenção](docs/operacao.md)
+- [Compatibilidade de conectores](docs/compatibilidade_conectores.md)
+- [Segurança e secrets](docs/seguranca.md)
+- [Anti-patterns](docs/antipadroes.md)
+
 ## Desenvolvimento
 
 ```bash
@@ -146,8 +154,8 @@ Release:
 ```bash
 python -m build
 twine check dist/*
-git tag v1.14.0
-git push origin v1.14.0
+git tag v1.15.0
+git push origin v1.15.0
 ```
 
 O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.
