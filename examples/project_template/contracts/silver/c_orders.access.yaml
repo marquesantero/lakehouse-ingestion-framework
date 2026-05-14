@@ -1,0 +1,16 @@
+target:
+  catalog: main
+  schema: silver
+  table: c_orders
+
+access_policy:
+  mode: validate_only
+  on_drift: warn
+  revoke_unmanaged: false
+
+grants:
+  - principal: data-engineers
+    privileges: [SELECT, MODIFY]
+  - principal: sales-analysts
+    privileges: [SELECT]
+

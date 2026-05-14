@@ -1,0 +1,36 @@
+bundle:
+  name: contractforge_project_template
+
+workspace:
+  root_path: /Workspace/Shared/contractforge_project_template
+
+variables:
+  catalog:
+    default: main
+  wheel_path:
+    default: /Volumes/main/ops/libs/contractforge-1.10.0-py3-none-any.whl
+
+resources:
+  jobs:
+    bronze_orders:
+      name: contractforge_bronze_orders
+      tasks:
+        - task_key: ingest_b_orders
+          notebook_task:
+            notebook_path: ./notebooks/run_contract.py
+            base_parameters:
+              contract: ./contracts/bronze/b_orders.ingestion.yaml
+          libraries:
+            - whl: ${var.wheel_path}
+
+    silver_orders:
+      name: contractforge_silver_orders
+      tasks:
+        - task_key: ingest_c_orders
+          notebook_task:
+            notebook_path: ./notebooks/run_contract.py
+            base_parameters:
+              contract: ./contracts/silver/c_orders
+          libraries:
+            - whl: ${var.wheel_path}
+

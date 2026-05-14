@@ -1,0 +1,20 @@
+target:
+  catalog: main
+  schema: silver
+  table: c_orders
+
+ownership:
+  business_owner: sales-data-owner
+  technical_owner: data-platform
+  support_group: data-platform-oncall
+
+operations:
+  criticality: high
+  expected_frequency: daily
+  freshness_sla_minutes: 180
+  alert_on_failure: true
+  alert_on_quality_fail: true
+  runbook_url: https://wiki.example.com/runbooks/c_orders
+  tags:
+    dashboard: sales
+
