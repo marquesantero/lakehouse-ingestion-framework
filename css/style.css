@@ -40,6 +40,18 @@
 
 html { scroll-behavior: smooth; font-size: 15.5px; }
 
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 body {
   font-family: var(--font-sans);
   background:
@@ -70,6 +82,16 @@ body {
   position: sticky; top: 0;
   background: linear-gradient(180deg, #f7f8fa 0%, rgba(247,248,250,.96) 100%);
   z-index: 2;
+}
+.brand-lockup {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+.brand-mark {
+  flex: 0 0 auto;
+  height: 42px;
+  width: 42px;
 }
 .sidebar-header h1 {
   font-family: var(--font-display);
@@ -159,6 +181,12 @@ a:hover { text-decoration: underline; }
 /* ---- Hero ---- */
 .hero {
   padding: 48px 0 30px; border-bottom: 1px solid var(--border); margin-bottom: 18px;
+}
+.hero-logo {
+  display: block;
+  height: auto;
+  margin: 0 0 22px;
+  max-width: min(520px, 100%);
 }
 .hero h1 {
   font-family: var(--font-display);

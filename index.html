@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v1.10.0 — Documentação</title>
+<title>ContractForge v1.13.0 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+<link rel="apple-touch-icon" href="assets/logo/contractforge-mark.png">
 <link rel="stylesheet" href="css/style.css">
 <script defer src="js/vendor/highlight.min.js"></script>
 <script defer src="js/vendor/highlight-languages/python.min.js"></script>
@@ -25,45 +27,39 @@
 <!-- ===== SIDEBAR ===== -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
-    <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.10.0 · MIT · Python ≥3.10</span>
+    <div class="brand-lockup">
+      <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
+      <div>
+        <h1>ContractForge<br>Docs</h1>
+        <span class="version">v1.13.0 · MIT · Python ≥3.10</span>
+      </div>
+    </div>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
   </div>
   <nav class="sidebar-nav" aria-label="Navegação principal">
     <details class="nav-section" open>
-      <summary>Comece aqui</summary>
+      <summary>Início Rápido</summary>
       <a href="#hero">Visão geral</a>
-      <a href="#arquitetura-visual">Como funciona</a>
       <a href="#instalacao">Instalação</a>
       <a href="#quickstart">Quick start</a>
+      <a href="#arquitetura-visual">Como funciona</a>
     </details>
 
     <details class="nav-section" open>
-      <summary>API</summary>
+      <summary>Uso Essencial</summary>
       <a href="#api-publica">Funções e classes</a>
       <a href="#retorno-execucao">Retorno da execução</a>
+      <a href="#quickstart">Contrato YAML</a>
+      <a href="#presets-guide">Presets</a>
+      <a href="#shape-guide">Shape</a>
     </details>
 
     <details class="nav-section">
-      <summary>Referência</summary>
-      <a href="#params-identificacao">Identificação</a>
-      <a href="#params-transformacoes">Transformações</a>
-      <a href="#params-chaves">Chaves e dedup</a>
-      <a href="#params-watermark">Watermark</a>
-      <a href="#params-layout">Layout Delta</a>
-      <a href="#params-schema">Schema policy</a>
-      <a href="#params-quality">Quality gates</a>
-      <a href="#params-scd2">SCD2</a>
-      <a href="#params-diagnostico">Diagnóstico</a>
-      <a href="#params-concorrencia">Concorrência</a>
-      <a href="#params-metadados">Metadados</a>
-    </details>
-
-    <details class="nav-section">
-      <summary>Modos de escrita</summary>
-      <a href="#modos-comparativo">Comparativo</a>
+      <summary>Fontes e Escrita</summary>
+      <a href="#connectors-guide">Conectores</a>
+      <a href="#modos-comparativo">Comparativo de modos</a>
       <a href="#modo-append">scd0_append</a>
       <a href="#modo-overwrite">scd0_overwrite</a>
       <a href="#modo-upsert">scd1_upsert</a>
@@ -74,30 +70,35 @@
     </details>
 
     <details class="nav-section">
-      <summary>Guias</summary>
+      <summary>Qualidade e Schema</summary>
       <a href="#quality-guide">Quality gates</a>
       <a href="#schema-guide">Schema policy</a>
-      <a href="#watermark-guide">Watermarks</a>
-      <a href="#merge-guide">Estratégias merge</a>
-      <a href="#yaml-guide">Contrato YAML</a>
-      <a href="#connectors-guide">Conectores</a>
-      <a href="#presets-guide">Presets</a>
-      <a href="#shape-guide">Shape</a>
+      <a href="#params-watermark">Watermarks</a>
+      <a href="#params-quality">Parâmetros de qualidade</a>
+      <a href="#params-schema">Parâmetros de schema</a>
+    </details>
+
+    <details class="nav-section">
+      <summary>Governança e Operação</summary>
       <a href="#governance-guide">Governança</a>
       <a href="#ctrl-tables">Ctrl tables</a>
+      <a href="#params-concorrencia">Concorrência</a>
+      <a href="#params-diagnostico">Diagnóstico</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+      <a href="#checklist">Checklist produção</a>
     </details>
 
     <details class="nav-section">
-      <summary>Exemplos</summary>
+      <summary>Referência</summary>
+      <a href="#params-identificacao">Identificação</a>
+      <a href="#params-transformacoes">Transformações</a>
+      <a href="#params-chaves">Chaves e dedup</a>
+      <a href="#params-layout">Layout Delta</a>
+      <a href="#params-scd2">SCD2</a>
+      <a href="#params-metadados">Metadados</a>
       <a href="#exemplos">Exemplos completos</a>
       <a href="#exemplos-e2e">End-to-end com bundle</a>
-    </details>
-
-    <details class="nav-section">
-      <summary>Suporte</summary>
-      <a href="#troubleshooting">Troubleshooting</a>
       <a href="#faq">FAQ</a>
-      <a href="#checklist">Checklist produção</a>
     </details>
   </nav>
   <div class="sidebar-footer">
@@ -111,14 +112,15 @@
 <!-- ============ HERO ============ -->
 <section id="hero">
 <div class="hero">
-  <h1>ContractForge</h1>
+  <img src="assets/logo/contractforge-logo.png" alt="ContractForge" class="hero-logo">
+  <h1 class="sr-only">ContractForge</h1>
   <p class="tagline">Framework batch declarativo para ingestão em Delta Lake no Databricks com contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks tipados, snapshot com soft delete, evolução de schema, explain mode e eventos OpenLineage.</p>
   <div class="badges">
     <span class="badge py">Python ≥3.10</span>
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v1.10.0</span>
+    <span class="badge" style="color:#79c0ff">v1.13.0</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
