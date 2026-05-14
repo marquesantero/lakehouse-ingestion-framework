@@ -415,6 +415,7 @@ Validação local sem Spark:
 
 ```bash
 contractforge validate-bundle contracts/gold/gd_orders
+contractforge validate-project contracts
 contractforge governance-preview contracts/gold/gd_orders
 contractforge governance-check contracts/gold/gd_orders
 contractforge drift-check contracts/gold/gd_orders
@@ -512,8 +513,8 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
 - `register_source_resolver(name, resolver)` registra conectores customizados. O contrato aceita qualquer `source.connector` com nome válido; a execução falha cedo se não houver resolver registrado.
 - `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
-- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark e aplica validação estática dos conectores nativos. `contractforge schema` imprime o schema.
-- `contractforge connectors list|show` exibe conectores registrados, campos obrigatórios e capabilities.
+- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark e aplica validação estática dos conectores nativos. `contractforge validate-project contracts` valida uma árvore inteira de contratos para CI. `contractforge schema` imprime o schema.
+- `contractforge connectors list|show|doctor` exibe conectores registrados, campos obrigatórios, capabilities e requisitos estáticos de runtime.
 
 ## Matriz de runtime
 

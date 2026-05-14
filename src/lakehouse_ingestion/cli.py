@@ -80,6 +80,91 @@ def _validate_bundles(paths: List[Path]) -> int:
     return exit_code
 
 
+_CONTRACT_FILE_SUFFIXES = {".yaml", ".yml", ".json"}
+_SPLIT_CONTRACT_MARKERS = (".annotations.", ".operations.", ".access.")
+
+
+def _is_structured_contract_file(path: Path) -> bool:
+    return path.is_file() and path.suffix.lower() in _CONTRACT_FILE_SUFFIXES
+
+
+def _is_split_ingestion_file(path: Path) -> bool:
+    return _is_structured_contract_file(path) and ".ingestion." in path.name
+
+
+def _is_contracts_path(path: Path) -> bool:
+    return "contracts" in {part.lower() for part in path.parts}
+
+
+def _is_standalone_contract_file(path: Path) -> bool:
+    if not _is_structured_contract_file(path):
+        return False
+    if ".ingestion." in path.name or any(marker in path.name for marker in _SPLIT_CONTRACT_MARKERS):
+        return False
+    return _is_contracts_path(path)
+
+
+def _discover_project_contracts(root: Path) -> list[tuple[str, Path]]:
+    if root.is_file():
+        if _is_split_ingestion_file(root):
+            return [("bundle", root)]
+        return [("contract", root)] if _is_structured_contract_file(root) else []
+    candidates = []
+    for path in sorted(root.rglob("*")):
+        if _is_split_ingestion_file(path):
+            candidates.append(("bundle", path))
+        elif _is_standalone_contract_file(path):
+            candidates.append(("contract", path))
+    return candidates
+
+
+def _validate_project(paths: List[Path], indent: int) -> int:
+    items = []
+    for root in paths:
+        discovered = _discover_project_contracts(root)
+        if not discovered:
+            items.append({"path": str(root), "kind": "project", "status": "FAILED", "error": "nenhum contrato encontrado"})
+            continue
+        for kind, path in discovered:
+            try:
+                if kind == "bundle":
+                    bundle = load_contract_bundle(path)
+                    items.append(
+                        {
+                            "path": str(path),
+                            "kind": kind,
+                            "status": "SUCCESS",
+                            "target_table": bundle.ingestion.target_table,
+                            "layer": bundle.ingestion.layer,
+                            "mode": bundle.ingestion.mode,
+                            "split_files": bundle.paths or {},
+                        }
+                    )
+                    continue
+                payload = _load_contract(path)
+                count = 0
+                targets = []
+                for item in _iter_contracts(payload):
+                    normalized = dict(item)
+                    normalized.pop("_metadata", None)
+                    plan = build_plan_from_kwargs(**normalized)
+                    targets.append({"target_table": plan.target_table, "layer": plan.layer, "mode": plan.mode})
+                    count += 1
+                items.append({"path": str(path), "kind": kind, "status": "SUCCESS", "contracts": count, "targets": targets})
+            except Exception as exc:
+                items.append({"path": str(path), "kind": kind, "status": "FAILED", "error": str(exc)})
+    failed = [item for item in items if item["status"] == "FAILED"]
+    report = {
+        "status": "FAILED" if failed else "SUCCESS",
+        "total": len(items),
+        "succeeded": len(items) - len(failed),
+        "failed": len(failed),
+        "items": items,
+    }
+    print(json.dumps(report, indent=indent, sort_keys=True, default=str))
+    return 1 if failed else 0
+
+
 def _preview_governance(paths: List[Path], indent: int) -> int:
     exit_code = 0
     for path in paths:
@@ -243,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate_bundle_parser.add_argument("paths", nargs="+", type=Path)
 
+    validate_project_parser = sub.add_parser(
+        "validate-project",
+        help="Descobre e valida recursivamente contratos em uma pasta de projeto",
+    )
+    validate_project_parser.add_argument("paths", nargs="+", type=Path)
+    validate_project_parser.add_argument("--indent", type=int, default=2)
+
     governance_preview_parser = sub.add_parser(
         "governance-preview",
         help="Gera preview SQL de annotations/access e payload operacional",
@@ -324,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate(args.paths, expand_presets=args.expand_presets)
     if args.command == "validate-bundle":
         return _validate_bundles(args.paths)
+    if args.command == "validate-project":
+        return _validate_project(args.paths, args.indent)
     if args.command == "governance-preview":
         return _preview_governance(args.paths, args.indent)
     if args.command in {"governance-check", "drift-check"}:
