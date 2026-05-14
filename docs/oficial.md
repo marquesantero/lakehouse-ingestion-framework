@@ -1,6 +1,6 @@
-# Lakehouse Ingestion Framework — Documentação Oficial
+# ContractForge — Documentação Oficial
 
-**Versão:** 1.8.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 1.8.1 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -43,7 +43,7 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 
 ### 1.1 O que é
 
-O **Lakehouse Ingestion Framework** é uma biblioteca Python que encapsula padrões recorrentes de ingestão em Delta Lake, fornecendo uma interface declarativa. Em vez de escrever scripts ad-hoc com `MERGE INTO`, `INSERT`, `OVERWRITE`, Autoloader e controle operacional manual, você descreve **o que** quer fazer via um **contrato declarativo** (`IngestionPlan`), e o framework executa **como** fazer de forma padronizada, com observabilidade completa.
+O **ContractForge** é uma biblioteca Python que encapsula padrões recorrentes de ingestão em Delta Lake, fornecendo uma interface declarativa. Em vez de escrever scripts ad-hoc com `MERGE INTO`, `INSERT`, `OVERWRITE`, Autoloader e controle operacional manual, você descreve **o que** quer fazer via um **contrato declarativo** (`IngestionPlan`), e o framework executa **como** fazer de forma padronizada, com observabilidade completa.
 
 O posicionamento é **contract-first**: o contrato é o artefato versionável que concentra ingestão, schema, qualidade, metadata de catálogo, operações e acesso. A separação em `*.ingestion.yaml`, `*.annotations.yaml`, `*.operations.yaml` e `*.access.yaml` permite que engenharia, governança, SRE e segurança evoluam suas partes sem acoplar todos os ciclos de revisão.
 
@@ -53,8 +53,8 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.8.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
-- **Não gerencia permissões** Unity Catalog.
+- **Não faz streaming contínuo** — a versão 1.8.1 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
 ### 1.3 Arquitetura Medallion
@@ -110,7 +110,13 @@ Exemplo: `ingest(catalog="main", layer="silver", target_table="c_cliente")` → 
 ### 2.1 Via PyPI
 
 ```bash
-pip install lakehouse-ingestion-framework
+pip install contractforge
+```
+
+O pacote mantém apenas `PyYAML` como dependência obrigatória. Em Databricks/serverless, `pyspark` e Delta já vêm do runtime e não devem ser resolvidos pelo wheel. Para execução local fora do Databricks, instale o extra Spark:
+
+```bash
+pip install "contractforge[spark]"
 ```
 
 ### 2.2 Via Wheel no Databricks
@@ -119,22 +125,22 @@ pip install lakehouse-ingestion-framework
 # Build local
 pip install build
 python -m build
-# → dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+# → dist/contractforge-1.8.1-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
 ### 2.3 Desenvolvimento Local
 
 ```bash
-git clone https://github.com/marquesantero/lakehouse-ingestion-framework.git
-cd lakehouse-ingestion-framework
+git clone https://github.com/marquesantero/contractforge.git
+cd contractforge
 python -m venv .venv
 source .venv/bin/activate  # ou .venv\Scripts\Activate.ps1 no Windows
 pip install -e ".[dev]"
@@ -147,8 +153,8 @@ pytest -v                      # suite completa (requer Java 11+)
 | Item | Requisito |
 |------|-----------|
 | Python | >= 3.10 |
-| PySpark | >= 3.4, < 4 |
-| delta-spark | >= 3.0, < 4 |
+| PySpark | >= 3.4, < 4 quando fora do Databricks; fornecido pelo Databricks Runtime em cluster/serverless |
+| delta-spark | >= 3.0, < 4 quando fora do Databricks; fornecido pelo Databricks Runtime em cluster/serverless |
 | Databricks Runtime | DBR 13.3 LTS+ (recomendado 14+) |
 | Java (fora Databricks) | 11+ |
 | Permissões UC | `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE` no catálogo e schema `ops` |
@@ -413,7 +419,7 @@ O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). To
 | `explain_format` | `str` | `"formatted"` | Formato do explain: `"simple"`, `"extended"`, `"formatted"`, `"cost"`, `"codegen"` |
 | `openlineage_enabled` | `bool` | `False` | Gera e persiste evento OpenLineage em JSON |
 | `openlineage_namespace` | `str \| None` | `None` | Namespace OpenLineage. Default: `databricks://<catalog>` |
-| `openlineage_producer` | `str` | `"lakehouse-ingestion-framework"` | Identificador do produtor no evento OpenLineage |
+| `openlineage_producer` | `str` | `"contractforge"` | Identificador do produtor no evento OpenLineage |
 
 ### 5.11 Performance e Concorrência
 
@@ -555,7 +561,7 @@ explain_format: formatted               # simple | extended | formatted | cost |
 # --- OpenLineage ---
 openlineage_enabled: true
 openlineage_namespace: databricks://main
-openlineage_producer: lakehouse-ingestion-framework
+openlineage_producer: contractforge
 
 # --- Performance ---
 use_cache: true                         # cacheia DataFrame preparado (desabilitado em serverless)
@@ -717,9 +723,9 @@ delta_properties:
 ### 5D.5 CLI e Extensão
 
 ```bash
-lakehouse-ingest presets list
-lakehouse-ingest presets show silver_scd1_upsert
-lakehouse-ingest validate contracts/silver/orders.yaml --expand-presets
+contractforge presets list
+contractforge presets show silver_scd1_upsert
+contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
 ```python
@@ -1975,7 +1981,7 @@ ingest(
     mode="scd1_upsert", merge_keys="order_id",
     openlineage_enabled=True,
     openlineage_namespace="databricks://main",  # opcional, default: databricks://<catalog>
-    openlineage_producer="lakehouse-ingestion-framework",
+    openlineage_producer="contractforge",
 )
 ```
 
@@ -2074,15 +2080,15 @@ result = ingest_bundle("contracts/gold/gd_orders")
 Validação local sem Spark:
 
 ```bash
-lakehouse-ingest validate-bundle contracts/gold/gd_orders
-lakehouse-ingest governance-preview contracts/gold/gd_orders
-lakehouse-ingest governance-check contracts/gold/gd_orders
-lakehouse-ingest drift-check contracts/gold/gd_orders
-lakehouse-ingest governance-apply contracts/gold/gd_orders
-lakehouse-ingest apply-annotations contracts/gold/gd_orders
-lakehouse-ingest validate-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders --force-revoke
+contractforge validate-bundle contracts/gold/gd_orders
+contractforge governance-preview contracts/gold/gd_orders
+contractforge governance-check contracts/gold/gd_orders
+contractforge drift-check contracts/gold/gd_orders
+contractforge governance-apply contracts/gold/gd_orders
+contractforge apply-annotations contracts/gold/gd_orders
+contractforge validate-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders --force-revoke
 ```
 
 `annotations` aplica metadata técnica no catálogo:
@@ -2166,7 +2172,7 @@ Auditoria gerada:
 
 Falhas em annotations seguem `annotations.policy` (`fail`, `warn`, `ignore`). Falhas em access seguem `access_policy.mode` (`apply`, `validate_only`, `ignore`) e `access_policy.on_drift` (`fail`, `warn`, `reconcile`). O formato legado com `mode`/`on_drift` no topo de `access` também é aceito.
 
-Para grants, o framework compara o declarado com `SHOW GRANTS ON TABLE`. O relatório aparece em `governance-check`/`drift-check` e em `governance.access.drift` no retorno. Se `revoke_unmanaged=true`, grants atuais não declarados só são revogados por `lakehouse-ingest apply-access --force-revoke`; ingestão normal não aplica access e aplicação sem essa flag falha com mensagem explícita.
+Para grants, o framework compara o declarado com `SHOW GRANTS ON TABLE`. O relatório aparece em `governance-check`/`drift-check` e em `governance.access.drift` no retorno. Se `revoke_unmanaged=true`, grants atuais não declarados só são revogados por `contractforge apply-access --force-revoke`; ingestão normal não aplica access e aplicação sem essa flag falha com mensagem explícita.
 
 Semântica de `access_policy.on_drift`:
 
@@ -2771,7 +2777,7 @@ resources:
 | Sintoma | Causa Provável | Solução |
 |---------|---------------|---------|
 | `RuntimeError: Nenhuma SparkSession ativa` | Código fora de Databricks sem sessão criada | Crie `SparkSession.builder...getOrCreate()` antes de `import lakehouse_ingestion` |
-| `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark | `pip install delta-spark==3.*` (já incluso no Databricks Runtime) |
+| `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark fora do Databricks | `pip install "contractforge[spark]"` (já incluso no Databricks Runtime) |
 | `ConcurrentAppendException` / conflito de commit | Escritas concorrentes na mesma tabela | Ative `lock_enabled=True`, reduza concorrência, use `delta_by_partition` |
 | `Schema policy strict violada` | Schema da fonte divergiu do target | Mude para `additive_only`/`permissive` ou corrija a fonte |
 | `quality.accepted_values.X possui N valores` | Lista > 1000 valores | Use tabela de referência + `LEFT ANTI JOIN` antes da chamada |
@@ -2809,7 +2815,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.6.4 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 1.8.1 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
@@ -2899,7 +2905,7 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 A suite completa da lib foi validada localmente com Spark/Delta standalone:
 
 ```text
-135 passed
+152 passed
 ```
 
 Ambiente usado na validação: Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
@@ -2913,7 +2919,7 @@ src/lakehouse_ingestion/
 ├── __init__.py        # API pública (ingest, ingest_plan, IngestionPlan, etc.)
 ├── _spark.py          # Resolução lazy de SparkSession + serverless detection
 ├── _sql.py            # Helpers SQL (quoting, literais, validação)
-├── cli.py             # CLI lakehouse-ingest validate/schema
+├── cli.py             # CLI contractforge validate/schema
 ├── config.py          # FrameworkConfig singleton + tipos (Layer, WriteMode, etc.)
 ├── contract_schema.py # JSON Schema do contrato declarativo
 ├── hooks.py           # IngestionHooks
@@ -2936,11 +2942,11 @@ src/lakehouse_ingestion/
 
 **Licença:** MIT
 
-**Repositório:** https://github.com/marquesantero/lakehouse-ingestion-framework
+**Repositório:** https://github.com/marquesantero/contractforge
 
-**Issues:** https://github.com/marquesantero/lakehouse-ingestion-framework/issues
+**Issues:** https://github.com/marquesantero/contractforge/issues
 
-**Changelog:** https://github.com/marquesantero/lakehouse-ingestion-framework/blob/main/CHANGELOG.md
+**Changelog:** https://github.com/marquesantero/contractforge/blob/main/CHANGELOG.md
 
 ### Versionamento
 

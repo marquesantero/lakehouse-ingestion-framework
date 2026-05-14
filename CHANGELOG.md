@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.8.1 - 2026-05-13
+
+- Renomeia o produto/pacote distribuído para `contractforge`, mantendo o namespace Python `lakehouse_ingestion`.
+- Renomeia a CLI para `contractforge`.
+- Move `pyspark` e `delta-spark` para o extra opcional `spark`, evitando que wheels instalados em Databricks/serverless tentem resolver dependências já fornecidas pelo runtime.
+- Mantém o extra `dev` com Spark/Delta para testes locais completos e CI.
+
 ## 1.8.0 - 2026-05-13
 
 - Adiciona `shape` para transformar estruturas JSON/struct/array antes de quality/write.
@@ -18,7 +25,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 
 - Adiciona presets declarativos para padrões comuns de ingestão Bronze/Silver/Gold.
 - Expõe `apply_preset`, `list_presets`, `get_preset`, `preset_details` e `register_preset`.
-- Adiciona CLI `lakehouse-ingest presets list|show` e `validate --expand-presets`.
+- Adiciona CLI `contractforge presets list|show` e `validate --expand-presets`.
 - Registra `applied_presets` no plano e no retorno das execuções para auditoria.
 - Adiciona modificadores reutilizáveis de quality, Delta properties, runtime e governança.
 
@@ -32,15 +39,15 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 ## 1.6.3 - 2026-05-13
 
 - Faz `governance-apply` aplicar somente `operations` e `annotations`, mantendo `access` exclusivo do comando dedicado.
-- Adiciona API `apply_annotations_bundle()` e CLI `lakehouse-ingest apply-annotations`.
-- Adiciona CLI `lakehouse-ingest validate-access` para validar contrato de acesso e drift sem aplicar mudanças.
+- Adiciona API `apply_annotations_bundle()` e CLI `contractforge apply-annotations`.
+- Adiciona CLI `contractforge validate-access` para validar contrato de acesso e drift sem aplicar mudanças.
 - Adiciona `annotations_preview` estruturado no retorno de `dry_run`.
 
 ## 1.6.2 - 2026-05-13
 
 - Separa o ciclo de access da ingestão normal: `ingest_plan` aplica `operations`/`annotations` e deixa `access` como `DEFERRED`.
-- Adiciona API `apply_access_bundle()` e CLI `lakehouse-ingest apply-access`.
-- Adiciona alias CLI `lakehouse-ingest drift-check`.
+- Adiciona API `apply_access_bundle()` e CLI `contractforge apply-access`.
+- Adiciona alias CLI `contractforge drift-check`.
 - Adiciona validação conservadora de capabilities Unity Catalog para tags, row filters e column masks.
 
 ## 1.6.1 - 2026-05-13
@@ -57,7 +64,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - Aplica comments/tags de tabela e coluna, incluindo aliases, PII e depreciação, com auditoria em `ctrl_ingestion_annotations`.
 - Registra contrato operacional em `ctrl_ingestion_operations` para dashboards e alertas externos.
 - Aplica grants, row filters e column masks declarativos com auditoria em `ctrl_ingestion_access`.
-- Adiciona loader de bundle (`load_contract_bundle`) e CLI `lakehouse-ingest validate-bundle`.
+- Adiciona loader de bundle (`load_contract_bundle`) e CLI `contractforge validate-bundle`.
 - Adiciona `_metadata` por arquivo de contrato e preview de governança (`governance_preview`).
 - Adiciona aplicação assíncrona de governança (`apply_governance_bundle`) e CLI `governance-preview`/`governance-apply`.
 - Adiciona validação de governança contra schema real do target (`validate_governance_contract`) e CLI `governance-check`.
@@ -85,7 +92,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - Bloqueia sobrescrita silenciosa de colunas técnicas vindas da origem.
 - Valida `merge_keys` totalmente nulas antes de executar `MERGE` e alerta para nulos parciais.
 - Otimiza `quality_rules.expressions` para entrar na agregação single-pass de quality.
-- Adiciona `IngestionHooks`, `register_write_mode`, `yaml_schema()` e CLI `lakehouse-ingest validate/schema`.
+- Adiciona `IngestionHooks`, `register_write_mode`, `yaml_schema()` e CLI `contractforge validate/schema`.
 
 ## 1.3.1 - 2026-05-11
 

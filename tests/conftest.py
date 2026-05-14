@@ -33,7 +33,7 @@ def _build_spark(warehouse: Path):
     from pyspark.sql import SparkSession
 
     builder = (
-        SparkSession.builder.appName("lakehouse-ingestion-tests")
+        SparkSession.builder.appName("contractforge-tests")
         .master("local[2]")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config(

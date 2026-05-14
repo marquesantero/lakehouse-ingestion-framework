@@ -1,4 +1,4 @@
-# Guia de Uso — Lakehouse Ingestion Framework
+# Guia de Uso — ContractForge
 
 Guia prático passo a passo para testar e operar o framework. Cobre dois modos de uso (**pacote** instalado e **script** colado no notebook), padrão YAML + notebook genérico, e duas opções de orquestração no Databricks Workflows (**`for_each_task`** e **master notebook**).
 
@@ -63,7 +63,7 @@ Guia prático passo a passo para testar e operar o framework. Cobre dois modos d
 ### 2.1 Pré-requisitos
 
 - Python 3.10 ou superior.
-- PySpark 3.4+ e delta-spark 3.0+ (em Databricks já vêm com o runtime; fora dele, instale via `pip`).
+- PySpark 3.4+ e delta-spark 3.0+ quando fora do Databricks. Em Databricks, ambos já vêm com o runtime e o wheel não tenta resolvê-los como dependências obrigatórias.
 - Java 11+ (apenas se for rodar Spark fora do Databricks).
 - Acesso de gravação a um catálogo Unity Catalog ou a um schema Hive.
 
@@ -71,8 +71,8 @@ Guia prático passo a passo para testar e operar o framework. Cobre dois modos d
 
 ```bash
 # clonar o repo
-git clone https://github.com/marquesantero/lakehouse-ingestion-framework.git
-cd lakehouse-ingestion-framework
+git clone https://github.com/marquesantero/contractforge.git
+cd contractforge
 
 # ambiente isolado
 python -m venv .venv
@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+# gera: dist/contractforge-1.8.1-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl \
+databricks fs cp dist/contractforge-1.8.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.6.4
+print(lakehouse_ingestion.__version__)  # 1.8.1
 from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/lakehouse_ingestion_framework-1.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.8.1-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> lakehouse-ingestion-framework==1.6.4
+%pip install --index-url https://<seu_pypi_privado> contractforge==1.8.1
 ```
 
 Em seguida:
@@ -243,9 +243,9 @@ Se chegou até aqui, a instalação está saudável. Próximo passo: configurar 
 
 ### 3.2 Notebook único com código embutido
 
-**Opção 1 — Cole o `ingestion.py` direto no notebook**
+**Opção 1 — Código embutido no notebook**
 
-Não recomendado para o pacote refatorado (que tem múltiplos módulos). Funciona com a versão monolítica antiga (`lakehouse_ingestion_framework_pypi_ready.py`) que você guardar localmente.
+Não recomendado para o pacote atual, que tem múltiplos módulos e contrato de distribuição por wheel. Use apenas como recurso temporário se você mantiver uma cópia monolítica interna.
 
 **Opção 2 — `%run` apontando para um notebook helper**
 
@@ -503,8 +503,8 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 Antes de subir um YAML, valide localmente que ele é parseável e produz um `IngestionPlan` válido:
 
 ```bash
-lakehouse-ingest validate contracts/silver/c_pedidos.yaml
-lakehouse-ingest schema > lakehouse_ingestion.schema.json
+contractforge validate contracts/silver/c_pedidos.yaml
+contractforge schema > lakehouse_ingestion.schema.json
 ```
 
 ```python
@@ -587,7 +587,7 @@ Crie `databricks.yml` na raiz do projeto:
 
 ```yaml
 bundle:
-  name: lakehouse-ingestion
+  name: contractforge
 
 variables:
   catalog:
@@ -1020,7 +1020,7 @@ Você pode executar o framework end-to-end na sua máquina (ou em CI) usando PyS
 java -version
 
 pip install -e ".[dev]"
-pip install pyspark==3.5.* delta-spark==3.* pyyaml
+# O extra dev já inclui PySpark/Delta para a suite completa.
 ```
 
 ### 8.2 Script de teste local
@@ -1135,10 +1135,10 @@ from lakehouse_ingestion import ingest  # agora resolve a sessão
 
 ### "ModuleNotFoundError: No module named 'delta'"
 
-Falta `delta-spark`. Instale:
+Falta `delta-spark`. Fora do Databricks, instale o extra Spark:
 
 ```bash
-pip install delta-spark==3.*
+pip install "contractforge[spark]"
 ```
 
 Em Databricks, isso já vem com o runtime — esse erro só aparece localmente.
@@ -1273,4 +1273,4 @@ spark_module._cached_session = sess
 ---
 
 **Fim do guia.**
-Reportar problemas ou sugerir melhorias: abra issue em https://github.com/marquesantero/lakehouse-ingestion-framework.
+Reportar problemas ou sugerir melhorias: abra issue em https://github.com/marquesantero/contractforge.

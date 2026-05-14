@@ -1,4 +1,4 @@
-# Lakehouse Ingestion Framework
+# ContractForge
 
 Framework de ingestão para Databricks e Delta Lake, com contratos declarativos por tabela, suporte a Bronze/Silver/Gold, quality gates, watermarks tipados, SCD, snapshot com soft delete, explain mode e emissão de eventos OpenLineage em JSON.
 
@@ -24,8 +24,16 @@ Principais diferenciais:
 
 ## Instalação local
 
+O produto e o pacote distribuído se chamam **ContractForge** (`contractforge`). O namespace Python permanece `lakehouse_ingestion`, então o uso programático continua com `from lakehouse_ingestion import ...`.
+
 ```bash
 pip install .
+```
+
+No Databricks, o wheel não declara `pyspark` nem `delta-spark` como dependências obrigatórias, porque Spark e Delta já são fornecidos pelo runtime. Para desenvolvimento local fora do Databricks, instale o extra `spark`:
+
+```bash
+pip install ".[spark]"
 ```
 
 Para desenvolvimento e testes:
@@ -46,8 +54,8 @@ twine check dist/*
 ## Requisitos de runtime
 
 - Python 3.10+
-- PySpark 3.4 até 3.5.x (ou Databricks Runtime equivalente)
-- delta-spark 3.0 até 3.x
+- PySpark 3.4 até 3.5.x e delta-spark 3.0 até 3.x quando rodando fora do Databricks (`pip install ".[spark]"`)
+- Databricks Runtime equivalente quando rodando em cluster clássico ou serverless
 - Uma SparkSession ativa antes da chamada de `ingest()`. O framework resolve a sessão por:
   1. `databricks.sdk.runtime.spark` quando rodando em Databricks
   2. `SparkSession.getActiveSession()` em qualquer outro ambiente
@@ -218,9 +226,9 @@ Presets de ingestão disponíveis:
 Comandos úteis:
 
 ```bash
-lakehouse-ingest presets list
-lakehouse-ingest presets show silver_scd1_upsert
-lakehouse-ingest validate contracts/silver/orders.yaml --expand-presets
+contractforge presets list
+contractforge presets show silver_scd1_upsert
+contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
 Extensão programática:
@@ -239,15 +247,15 @@ register_preset("company_silver_default", {
 Validação local sem Spark:
 
 ```bash
-lakehouse-ingest validate-bundle contracts/gold/gd_orders
-lakehouse-ingest governance-preview contracts/gold/gd_orders
-lakehouse-ingest governance-check contracts/gold/gd_orders
-lakehouse-ingest drift-check contracts/gold/gd_orders
-lakehouse-ingest governance-apply contracts/gold/gd_orders
-lakehouse-ingest apply-annotations contracts/gold/gd_orders
-lakehouse-ingest validate-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders
-lakehouse-ingest apply-access contracts/gold/gd_orders --force-revoke
+contractforge validate-bundle contracts/gold/gd_orders
+contractforge governance-preview contracts/gold/gd_orders
+contractforge governance-check contracts/gold/gd_orders
+contractforge drift-check contracts/gold/gd_orders
+contractforge governance-apply contracts/gold/gd_orders
+contractforge apply-annotations contracts/gold/gd_orders
+contractforge validate-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders
+contractforge apply-access contracts/gold/gd_orders --force-revoke
 ```
 
 ## Modos oficiais
@@ -336,7 +344,7 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 - `register_write_mode(mode, handler)` registra motores de escrita customizados quando houver necessidade real de extensão.
 - `register_quality_rule(type, evaluator)` registra regras customizadas usadas por `quality_rules.custom`. Regras custom com `severity="quarantine"` devem retornar uma condição de linha.
 - `yaml_schema()` retorna o JSON Schema do contrato para autocomplete/validação em IDEs.
-- A CLI `lakehouse-ingest validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `lakehouse-ingest schema` imprime o schema.
+- A CLI `contractforge validate contrato.yaml` valida contratos YAML/JSON sem executar Spark. `contractforge schema` imprime o schema.
 
 ## Matriz de runtime
 
@@ -354,7 +362,7 @@ O retorno preserva `rows_written` como métrica lógica da biblioteca, expõe `r
 ```
 src/lakehouse_ingestion/
 ├── __init__.py        # Façade pública (ingest, ingest_plan, IngestionPlan, QualityRules, FrameworkConfig)
-├── cli.py             # CLI lakehouse-ingest validate/schema
+├── cli.py             # CLI contractforge validate/schema
 ├── contract_schema.py # JSON Schema do contrato declarativo
 ├── hooks.py           # IngestionHooks
 ├── _spark.py          # Resolução de SparkSession + safe_cache/serverless
@@ -387,6 +395,6 @@ A suíte tem dois grupos:
 - **Testes puros** (rápidos, sem Spark): validações de plano e parsing.
 - **Testes integrados com Spark + Delta**: 6 modos de escrita, quality gates, watermark, schema policy, sources e streaming `available_now`.
 
-Status validado localmente: `135 passed` com Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
+Status validado localmente: `152 passed` com Python 3.11, PySpark 3.5.x, delta-spark 3.x e Java disponível.
 
 Variável `SKIP_SPARK_TESTS=1` força o pulo dos testes integrados.
