@@ -223,23 +223,34 @@ def test_build_plan_accepts_shape_contract():
         source="x",
         target_table="t",
         shape={
+            "parse_json": [
+                {
+                    "column": "payload",
+                    "schema": "STRUCT<customer: STRUCT<email: STRING>, items: ARRAY<STRUCT<sku: STRING>>>",
+                    "alias": "payload_json",
+                    "drop_source": True,
+                }
+            ],
             "flatten": {"enabled": True, "separator": "_", "max_depth": 4},
             "arrays": [
-                {"path": "items", "mode": "explode_outer", "alias": "item"},
+                {"path": "payload_json.items", "mode": "explode_outer", "alias": "item"},
                 {"path": "item.discounts", "mode": "to_json", "alias": "discounts_json"},
             ],
             "columns": {
-                "customer.email": {"alias": "customer_email"},
+                "payload_json.customer.email": {"alias": "customer_email"},
                 "item.sku": "item_sku",
             },
             "allow_cardinality_change_on_bronze": True,
         },
     )
     assert isinstance(plan.shape, ShapeConfig)
+    assert plan.shape.parse_json[0].column == "payload"
+    assert plan.shape.parse_json[0].alias == "payload_json"
+    assert plan.shape.parse_json[0].drop_source is True
     assert plan.shape.flatten.enabled is True
-    assert plan.shape.arrays[0].path == "items"
+    assert plan.shape.arrays[0].path == "payload_json.items"
     assert plan.shape.arrays[0].mode == "explode_outer"
-    assert plan.shape.columns["customer.email"].alias == "customer_email"
+    assert plan.shape.columns["payload_json.customer.email"].alias == "customer_email"
 
 
 def test_build_plan_rejects_invalid_shape_contract():
@@ -249,6 +260,31 @@ def test_build_plan_rejects_invalid_shape_contract():
         build_plan_from_kwargs(source="x", target_table="t", shape={"arrays": [{"path": "items", "mode": "bad"}]})
     with pytest.raises(ValueError, match="sem ponto"):
         build_plan_from_kwargs(source="x", target_table="t", shape={"columns": {"a.b": {"alias": "x.y"}}})
+    with pytest.raises(ValueError, match="shape.parse_json deve ser uma lista"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"parse_json": {"column": "payload"}})
+    with pytest.raises(ValueError, match="schema não pode ser vazio"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"parse_json": [{"column": "payload"}]})
+    with pytest.raises(ValueError, match="alias é obrigatório"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={"parse_json": [{"column": "envelope.payload", "schema": "STRUCT<a: STRING>"}]},
+        )
+    with pytest.raises(ValueError, match="drop_source não é suportado"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={
+                "parse_json": [
+                    {
+                        "column": "envelope.payload",
+                        "schema": "STRUCT<a: STRING>",
+                        "alias": "payload_json",
+                        "drop_source": True,
+                    }
+                ]
+            },
+        )
 
 
 def test_build_plan_rejects_invalid_mapping_and_retry_options():

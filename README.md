@@ -238,6 +238,24 @@ shape:
     separator: "_"
 ```
 
+Se o JSON chegar como texto em uma coluna `string`, declare `shape.parse_json` antes dos demais passos. A lib não faz inferência automática global: o parse só acontece quando `shape` existe e quando a coluna é listada em `parse_json`.
+
+```yaml
+shape:
+  parse_json:
+    - column: payload
+      schema: "STRUCT<customer: STRUCT<email: STRING>, items: ARRAY<STRUCT<sku: STRING, qty: BIGINT>>>"
+      alias: payload_json   # opcional; sem alias, a coluna payload é sobrescrita pelo struct parseado
+      drop_source: false    # se true e alias diferente, remove a coluna string original
+  arrays:
+    - path: payload_json.items
+      mode: explode_outer
+      alias: item
+  columns:
+    payload_json.customer.email: customer_email
+    item.sku: item_sku
+```
+
 Arrays podem ser declarados em qualquer ordem; a lib resolve dependências por path/alias. Arrays irmãos com `explode` são bloqueados por padrão para evitar produto cartesiano:
 
 ```yaml

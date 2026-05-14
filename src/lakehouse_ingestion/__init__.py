@@ -45,7 +45,7 @@ from .sources import (
     source_connector_details,
 )
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
-from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, apply_shape
+from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, ShapeJsonConfig, apply_shape
 from .writers import register_write_mode
 from .quality import register_quality_rule
 
@@ -74,6 +74,7 @@ __all__ = [
     "ShapeColumnConfig",
     "ShapeConfig",
     "ShapeFlattenConfig",
+    "ShapeJsonConfig",
     "TableAnnotations",
     "get_source_resolver",
     "get_uc_capabilities",

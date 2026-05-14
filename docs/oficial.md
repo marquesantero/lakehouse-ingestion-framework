@@ -1005,7 +1005,43 @@ register_preset("company_silver_default", {
 - Silver: local recomendado para `flatten`, `explode` e normalização de JSON/arrays.
 - Gold: usar apenas para serving final quando a Silver ainda não entregar a forma esperada.
 
-### 5E.2 Flatten de Structs
+### 5E.2 Parse de JSON em Coluna String
+
+Quando o JSON já chega como `struct`/`array`, `columns`, `arrays` e `flatten` atuam diretamente no schema. Quando o payload chega como texto (`string`), declare `shape.parse_json` para converter esse texto em uma coluna estruturada antes dos demais passos do `shape`.
+
+```yaml
+shape:
+  parse_json:
+    - column: payload
+      schema: "STRUCT<customer: STRUCT<email: STRING, address: STRUCT<city: STRING>>, items: ARRAY<STRUCT<sku: STRING, qty: BIGINT>>>"
+      alias: payload_json
+      drop_source: false
+  arrays:
+    - path: payload_json.items
+      mode: explode_outer
+      alias: item
+  columns:
+    payload_json.customer.email:
+      alias: customer_email
+    payload_json.customer.address.city:
+      alias: customer_city
+    item.sku:
+      alias: item_sku
+```
+
+Comportamento:
+
+- `parse_json` só executa quando `shape` é declarado; fontes sem `shape` continuam intactas.
+- Cada item de `parse_json` exige `column` e `schema`; o schema usa DDL Spark aceito por `from_json`.
+- A coluna informada em `column` precisa ser `string`; se já for `struct`/`array`, remova `parse_json` e use os paths diretamente.
+- Sem `alias`, a própria coluna string é sobrescrita pelo struct/array parseado.
+- Com `alias`, a coluna original é preservada por padrão; use `drop_source: true` para removê-la.
+- `drop_source: true` só é aceito para coluna top-level; em path aninhado, preserve a origem ou remova em etapa explícita posterior.
+- JSON inválido ou incompatível com o schema segue a semântica do `from_json`: o resultado parseado fica nulo. Para tratar isso como erro de negócio, adicione `quality_rules.expressions` sobre os campos extraídos.
+
+`shape.parse_json` não faz inferência automática por amostragem. Essa decisão mantém o contrato determinístico, evita ações extras no Spark e impede que mudanças ocasionais de payload alterem o schema de produção sem revisão.
+
+### 5E.3 Flatten de Structs
 
 ```yaml
 preset: silver_scd1_upsert
@@ -1033,7 +1069,7 @@ customer.email        -> customer_email
 customer.address.city -> customer_address_city
 ```
 
-### 5E.3 Extração de Paths com Alias
+### 5E.4 Extração de Paths com Alias
 
 ```yaml
 shape:
@@ -1045,7 +1081,7 @@ shape:
 
 Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_keys` e escrita.
 
-### 5E.4 Arrays e Arrays de Structs
+### 5E.5 Arrays e Arrays de Structs
 
 Modos suportados:
 
@@ -1084,7 +1120,7 @@ item.sku         -> item_sku
 discount.code    -> discount_code
 ```
 
-### 5E.5 Guardrails de Cardinalidade
+### 5E.6 Guardrails de Cardinalidade
 
 Em Bronze, `explode` e `explode_outer` falham por padrão:
 
@@ -1134,7 +1170,7 @@ shape:
       allow_cartesian: true
 ```
 
-### 5E.6 Exemplo Completo Silver
+### 5E.7 Exemplo Completo Silver
 
 ```yaml
 preset:
@@ -1147,21 +1183,25 @@ catalog: main
 merge_keys: order_item_key
 
 shape:
+  parse_json:
+    - column: payload
+      schema: "STRUCT<order_id: STRING, customer: STRUCT<email: STRING>, items: ARRAY<STRUCT<sku: STRING, quantity: BIGINT, discounts: ARRAY<STRUCT<code: STRING>>>>>"
+      alias: payload_json
   arrays:
-    - path: items
+    - path: payload_json.items
       mode: explode_outer
       alias: item
     - path: item.discounts
       mode: to_json
       alias: item_discounts_json
   columns:
-    order_id: order_id
-    customer.email: customer_email
+    payload_json.order_id: order_id
+    payload_json.customer.email: customer_email
     item.sku: item_sku
     item.quantity: item_quantity
   flatten:
     enabled: true
-    include: [customer]
+    include: [payload_json]
     separator: "_"
 
 custom_keys:

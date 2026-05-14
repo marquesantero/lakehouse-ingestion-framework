@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.types import ArrayType, DataType, StructType
+from pyspark.sql.types import ArrayType, DataType, StringType, StructType
 
 from ._sql import as_list
 
@@ -44,9 +44,20 @@ class ShapeColumnConfig:
 
 
 @dataclass(frozen=True)
+class ShapeJsonConfig:
+    """Parse declarativo de uma coluna string contendo JSON válido."""
+
+    column: str
+    schema: str
+    alias: Optional[str] = None
+    drop_source: bool = False
+
+
+@dataclass(frozen=True)
 class ShapeConfig:
     """Contrato de transformação estrutural pré-quality/write."""
 
+    parse_json: List[ShapeJsonConfig] = field(default_factory=list)
     flatten: ShapeFlattenConfig = field(default_factory=ShapeFlattenConfig)
     arrays: List[ShapeArrayConfig] = field(default_factory=list)
     columns: Dict[str, ShapeColumnConfig] = field(default_factory=dict)
@@ -60,10 +71,11 @@ def normalize_shape(value: Any) -> Optional[ShapeConfig]:
     if isinstance(value, ShapeConfig):
         return value
     raw = _require_mapping(value, "shape")
-    unexpected = set(raw) - {"flatten", "arrays", "columns", "allow_cardinality_change_on_bronze"}
+    unexpected = set(raw) - {"parse_json", "flatten", "arrays", "columns", "allow_cardinality_change_on_bronze"}
     if unexpected:
         raise ValueError(f"shape possui campos não reconhecidos: {sorted(unexpected)}")
     return ShapeConfig(
+        parse_json=_normalize_parse_json(raw.get("parse_json")),
         flatten=_normalize_flatten(raw.get("flatten")),
         arrays=_normalize_arrays(raw.get("arrays")),
         columns=_normalize_columns(raw.get("columns")),
@@ -77,11 +89,51 @@ def apply_shape(df: DataFrame, shape: Optional[ShapeConfig], *, layer: str) -> D
         return df
     _validate_cardinality_policy(shape, layer)
     _validate_cartesian_arrays(shape)
+    df = _apply_parse_json(df, shape.parse_json)
     df = _apply_arrays(df, shape.arrays)
     df = _apply_columns(df, shape.columns)
     if shape.flatten.enabled:
         df = _flatten_structs(df, shape.flatten)
     return df
+
+
+def _normalize_parse_json(value: Any) -> List[ShapeJsonConfig]:
+    if value is None:
+        return []
+    if isinstance(value, dict) or isinstance(value, str):
+        raise ValueError("shape.parse_json deve ser uma lista")
+    configs = []
+    aliases = set()
+    for idx, item in enumerate(value):
+        raw = _require_mapping(item, f"shape.parse_json[{idx}]")
+        unexpected = set(raw) - {"column", "schema", "alias", "drop_source"}
+        if unexpected:
+            raise ValueError(f"shape.parse_json[{idx}] possui campos não reconhecidos: {sorted(unexpected)}")
+        column = _required_path(raw.get("column"), f"shape.parse_json[{idx}].column")
+        schema = str(raw.get("schema") or "").strip()
+        if not schema:
+            raise ValueError(f"shape.parse_json[{idx}].schema não pode ser vazio")
+        alias = _optional_alias(raw.get("alias"), f"shape.parse_json[{idx}].alias")
+        output_column = alias or column
+        if "." in output_column:
+            raise ValueError(
+                f"shape.parse_json[{idx}].alias é obrigatório quando column é path aninhado: {column}"
+            )
+        drop_source = bool(raw.get("drop_source", False))
+        if drop_source and "." in column:
+            raise ValueError(f"shape.parse_json[{idx}].drop_source não é suportado para path aninhado: {column}")
+        if output_column in aliases:
+            raise ValueError(f"shape.parse_json possui alias/coluna duplicado: {output_column}")
+        aliases.add(output_column)
+        configs.append(
+            ShapeJsonConfig(
+                column=column,
+                schema=schema,
+                alias=alias,
+                drop_source=drop_source,
+            )
+        )
+    return configs
 
 
 def _normalize_flatten(value: Any) -> ShapeFlattenConfig:
@@ -159,6 +211,27 @@ def _normalize_columns(value: Any) -> Dict[str, ShapeColumnConfig]:
         aliases.add(alias)
         columns[source_path] = ShapeColumnConfig(path=source_path, alias=alias)
     return columns
+
+
+def _apply_parse_json(df: DataFrame, configs: List[ShapeJsonConfig]) -> DataFrame:
+    aliases = set(df.columns)
+    for config in configs:
+        data_type = _data_type_at_path(df.schema, config.column)
+        if data_type is None:
+            raise ValueError(f"shape.parse_json referencia coluna inexistente: {config.column}")
+        if not isinstance(data_type, StringType):
+            raise ValueError(
+                f"shape.parse_json.{config.column} deve ser string; tipo encontrado: {data_type.simpleString()}"
+            )
+        alias = config.alias or config.column
+        if alias in aliases and alias != config.column:
+            raise ValueError(f"shape.parse_json produziria colisão com coluna existente: {alias}")
+        df = df.withColumn(alias, F.from_json(_path_col(config.column), config.schema))
+        aliases.add(alias)
+        if config.drop_source and alias != config.column and config.column in df.columns:
+            df = df.drop(config.column)
+            aliases.discard(config.column)
+    return df
 
 
 def _apply_arrays(df: DataFrame, arrays: List[ShapeArrayConfig]) -> DataFrame:

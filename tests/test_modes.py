@@ -137,6 +137,118 @@ def test_shape_flattens_structs_and_extracts_nested_columns(spark, unique_name):
     assert row["customer_address_city"] == "SP"
 
 
+def test_json_like_string_is_not_parsed_when_shape_is_absent(spark, make_df, unique_name):
+    table = f"{unique_name}_json_string_without_shape"
+    df = make_df([(1, '{"customer":{"email":"a@example.com"}}')], "id long, payload string")
+
+    res = ingest(source=df, mode="scd0_append", **_common(table, "silver"))
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    assert isinstance(final.schema["payload"].dataType, StringType)
+    assert final.select("payload").first()["payload"] == '{"customer":{"email":"a@example.com"}}'
+
+
+def test_shape_parses_json_string_before_arrays_columns_and_flatten(spark, make_df, unique_name):
+    table = f"{unique_name}_shape_json_string"
+    df = make_df(
+        [
+            (
+                1,
+                '{"customer":{"email":"a@example.com","address":{"city":"SP"}},"items":[{"sku":"A","qty":2},{"sku":"B","qty":1}],"tags":["vip","app"]}',
+            )
+        ],
+        "order_id long, payload string",
+    )
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "parse_json": [
+                {
+                    "column": "payload",
+                    "schema": (
+                        "STRUCT<customer: STRUCT<email: STRING, address: STRUCT<city: STRING>>, "
+                        "items: ARRAY<STRUCT<sku: STRING, qty: BIGINT>>, tags: ARRAY<STRING>>"
+                    ),
+                }
+            ],
+            "arrays": [{"path": "payload.items", "mode": "explode_outer", "alias": "item"}],
+            "columns": {
+                "payload.customer.email": "customer_email",
+                "item.sku": "item_sku",
+                "item.qty": "item_qty",
+            },
+            "flatten": {"enabled": True, "include": ["payload"]},
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    assert {
+        "customer_email",
+        "item_sku",
+        "item_qty",
+        "payload_customer_address_city",
+        "payload_tags",
+    }.issubset(set(final.columns))
+    rows = sorted(
+        (r["order_id"], r["customer_email"], r["item_sku"], r["item_qty"], r["payload_customer_address_city"])
+        for r in final.select(
+            "order_id",
+            "customer_email",
+            "item_sku",
+            "item_qty",
+            "payload_customer_address_city",
+        ).collect()
+    )
+    assert rows == [
+        (1, "a@example.com", "A", 2, "SP"),
+        (1, "a@example.com", "B", 1, "SP"),
+    ]
+
+
+def test_shape_parses_json_string_array_root(spark, make_df, unique_name):
+    table = f"{unique_name}_shape_json_array_root"
+    df = make_df([(1, '[{"sku":"A","qty":2},{"sku":"B","qty":1}]')], "order_id long, payload string")
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "parse_json": [{"column": "payload", "schema": "ARRAY<STRUCT<sku: STRING, qty: BIGINT>>"}],
+            "arrays": [{"path": "payload", "mode": "explode_outer", "alias": "item"}],
+            "columns": {"item.sku": "item_sku", "item.qty": "item_qty"},
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    rows = sorted(
+        (r["order_id"], r["item_sku"], r["item_qty"])
+        for r in final.select("order_id", "item_sku", "item_qty").collect()
+    )
+    assert rows == [(1, "A", 2), (1, "B", 1)]
+
+
+def test_shape_parse_json_rejects_non_string_source(make_df, unique_name):
+    table = f"{unique_name}_shape_json_non_string"
+    df = make_df([(1, 10)], "id long, payload long")
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={"parse_json": [{"column": "payload", "schema": "STRUCT<a: STRING>"}]},
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "FAILED"
+    assert "deve ser string" in (res["error_message"] or "")
+
+
 def test_shape_explodes_arrays_of_structs_in_dependency_order(spark, unique_name):
     table = f"{unique_name}_shape_arrays"
     discount_schema = StructType([StructField("code", StringType(), True)])

@@ -154,6 +154,20 @@ def yaml_schema() -> Dict[str, Any]:
                 "additionalProperties": False,
                 "properties": {
                     "allow_cardinality_change_on_bronze": {"type": "boolean"},
+                    "parse_json": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["column", "schema"],
+                            "properties": {
+                                "column": {"type": "string"},
+                                "schema": {"type": "string"},
+                                "alias": {"type": ["string", "null"]},
+                                "drop_source": {"type": "boolean"},
+                            },
+                        },
+                    },
                     "flatten": {
                         "oneOf": [
                             {"type": "boolean"},
