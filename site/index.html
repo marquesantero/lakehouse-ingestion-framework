@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+<link rel="apple-touch-icon" href="assets/logo/contractforge-mark.png">
 <link rel="stylesheet" href="css/style.css">
 <script defer src="js/vendor/highlight.min.js"></script>
 <script defer src="js/vendor/highlight-languages/python.min.js"></script>
@@ -25,8 +27,13 @@
 <!-- ===== SIDEBAR ===== -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
-    <h1>ContractForge<br>Docs</h1>
-    <span class="version">v1.13.0 · MIT · Python ≥3.10</span>
+    <div class="brand-lockup">
+      <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
+      <div>
+        <h1>ContractForge<br>Docs</h1>
+        <span class="version">v1.13.0 · MIT · Python ≥3.10</span>
+      </div>
+    </div>
   </div>
   <div class="search-wrap">
     <input type="text" id="search-nav" placeholder="Buscar seção...">
@@ -115,7 +122,8 @@
 <!-- ============ HERO ============ -->
 <section id="hero">
 <div class="hero">
-  <h1>ContractForge</h1>
+  <img src="assets/logo/contractforge-logo.jpg" alt="ContractForge" class="hero-logo">
+  <h1 class="sr-only">ContractForge</h1>
   <p class="tagline">Framework batch declarativo para ingestão em Delta Lake no Databricks com contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks tipados, snapshot com soft delete, evolução de schema, explain mode e eventos OpenLineage.</p>
   <div class="badges">
     <span class="badge py">Python ≥3.10</span>
