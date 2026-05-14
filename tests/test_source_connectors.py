@@ -13,6 +13,7 @@ from lakehouse_ingestion.sources import (
     SourceResolution,
     list_source_resolvers,
     redact_secrets,
+    redact_text,
     register_source_resolver,
     resolve_batch_source,
 )
@@ -124,6 +125,24 @@ def test_redact_secrets_recursively():
         "headers": {"Authorization": "***REDACTED***"},
         "nested": ["***REDACTED***", {"api_key": "***REDACTED***"}],
     }
+
+
+def test_redact_text_covers_free_form_secret_patterns():
+    text = (
+        "url=jdbc:postgresql://user:s3cr3t@host/db?password=topsecret;token=abc "
+        "Authorization=Bearer raw-token header=Basic abc123 "
+        "placeholder={{ secret:scope/key }} api_key=plain"
+    )
+
+    redacted = redact_text(text)
+
+    assert "s3cr3t" not in redacted
+    assert "topsecret" not in redacted
+    assert "raw-token" not in redacted
+    assert "abc123" not in redacted
+    assert "{{ secret:scope/key }}" not in redacted
+    assert "api_key=plain" not in redacted
+    assert redacted.count("***REDACTED***") >= 6
 
 
 def test_file_connector_uses_spark_reader(monkeypatch):
