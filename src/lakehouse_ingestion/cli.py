@@ -10,6 +10,7 @@ from typing import Any, Iterable, List
 from .config import VALID_LAYERS, VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
 from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
+from .maintenance import apply_ctrl_retention
 from .plan import build_plan_from_kwargs, target_full_table_name
 from .presets import apply_preset, list_presets, preset_details
 from .sources import diagnose_source_connectors, list_source_connector_details, source_connector_details
@@ -454,6 +455,24 @@ def _connectors_doctor(names: List[str], indent: int) -> int:
         return 1
 
 
+def _maintenance_ctrl_retention(args: argparse.Namespace) -> int:
+    try:
+        result = apply_ctrl_retention(
+            args.catalog,
+            args.ctrl_schema,
+            retention_days=args.retention_days,
+            vacuum=args.vacuum,
+            vacuum_retention_hours=args.vacuum_retention_hours,
+            dry_run=not args.apply,
+            targets=args.targets or None,
+        )
+        print(json.dumps(result, indent=args.indent, sort_keys=True, default=str))
+        return 0
+    except Exception as exc:
+        print(f"ERRO maintenance ctrl-retention: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="contractforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -593,6 +612,30 @@ def main(argv: list[str] | None = None) -> int:
     connectors_doctor_parser.add_argument("names", nargs="*")
     connectors_doctor_parser.add_argument("--indent", type=int, default=2)
 
+    maintenance_parser = sub.add_parser("maintenance", help="Operacoes de manutencao operacional")
+    maintenance_sub = maintenance_parser.add_subparsers(dest="maintenance_command", required=True)
+    retention_parser = maintenance_sub.add_parser(
+        "ctrl-retention",
+        help="Gera ou aplica limpeza de historico das ctrl tables",
+    )
+    retention_parser.add_argument("--catalog", default="main")
+    retention_parser.add_argument("--ctrl-schema", default="ops")
+    retention_parser.add_argument("--retention-days", required=True, type=int)
+    retention_parser.add_argument(
+        "--target",
+        dest="targets",
+        action="append",
+        help="Ctrl table logica a limpar; pode ser usado multiplas vezes. Default: todas historicas.",
+    )
+    retention_parser.add_argument("--vacuum", action="store_true", help="Inclui VACUUM apos DELETE")
+    retention_parser.add_argument("--vacuum-retention-hours", type=int, default=168)
+    retention_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Executa os comandos. Sem esta flag, apenas imprime o plano.",
+    )
+    retention_parser.add_argument("--indent", type=int, default=2)
+
     args = parser.parse_args(argv)
     if args.command == "validate":
         return _validate(args.paths, expand_presets=args.expand_presets)
@@ -629,6 +672,9 @@ def main(argv: list[str] | None = None) -> int:
             return _connectors_show(args.names, args.indent)
         if args.connector_command == "doctor":
             return _connectors_doctor(args.names, args.indent)
+    if args.command == "maintenance":
+        if args.maintenance_command == "ctrl-retention":
+            return _maintenance_ctrl_retention(args)
     parser.error(f"Comando não suportado: {args.command}")
     return 2
 

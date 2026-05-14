@@ -16,6 +16,7 @@ from .governance import (
     validate_governance_contract,
 )
 from .hooks import IngestionHooks
+from .maintenance import apply_ctrl_retention, build_ctrl_retention_plan
 from .ingestion import (
     FrameworkConfig,
     QualityExpression,
@@ -87,7 +88,9 @@ __all__ = [
     "governance_referenced_columns",
     "apply_access_bundle",
     "apply_annotations_bundle",
+    "apply_ctrl_retention",
     "apply_governance_bundle",
+    "build_ctrl_retention_plan",
     "ingest",
     "ingest_bundle",
     "ingest_plan",
