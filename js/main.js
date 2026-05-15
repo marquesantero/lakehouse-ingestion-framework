@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (/^(pip|pytest|databricks|contractforge|git|python\s+-m)\b/im.test(text)) return 'bash';
     if (/^\s*[\[{]/.test(text) && /["}]/.test(text)) return 'json';
     if (/^\s*[A-Za-z0-9_.-]+:\s/m.test(text) && !/(def |import |from )/.test(text)) return 'yaml';
-    if (/(from\s+lakehouse_ingestion|import\s+|def\s+|result\s*=|spark\.)/.test(text)) return 'python';
+    if (/(from\s+contractforge|import\s+|def\s+|result\s*=|spark\.)/.test(text)) return 'python';
     return '';
   }
 
