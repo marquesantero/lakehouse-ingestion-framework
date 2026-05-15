@@ -6,6 +6,7 @@ import random
 import time
 from typing import Any, Dict, Optional
 
+from pyspark.sql.utils import AnalysisException
 from pyspark.sql import functions as F
 
 from .config import CONFIG, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
@@ -43,7 +44,24 @@ def ctrl_table_names(catalog: str, schema: str) -> Dict[str, str]:
 def _table_columns(table: str) -> set[str]:
     try:
         return {field.name for field in spark.read.table(table).schema.fields}
-    except Exception:
+    except AnalysisException as exc:
+        error_class = exc.getErrorClass() if hasattr(exc, "getErrorClass") else None
+        text = str(exc).upper()
+        missing_table = error_class in {
+            "TABLE_OR_VIEW_NOT_FOUND",
+            "SCHEMA_NOT_FOUND",
+            "CATALOG_NOT_FOUND",
+        } or any(
+            token in text
+            for token in [
+                "TABLE_OR_VIEW_NOT_FOUND",
+                "SCHEMA_NOT_FOUND",
+                "CATALOG_NOT_FOUND",
+                "TABLE OR VIEW NOT FOUND",
+            ]
+        )
+        if not missing_table:
+            raise
         return set()
 
 
@@ -1053,7 +1071,7 @@ def release_lock(tables: Dict[str, str], target: str, run_id: str) -> None:
             WHERE target_table = {sql_lit(target)} AND run_id = {sql_lit(run_id)}
         """)
     except Exception as exc:
-        logger.warning(f"Falha ao liberar lock de {target}: {exc}")
+        logger.warning("Falha ao liberar lock de %s: %s", target, exc)
 
 
 def with_retry(
@@ -1081,8 +1099,10 @@ def with_retry(
                 raise
             sleep_seconds = backoff_seconds * attempt + random.random()
             logger.warning(
-                f"Tentativa {attempt}/{attempts} falhou com erro concorrente. "
-                f"Nova tentativa em {sleep_seconds:.1f}s."
+                "Tentativa %d/%d falhou com erro concorrente. Nova tentativa em %.1fs.",
+                attempt,
+                attempts,
+                sleep_seconds,
             )
             time.sleep(sleep_seconds)
     raise last_exc  # type: ignore

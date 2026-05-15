@@ -371,15 +371,21 @@ def _validate_cartesian_arrays(shape: ShapeConfig) -> None:
 
 
 def _data_type_at_path(schema: StructType, path: str) -> Optional[DataType]:
+    """Resolve paths declarativos separados por ponto.
+
+    Colunas físicas com ponto literal no nome devem ser normalizadas antes do
+    ``shape``; o contrato interpreta ``a.b`` como campo ``b`` dentro de ``a``.
+    """
     current: DataType = schema
-    for part in path.split("."):
+    parts = path.split(".")
+    for part in parts:
         if not isinstance(current, StructType):
             return None
         field = next((field for field in current.fields if field.name == part), None)
         if field is None:
             return None
         current = field.dataType
-        if isinstance(current, ArrayType) and part != path.split(".")[-1]:
+        if isinstance(current, ArrayType) and part != parts[-1]:
             return None
     return current
 
