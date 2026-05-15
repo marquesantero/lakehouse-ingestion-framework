@@ -15,6 +15,8 @@ Links principais:
 - **Template de projeto:** [examples/project_template](examples/project_template)
 - **Playground de exemplos:** [examples/playground](examples/playground)
 - **Changelog e releases:** [CHANGELOG.md](CHANGELOG.md)
+- **Contribuição:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Segurança:** [SECURITY.md](SECURITY.md)
 
 ## O Que Ele Resolve
 
@@ -252,6 +254,8 @@ pip install -e ".[dev]"
 pytest
 python scripts/check_release.py
 ```
+
+Antes de abrir PR, leia [CONTRIBUTING.md](CONTRIBUTING.md). A branch `main` é protegida e exige PR, revisão, resolução de conversas e os checks `build`, `test (3.10)` e `test (3.11)`.
 
 Release:
 

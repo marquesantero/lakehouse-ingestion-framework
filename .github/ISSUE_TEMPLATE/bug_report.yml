@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible ContractForge bug.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, tokens, SAS URLs, or private data.
+  - type: input
+    id: version
+    attributes:
+      label: ContractForge version
+      placeholder: "2.4.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Databricks serverless
+        - Databricks classic/job cluster
+        - Local PySpark
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: mode
+    attributes:
+      label: Ingestion mode or connector
+      placeholder: "scd1_upsert, snapshot_soft_delete, rest_api, azure_blob..."
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest YAML/Python example that reproduces the issue.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized error output and relevant ctrl table fields if available.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Spark version, DBR version, source type, schema, quality rules, or links to public datasets.

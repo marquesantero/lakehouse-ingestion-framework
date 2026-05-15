@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a new ContractForge capability.
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or operational gap does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the contract/API shape and expected behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Ingestion mode
+        - Connector
+        - Shape
+        - Quality
+        - Governance
+        - Observability
+        - CLI/templates
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Runtime and compatibility considerations
+      description: Databricks classic/serverless, local Spark, dependency, security, or performance implications.
