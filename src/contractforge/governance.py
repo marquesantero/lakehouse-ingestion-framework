@@ -27,7 +27,7 @@ from .config import (
     VALID_SENSITIVITY_LEVELS,
 )
 
-logger = logging.getLogger("lakehouse_ingestion")
+logger = logging.getLogger("contractforge")
 
 
 @dataclass(frozen=True)

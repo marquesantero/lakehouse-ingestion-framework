@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lakehouse_ingestion.cli import main
+from contractforge.cli import main
 
 
 ROOT = Path(__file__).resolve().parents[1]

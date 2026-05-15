@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 1.16.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.0.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 1.16.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão 2.0.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -161,14 +161,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-1.16.0-py3-none-any.whl
+# → dist/contractforge-2.0.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-1.16.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.0.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.16.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.0.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -202,7 +202,7 @@ pytest -v                      # suite completa (requer Java 11+)
 ### 3.1 Via Python (`ingest`)
 
 ```python
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 
 # DataFrame de exemplo
 df = spark.createDataFrame(
@@ -256,8 +256,8 @@ Notebook genérico que carrega o YAML:
 
 ```python
 import yaml
-from lakehouse_ingestion import ingest_plan
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge import ingest_plan
+from contractforge.plan import build_plan_from_kwargs
 
 with open("contracts/bronze/b_clientes.yaml") as f:
     cfg = yaml.safe_load(f)
@@ -275,7 +275,7 @@ print(f"Run ID: {result['run_id']}")
 ## 4. API Pública
 
 ```python
-from lakehouse_ingestion import (
+from contractforge import (
     ingest,              # Função procedural (kwargs)
     ingest_plan,         # Função recebendo IngestionPlan
     ingest_stream_plan,  # Execução de SourceSpec/ConnectorSpec Autoloader available_now
@@ -691,7 +691,7 @@ notebook_name: bronze_orders_autoloader
 Formato legado equivalente:
 
 ```python
-from lakehouse_ingestion import SourceSpec, ingest
+from contractforge import SourceSpec, ingest
 
 result = ingest(
     source=SourceSpec(
@@ -968,7 +968,7 @@ Os valores sensíveis são redigidos em logs e ctrl tables. A auditoria de execu
 Novos conectores podem ser acoplados sem alterar o dispatcher principal:
 
 ```python
-from lakehouse_ingestion import ConnectorCapabilities, SourceResolution, register_source_resolver
+from contractforge import ConnectorCapabilities, SourceResolution, register_source_resolver
 
 class MyConnector:
     def capabilities(self, spec):
@@ -1081,7 +1081,7 @@ contractforge validate contracts/silver/orders.yaml --expand-presets
 ```
 
 ```python
-from lakehouse_ingestion import register_preset
+from contractforge import register_preset
 
 register_preset("company_silver_default", {
     "layer": "silver",
@@ -1174,10 +1174,22 @@ shape:
   columns:
     customer.email:
       alias: customer_email
+      cast: STRING
     customer.document.number: customer_document_number
+    event_time:
+      expression: "CAST(event_time_epoch_ms / 1000 AS TIMESTAMP)"
+      alias: event_time
 ```
 
 Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_keys` e escrita.
+
+`shape.columns` aceita três formas:
+
+- `path: alias` para extração direta.
+- `path: {alias, cast}` para extração com cast Spark.
+- `name: {expression, alias, cast}` para derivação simples com SQL Spark.
+
+Use `expression` para normalizações pequenas diretamente ligadas ao shape, como conversão de epoch, indexação de array ou casts compostos. Transformações de negócio maiores continuam pertencendo ao notebook/job antes de chamar `ingest()`.
 
 ### 5E.5 Arrays e Arrays de Structs
 
@@ -1218,7 +1230,40 @@ item.sku         -> item_sku
 discount.code    -> discount_code
 ```
 
-### 5E.6 Guardrails de Cardinalidade
+### 5E.6 Arrays Paralelos com `zip_arrays`
+
+APIs como Open-Meteo retornam arrays paralelos no mesmo struct: `hourly.time[]`, `hourly.temperature_2m[]`, `hourly.relative_humidity_2m[]`. Fazer `explode` em cada array separadamente geraria produto cartesiano. Para esse caso, declare primeiro `zip_arrays`, gerando um array de structs alinhado por índice, e depois faça `explode_outer` por `shape.arrays`.
+
+```yaml
+shape:
+  zip_arrays:
+    - alias: hourly_rows
+      columns:
+        hourly.time: time
+        hourly.temperature_2m: temperature_2m
+        hourly.relative_humidity_2m: relative_humidity_2m
+        hourly.precipitation_probability: precipitation_probability
+  arrays:
+    - path: hourly_rows
+      mode: explode_outer
+      alias: hour
+  columns:
+    hour.time: forecast_hour
+    hour.temperature_2m: temperature_2m
+    hour.relative_humidity_2m: relative_humidity_2m
+    hour.precipitation_probability: precipitation_probability
+```
+
+Comportamento:
+
+- `zip_arrays[].columns` exige pelo menos dois arrays.
+- Todos os paths declarados precisam existir e ser `array`.
+- O alias de `zip_arrays` cria uma coluna `array<struct<...>>`.
+- O alinhamento segue a semântica de `arrays_zip` do Spark: arrays de tamanhos diferentes são alinhados por posição e valores ausentes viram `null`.
+- A mudança de cardinalidade só acontece quando `shape.arrays` usa `explode`/`explode_outer`, portanto os guardrails de Bronze continuam valendo.
+- Aliases técnicos consumidos pelo próprio `shape` são removidos automaticamente. No exemplo acima, `hourly_rows` e `hour` não ficam na tabela final se serviram apenas para alimentar `shape.arrays` e `shape.columns`.
+
+### 5E.7 Guardrails de Cardinalidade
 
 Em Bronze, `explode` e `explode_outer` falham por padrão:
 
@@ -1268,7 +1313,7 @@ shape:
       allow_cartesian: true
 ```
 
-### 5E.7 Exemplo Completo Silver
+### 5E.8 Exemplo Completo Silver
 
 ```yaml
 preset:
@@ -1788,7 +1833,7 @@ schema_policy: additive_only
 ### 7.7 Exemplo com QualityRules via Dataclass
 
 ```python
-from lakehouse_ingestion import QualityRules, QualityExpression
+from contractforge import QualityRules, QualityExpression
 
 rules = QualityRules(
     required_columns=["id_cliente", "updated_at"],
@@ -1836,7 +1881,7 @@ df_clean = df.join(
 Para casos específicos, registre avaliadores com `register_quality_rule`. O avaliador recebe `(df, rule_name, config)` e retorna ao menos `failed_count`; pode retornar `message`, `details` e `condition` para regras quarentenáveis.
 
 ```python
-from lakehouse_ingestion import register_quality_rule, ingest
+from contractforge import register_quality_rule, ingest
 from pyspark.sql import functions as F
 
 def freshness_rule(df, rule_name, config):
@@ -2365,7 +2410,7 @@ Quando `openlineage_enabled=True`, o framework gera um evento OpenLineage 1.0.5 
 - `sourceCodeLocation` — type=notebook, url=notebook_name
 - `schema` — colunas do input e output
 - `dataQualityMetrics` — rowCount do output
-- `lakehouse_ingestion` (custom) — mode, layer, rowsRead, rowsWritten, deltaVersionBefore/After, operationMetrics, started/finishedAt
+- `contractforge` (custom) — mode, layer, rowsRead, rowsWritten, deltaVersionBefore/After, operationMetrics, started/finishedAt
 
 ```python
 ingest(
@@ -2463,7 +2508,7 @@ contracts/gold/gd_orders.access.yaml
 Carregamento e execução:
 
 ```python
-from lakehouse_ingestion import ingest_bundle, load_contract_bundle
+from contractforge import ingest_bundle, load_contract_bundle
 
 bundle = load_contract_bundle("contracts/gold/gd_orders")
 result = ingest_bundle("contracts/gold/gd_orders")
@@ -2582,7 +2627,7 @@ O framework também valida capabilities básicas de Unity Catalog antes de aplic
 
 ## 16. FrameworkConfig — Configuração Global
 
-Dataclass frozen com defaults globais. A instância singleton é `lakehouse_ingestion.config.CONFIG`.
+Dataclass frozen com defaults globais. A instância singleton é `contractforge.config.CONFIG`.
 
 ```python
 @dataclass(frozen=True)
@@ -2612,7 +2657,7 @@ class FrameworkConfig:
 
 **Customização (monkey-patch, use com cautela):**
 ```python
-import lakehouse_ingestion.config as cfg
+import contractforge.config as cfg
 cfg.CONFIG = cfg.FrameworkConfig(ctrl_schema="my_ops", default_retry_attempts=5)
 ```
 
@@ -2627,7 +2672,7 @@ cfg.CONFIG = cfg.FrameworkConfig(ctrl_schema="my_ops", default_retry_attempts=5)
 `IngestionHooks` permite pontos explícitos de extensão sem alterar o core. Hooks que recebem DataFrame devem retornar um DataFrame.
 
 ```python
-from lakehouse_ingestion import IngestionHooks, ingest
+from contractforge import IngestionHooks, ingest
 from pyspark.sql import functions as F
 
 hooks = IngestionHooks(
@@ -2649,7 +2694,7 @@ Falhas em hooks propagam como falha da ingestão e são registradas em `ctrl_ing
 `register_write_mode(mode, handler)` adiciona motores de escrita customizados. O handler recebe `(plan, df, target, effective_rows)` e retorna o número lógico de linhas afetadas.
 
 ```python
-from lakehouse_ingestion import register_write_mode
+from contractforge import register_write_mode
 
 def my_writer(plan, df, target, effective_rows):
     df.write.format("delta").mode("append").saveAsTable(target)
@@ -2727,7 +2772,7 @@ contractforge connectors show rest_api
 
 **Python:**
 ```python
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 
 result = ingest(
     source="raw_erp_orders",
@@ -3043,8 +3088,8 @@ domain: produtos
 
 ```python
 import yaml
-from lakehouse_ingestion import ingest_plan
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge import ingest_plan
+from contractforge.plan import build_plan_from_kwargs
 
 with open("contracts/silver/c_clientes.yaml") as f:
     cfg = yaml.safe_load(f)
@@ -3108,8 +3153,8 @@ contracts/
 **Notebook genérico (`run_ingestion`):**
 ```python
 import yaml
-from lakehouse_ingestion import ingest_plan
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge import ingest_plan
+from contractforge.plan import build_plan_from_kwargs
 
 dbutils.widgets.text("contract_path", "")
 dbutils.widgets.text("master_run_id", "")
@@ -3179,7 +3224,7 @@ resources:
 
 | Sintoma | Causa Provável | Solução |
 |---------|---------------|---------|
-| `RuntimeError: Nenhuma SparkSession ativa` | Código fora de Databricks sem sessão criada | Crie `SparkSession.builder...getOrCreate()` antes de `import lakehouse_ingestion` |
+| `RuntimeError: Nenhuma SparkSession ativa` | Código fora de Databricks sem sessão criada | Crie `SparkSession.builder...getOrCreate()` antes de `import contractforge` |
 | `ModuleNotFoundError: No module named 'delta'` | Falta delta-spark fora do Databricks | `pip install "contractforge[spark]"` (já incluso no Databricks Runtime) |
 | `ConcurrentAppendException` / conflito de commit | Escritas concorrentes na mesma tabela | Ative `lock_enabled=True`, reduza concorrência, use `delta_by_partition` |
 | `Schema policy strict violada` | Schema da fonte divergiu do target | Mude para `additive_only`/`permissive` ou corrija a fonte |
@@ -3218,7 +3263,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 1.16.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão 2.0.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
@@ -3260,7 +3305,7 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 
 ## 22. Checklist Pré-Produção
 
-- [ ] Pacote instalado no cluster (verificar com `import lakehouse_ingestion; print(lakehouse_ingestion.__version__)`)
+- [ ] Pacote instalado no cluster (verificar com `import contractforge; print(contractforge.__version__)`)
 - [ ] Schema `ops` existe e cluster tem `CREATE TABLE` nele
 - [ ] Permissões UC concedidas: `USE CATALOG`, `USE SCHEMA`, `CREATE TABLE`, `MODIFY`, `SELECT`
 - [ ] Cada contrato tem `notebook_name` único e descritivo
@@ -3335,7 +3380,7 @@ executar apenas os testes puros.
 ### 23.5 Estrutura do Pacote
 
 ```
-src/lakehouse_ingestion/
+src/contractforge/
 ├── __init__.py        # API pública (ingest, ingest_plan, IngestionPlan, etc.)
 ├── _spark.py          # Resolução lazy de SparkSession + serverless detection
 ├── _sql.py            # Helpers SQL (quoting, literais, validação)

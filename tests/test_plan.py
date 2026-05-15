@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lakehouse_ingestion import (
+from contractforge import (
     IngestionPlan,
     QualityExpression,
     QualityRules,
@@ -15,7 +15,7 @@ from lakehouse_ingestion import (
     list_presets,
     register_preset,
 )
-from lakehouse_ingestion.plan import (
+from contractforge.plan import (
     build_plan_from_kwargs,
     normalize_quality_rules,
     target_full_table_name,
@@ -23,8 +23,8 @@ from lakehouse_ingestion.plan import (
     validate_plan_shape,
     validate_write_mode,
 )
-from lakehouse_ingestion.hooks import IngestionHooks
-from lakehouse_ingestion.ingestion import _validate_static_plan_options
+from contractforge.hooks import IngestionHooks
+from contractforge.ingestion import _validate_static_plan_options
 
 
 def test_validate_write_mode_accepts_valid():
@@ -275,9 +275,19 @@ def test_build_plan_accepts_shape_contract():
                 {"path": "payload_json.items", "mode": "explode_outer", "alias": "item"},
                 {"path": "item.discounts", "mode": "to_json", "alias": "discounts_json"},
             ],
+            "zip_arrays": [
+                {
+                    "alias": "hourly_rows",
+                    "columns": {
+                        "payload_json.hourly.time": "time",
+                        "payload_json.hourly.temperature_2m": "temperature_2m",
+                    },
+                }
+            ],
             "columns": {
                 "payload_json.customer.email": {"alias": "customer_email"},
-                "item.sku": "item_sku",
+                "item.sku": {"alias": "item_sku", "cast": "STRING"},
+                "item_qty_numeric": {"expression": "CAST(item.qty AS BIGINT)", "alias": "item_qty"},
             },
             "allow_cardinality_change_on_bronze": True,
         },
@@ -289,7 +299,11 @@ def test_build_plan_accepts_shape_contract():
     assert plan.shape.flatten.enabled is True
     assert plan.shape.arrays[0].path == "payload_json.items"
     assert plan.shape.arrays[0].mode == "explode_outer"
+    assert plan.shape.zip_arrays[0].alias == "hourly_rows"
+    assert plan.shape.zip_arrays[0].columns["payload_json.hourly.time"] == "time"
     assert plan.shape.columns["payload_json.customer.email"].alias == "customer_email"
+    assert plan.shape.columns["item.sku"].cast == "STRING"
+    assert plan.shape.columns["item_qty_numeric"].expression == "CAST(item.qty AS BIGINT)"
 
 
 def test_build_plan_rejects_invalid_shape_contract():
@@ -323,6 +337,26 @@ def test_build_plan_rejects_invalid_shape_contract():
                     }
                 ]
             },
+        )
+    with pytest.raises(ValueError, match="shape.zip_arrays deve ser uma lista"):
+        build_plan_from_kwargs(source="x", target_table="t", shape={"zip_arrays": {"alias": "rows"}})
+    with pytest.raises(ValueError, match="pelo menos dois arrays"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={"zip_arrays": [{"alias": "rows", "columns": {"a": "a"}}]},
+        )
+    with pytest.raises(ValueError, match="campo de saída duplicado"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={"zip_arrays": [{"alias": "rows", "columns": {"a": "value", "b": "value"}}]},
+        )
+    with pytest.raises(ValueError, match="não pode ser vazio"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={"columns": {"a": {"alias": "x", "cast": ""}}},
         )
 
 

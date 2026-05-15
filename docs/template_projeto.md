@@ -59,7 +59,7 @@ contractforge validate-project examples/playground/contracts
 O notebook deve ser genérico. A lógica de ingestão fica no YAML:
 
 ```python
-from lakehouse_ingestion import ingest_bundle, load_contract_bundle
+from contractforge import ingest_bundle, load_contract_bundle
 
 bundle = load_contract_bundle(dbutils.widgets.get("contract"))
 result = ingest_bundle(bundle)

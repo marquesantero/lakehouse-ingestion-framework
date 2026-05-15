@@ -98,7 +98,7 @@ def build_openlineage_event(
 
     Inclui facets ``processing_engine``, ``parent`` (opcional), schema dos
     inputs/outputs, ``dataQualityMetrics`` (rowCount) e um facet customizado
-    ``lakehouse_ingestion`` com modo, layer, contagens e métricas Delta.
+    ``contractforge`` com modo, layer, contagens e métricas Delta.
     ``eventType`` é ``COMPLETE`` em sucesso ou ``FAIL`` em erro.
     """
     namespace = openlineage_namespace(plan)
@@ -174,7 +174,7 @@ def build_openlineage_event(
             }
         ],
         "facets": {
-            "lakehouse_ingestion": {
+            "contractforge": {
                 "_producer": plan.openlineage_producer,
                 "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/RunFacet.json",
                 "mode": plan.mode,

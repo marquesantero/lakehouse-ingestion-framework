@@ -59,7 +59,15 @@ from .templates import (
 )
 from .presets import apply_preset, get_preset, list_presets, preset_details, register_preset
 from .plan import target_full_table_name, target_schema_name
-from .shape import ShapeArrayConfig, ShapeColumnConfig, ShapeConfig, ShapeFlattenConfig, ShapeJsonConfig, apply_shape
+from .shape import (
+    ShapeArrayConfig,
+    ShapeColumnConfig,
+    ShapeConfig,
+    ShapeFlattenConfig,
+    ShapeJsonConfig,
+    ShapeZipArraysConfig,
+    apply_shape,
+)
 from .writers import register_write_mode
 from .quality import register_quality_rule
 
@@ -91,6 +99,7 @@ __all__ = [
     "ShapeConfig",
     "ShapeFlattenConfig",
     "ShapeJsonConfig",
+    "ShapeZipArraysConfig",
     "TableAnnotations",
     "diagnose_source_connectors",
     "get_source_resolver",
@@ -135,4 +144,4 @@ __all__ = [
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "1.16.0"
+__version__ = "2.0.0"

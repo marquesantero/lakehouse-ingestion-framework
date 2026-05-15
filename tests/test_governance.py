@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-import lakehouse_ingestion.governance as governance_module
-from lakehouse_ingestion.contract_bundle import governance_preview, load_contract_bundle
-from lakehouse_ingestion.governance import (
+import contractforge.governance as governance_module
+from contractforge.contract_bundle import governance_preview, load_contract_bundle
+from contractforge.governance import (
     AccessContract,
     AnnotationsContract,
     OperationsContract,
@@ -16,7 +16,7 @@ from lakehouse_ingestion.governance import (
     apply_access_contract,
     validate_governance_contract,
 )
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge.plan import build_plan_from_kwargs
 
 
 def test_build_plan_accepts_annotations_operations_and_access():

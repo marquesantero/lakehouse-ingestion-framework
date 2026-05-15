@@ -10,7 +10,7 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
-FRAMEWORK_VERSION = "1.16.0"
+FRAMEWORK_VERSION = "2.0.0"
 CTRL_SCHEMA_VERSION = 11
 
 #: Camadas reconhecidas (Medallion Architecture).
@@ -202,7 +202,7 @@ class FrameworkConfig:
     Imutável. A instância padrão é ``CONFIG``. Para sobrescrever defaults em
     todo o processo, faça monkey-patch antes da primeira chamada:
 
-    >>> import lakehouse_ingestion.config as cfg
+    >>> import contractforge.config as cfg
     >>> cfg.CONFIG = cfg.FrameworkConfig(ctrl_schema="my_ops")
 
     Em prática, prefira passar ``ctrl_schema``/etc. no ``IngestionPlan``.

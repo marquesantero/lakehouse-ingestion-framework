@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-import lakehouse_ingestion.ingestion as ingestion_module
-import lakehouse_ingestion.streaming as streaming_module
-from lakehouse_ingestion.ingestion import ingest_plan
-from lakehouse_ingestion.plan import SourceSpec, build_plan_from_kwargs
-from lakehouse_ingestion.sources import (
+import contractforge.ingestion as ingestion_module
+import contractforge.streaming as streaming_module
+from contractforge.ingestion import ingest_plan
+from contractforge.plan import SourceSpec, build_plan_from_kwargs
+from contractforge.sources import (
     AutoloaderResolver,
     get_source_resolver,
     register_source_resolver,
@@ -51,7 +51,7 @@ def test_autoloader_resolver_uses_read_stream_and_options(monkeypatch):
     class FakeSpark:
         readStream = Reader()
 
-    monkeypatch.setattr("lakehouse_ingestion.sources.spark", FakeSpark())
+    monkeypatch.setattr("contractforge.sources.spark", FakeSpark())
     spec = SourceSpec(
         type="autoloader",
         path="/landing/orders",
@@ -92,7 +92,7 @@ def test_ingest_plan_dispatches_source_spec_to_stream(monkeypatch):
     def fake_stream(inner_plan):
         return {"status": "DRY_RUN", "stream_run_id": "stream-1", "source": inner_plan.source.path}
 
-    monkeypatch.setattr("lakehouse_ingestion.ingestion.ingest_stream_plan", fake_stream)
+    monkeypatch.setattr("contractforge.ingestion.ingest_stream_plan", fake_stream)
 
     assert ingest_plan(plan) == {
         "status": "DRY_RUN",

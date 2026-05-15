@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
-import lakehouse_ingestion.maintenance as maintenance_module
-from lakehouse_ingestion.cli import main
-from lakehouse_ingestion.maintenance import apply_ctrl_retention, build_ctrl_retention_plan
+import contractforge.maintenance as maintenance_module
+from contractforge.cli import main
+from contractforge.maintenance import apply_ctrl_retention, build_ctrl_retention_plan
 
 
 def test_build_ctrl_retention_plan_is_dry_and_quotes_tables():

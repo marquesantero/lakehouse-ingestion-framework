@@ -4,7 +4,7 @@ from __future__ import annotations
 from pyspark.sql import Row
 from pyspark.sql.types import ArrayType, LongType, StringType, StructField, StructType
 
-from lakehouse_ingestion import IngestionHooks, ingest
+from contractforge import IngestionHooks, ingest
 
 
 def _common(target: str, layer: str = "silver"):
@@ -297,6 +297,76 @@ def test_shape_explodes_arrays_of_structs_in_dependency_order(spark, unique_name
         for r in final.select("order_id", "item_sku", "discount_code").collect()
     )
     assert rows == [(1, "A", "D1"), (1, "A", "D2"), (1, "B", None)]
+    assert "item" not in final.columns
+    assert "discount" not in final.columns
+
+
+def test_shape_zips_parallel_arrays_before_explode(spark, unique_name):
+    table = f"{unique_name}_shape_zip_arrays"
+    hourly_schema = StructType(
+        [
+            StructField("time", ArrayType(StringType()), True),
+            StructField("temperature_2m", ArrayType(LongType()), True),
+            StructField("humidity", ArrayType(LongType()), True),
+        ]
+    )
+    schema = StructType(
+        [
+            StructField("location_id", StringType(), False),
+            StructField("hourly", hourly_schema, True),
+        ]
+    )
+    df = spark.createDataFrame(
+        [
+            Row(
+                location_id="sp",
+                hourly=Row(
+                    time=["2026-05-14T00:00", "2026-05-14T01:00"],
+                    temperature_2m=[21, 22],
+                    humidity=[80, 78],
+                ),
+            )
+        ],
+        schema,
+    )
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "zip_arrays": [
+                {
+                    "alias": "hourly_rows",
+                    "columns": {
+                        "hourly.time": "time",
+                        "hourly.temperature_2m": "temperature_2m",
+                        "hourly.humidity": "humidity",
+                    },
+                }
+            ],
+            "arrays": [{"path": "hourly_rows", "mode": "explode_outer", "alias": "hour"}],
+            "columns": {
+                "hour.time": "forecast_hour",
+                "hour.temperature_2m": {"alias": "temperature_2m", "cast": "DOUBLE"},
+                "hour.humidity": "humidity",
+                "humidity_ratio": {"expression": "humidity / 100.0", "alias": "humidity_ratio", "cast": "DOUBLE"},
+            },
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    rows = sorted(
+        (r["location_id"], r["forecast_hour"], r["temperature_2m"], r["humidity"], r["humidity_ratio"])
+        for r in final.select("location_id", "forecast_hour", "temperature_2m", "humidity", "humidity_ratio").collect()
+    )
+    assert rows == [
+        ("sp", "2026-05-14T00:00", 21.0, 80, 0.8),
+        ("sp", "2026-05-14T01:00", 22.0, 78, 0.78),
+    ]
+    assert "hourly_rows" not in final.columns
+    assert "hour" not in final.columns
 
 
 def test_shape_blocks_cardinality_change_on_bronze_by_default(make_df, unique_name):

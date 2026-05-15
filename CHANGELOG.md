@@ -6,6 +6,17 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.0.0 - 2026-05-15
+
+- **Breaking:** renomeia o namespace Python para `contractforge`; imports antigos via `lakehouse_ingestion` foram removidos.
+- **Breaking:** atualiza referências internas de observabilidade/lineage para o componente `contractforge`.
+- Mantém o pacote distribuído e a CLI como `contractforge`.
+- Adiciona `shape.zip_arrays` para transformar arrays paralelos em `array<struct>` antes de `shape.arrays`.
+- Permite modelar respostas de APIs como Open-Meteo sem `arrays_zip`/`explode` manual em notebooks.
+- Estende `shape.columns` com `cast` e `expression` para normalizações estruturais simples.
+- Remove automaticamente aliases técnicos de `zip_arrays`/`explode` quando usados apenas como ponte para colunas finais.
+- Atualiza JSON Schema, exports públicos, testes e documentação do `shape`.
+
 ## 1.16.0 - 2026-05-14
 
 - Adiciona templates built-in de contratos para cenários REST, Auto Loader, JDBC/SCD1, snapshot soft delete, SCD2 e gold KPI.
@@ -76,7 +87,7 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 
 ## 1.8.1 - 2026-05-13
 
-- Renomeia o produto/pacote distribuído para `contractforge`, mantendo o namespace Python `lakehouse_ingestion`.
+- Renomeia o produto/pacote distribuído para `contractforge`.
 - Renomeia a CLI para `contractforge`.
 - Move `pyspark` e `delta-spark` para o extra opcional `spark`, evitando que wheels instalados em Databricks/serverless tentem resolver dependências já fornecidas pelo runtime.
 - Mantém o extra `dev` com Spark/Delta para testes locais completos e CI.

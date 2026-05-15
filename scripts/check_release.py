@@ -33,8 +33,8 @@ def main() -> int:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject["project"]
     package_version = str(project["version"])
-    init_version = _literal_assign(ROOT / "src/lakehouse_ingestion/__init__.py", "__version__")
-    framework_version = _literal_assign(ROOT / "src/lakehouse_ingestion/config.py", "FRAMEWORK_VERSION")
+    init_version = _literal_assign(ROOT / "src/contractforge/__init__.py", "__version__")
+    framework_version = _literal_assign(ROOT / "src/contractforge/config.py", "FRAMEWORK_VERSION")
 
     errors = []
     if package_version != init_version:

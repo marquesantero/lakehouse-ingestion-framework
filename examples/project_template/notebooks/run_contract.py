@@ -1,7 +1,7 @@
 # Databricks notebook source
 from typing import Any, Callable, cast
 
-from lakehouse_ingestion import ingest_bundle, load_contract_bundle
+from contractforge import ingest_bundle, load_contract_bundle
 
 dbutils_obj = globals().get("dbutils")
 if dbutils_obj is None:

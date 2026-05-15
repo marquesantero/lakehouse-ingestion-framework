@@ -1,6 +1,6 @@
 # Intervencoes Necessarias Na Lib 1.8.0
 
-Este documento registra o unico ajuste identificado durante a validacao do `ingestpacktest` com `lakehouse_ingestion 1.8.0`.
+Este documento registra o unico ajuste identificado durante a validacao do `ingestpacktest` com `contractforge 1.8.0`.
 
 Status no repo principal: aplicado em `1.8.1`.
 
@@ -10,7 +10,7 @@ Status no repo principal: aplicado em `1.8.1`.
 
 O primeiro run da regressao falhou antes de executar notebooks:
 
-- job: `lakehouse_ingestion_regression`
+- job: `contractforge_regression`
 - run com falha: `850717785525210`
 - task: `validate_package_metadata`
 - erro: `Library installation failed`
@@ -19,7 +19,7 @@ O Databricks serverless tentou instalar o wheel e resolver dependencias externas
 
 ### Causa
 
-O `pyproject.toml` da lib real em `D:\trabalho\white\ingest\lakehouse_ingestion_pkg` declara:
+O `pyproject.toml` da lib real neste repositório declara:
 
 ```toml
 dependencies = [
@@ -33,7 +33,7 @@ Em Databricks serverless, Spark e Delta ja fazem parte do runtime. Quando o whee
 
 ### Ajuste aplicado neste projeto de testes
 
-Na copia vendorizada `vendor/lakehouse_ingestion_pkg/pyproject.toml`, o wheel foi ajustado para manter apenas `PyYAML` como dependencia obrigatoria e mover Spark/Delta para extra opcional:
+Na copia vendorizada usada pelo harness, o wheel foi ajustado para manter apenas `PyYAML` como dependencia obrigatoria e mover Spark/Delta para extra opcional:
 
 ```toml
 dependencies = [
@@ -48,8 +48,8 @@ spark = ["pyspark>=3.4,<4", "delta-spark>=3.0,<4"]
 Depois disso:
 
 - `databricks bundle deploy --target dev --auto-approve`: `Deployment complete`
-- `lakehouse_ingestion_regression`: `SUCCESS`
-- `lakehouse_ingestion_medallion`: `SUCCESS`
+- `contractforge_regression`: `SUCCESS`
+- `contractforge_medallion`: `SUCCESS`
 
 ### Recomendacao para o repo principal
 
@@ -78,12 +78,12 @@ Validation OK
 Validacoes Databricks:
 
 ```text
-lakehouse_ingestion_regression
+contractforge_regression
 run_id: 574848419724760
 resultado: SUCCESS
 failed_assertions: 0
 
-lakehouse_ingestion_medallion
+contractforge_medallion
 run_id: 565114273939624
 resultado: SUCCESS
 failed_assertions: 0

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from lakehouse_ingestion import QualityExpression, QualityRules
-from lakehouse_ingestion.quality import (
+from contractforge import QualityExpression, QualityRules
+from contractforge.quality import (
     ABORT_ONLY_RULES,
     evaluate_quality,
     is_abort_only_failure,

@@ -51,7 +51,7 @@ class _SparkProxy:
         return getattr(get_spark(), name)
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
-        return "<lakehouse_ingestion._spark.spark proxy>"
+        return "<contractforge._spark.spark proxy>"
 
 
 spark = _SparkProxy()

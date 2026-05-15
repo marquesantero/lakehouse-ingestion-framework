@@ -27,7 +27,7 @@ from .state import (
     stream_child_run_metrics,
 )
 
-logger = logging.getLogger("lakehouse_ingestion")
+logger = logging.getLogger("contractforge")
 
 
 def _stream_source_name(source: SourceSpec) -> str:

@@ -72,7 +72,7 @@ def spark(tmp_path_factory):
         pytest.skip(f"Spark indisponível neste host: {exc}")
     sess.sparkContext.setLogLevel("ERROR")
 
-    from lakehouse_ingestion import _spark as spark_module
+    from contractforge import _spark as spark_module
 
     spark_module._cached_session = sess  # type: ignore[attr-defined]
 

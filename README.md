@@ -34,7 +34,7 @@ Em Databricks, ele complementa Unity Catalog aplicando comments/tags e gerando e
 
 ## Instalação
 
-O pacote distribuído se chama `contractforge`. O namespace Python permanece `lakehouse_ingestion`.
+O pacote distribuído e o namespace Python se chamam `contractforge`.
 
 ```bash
 pip install contractforge
@@ -57,7 +57,7 @@ No Databricks, o wheel não declara `pyspark` nem `delta-spark` como dependênci
 ## Exemplo Python
 
 ```python
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 
 result = ingest(
     source=df,
@@ -105,6 +105,31 @@ schema_policy: additive_only
 quality_rules:
   not_null: [order_id]
   unique_key: [order_id]
+```
+
+## Shape Declarativo
+
+`shape` normaliza JSON, structs e arrays antes de quality/write. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
+
+```yaml
+shape:
+  zip_arrays:
+    - alias: hourly_rows
+      columns:
+        hourly.time: time
+        hourly.temperature_2m: temperature_2m
+  arrays:
+    - path: hourly_rows
+      mode: explode_outer
+      alias: hour
+  columns:
+    hour.time: forecast_hour
+    hour.temperature_2m:
+      alias: temperature_2m
+      cast: DOUBLE
+    forecast_date:
+      expression: "TO_DATE(hour.time)"
+      alias: forecast_date
 ```
 
 ## CLI
@@ -159,8 +184,8 @@ Release:
 ```bash
 python -m build
 twine check dist/*
-git tag v1.16.0
-git push origin v1.16.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.

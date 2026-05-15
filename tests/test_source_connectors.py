@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-import lakehouse_ingestion.sources as sources_module
-from lakehouse_ingestion.ingestion import _validate_static_plan_options, ingest_plan
-from lakehouse_ingestion.plan import ConnectorSpec, build_plan_from_kwargs
-from lakehouse_ingestion.sources import (
+import contractforge.sources as sources_module
+from contractforge.ingestion import _validate_static_plan_options, ingest_plan
+from contractforge.plan import ConnectorSpec, build_plan_from_kwargs
+from contractforge.sources import (
     ConnectorCapabilities,
     FileConnector,
     JdbcConnector,
@@ -652,7 +652,7 @@ def test_ingest_plan_dispatches_autoloader_connector_to_stream(monkeypatch):
             "checkpoint": inner_plan.source.checkpoint_location,
         }
 
-    monkeypatch.setattr("lakehouse_ingestion.ingestion.ingest_stream_plan", fake_stream)
+    monkeypatch.setattr("contractforge.ingestion.ingest_stream_plan", fake_stream)
 
     assert ingest_plan(plan) == {
         "status": "DRY_RUN",

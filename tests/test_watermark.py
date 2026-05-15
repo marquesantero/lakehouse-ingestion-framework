@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from lakehouse_ingestion.watermark import (
+from contractforge.watermark import (
     apply_watermark,
     compute_watermark,
     decode_watermark,

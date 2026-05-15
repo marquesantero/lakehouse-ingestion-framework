@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
-from lakehouse_ingestion.cli import main
-from lakehouse_ingestion.plan import build_plan_from_kwargs
-from lakehouse_ingestion.templates import (
+from contractforge.cli import main
+from contractforge.plan import build_plan_from_kwargs
+from contractforge.templates import (
     contract_template_details,
     contract_template_files,
     list_contract_templates,

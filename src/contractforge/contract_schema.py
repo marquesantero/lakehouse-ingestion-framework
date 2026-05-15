@@ -208,6 +208,22 @@ def yaml_schema() -> Dict[str, Any]:
                             },
                         },
                     },
+                    "zip_arrays": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["alias", "columns"],
+                            "properties": {
+                                "alias": {"type": "string"},
+                                "columns": {
+                                    "type": "object",
+                                    "minProperties": 2,
+                                    "additionalProperties": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
                     "columns": {
                         "type": "object",
                         "additionalProperties": {
@@ -216,7 +232,11 @@ def yaml_schema() -> Dict[str, Any]:
                                 {
                                     "type": "object",
                                     "additionalProperties": False,
-                                    "properties": {"alias": {"type": "string"}},
+                                    "properties": {
+                                        "alias": {"type": "string"},
+                                        "cast": {"type": "string"},
+                                        "expression": {"type": "string"},
+                                    },
                                 },
                             ]
                         },

@@ -36,11 +36,21 @@ class ShapeArrayConfig:
 
 
 @dataclass(frozen=True)
+class ShapeZipArraysConfig:
+    """Zip declarativo de arrays paralelos em um array de structs."""
+
+    alias: str
+    columns: Dict[str, str]
+
+
+@dataclass(frozen=True)
 class ShapeColumnConfig:
     """Extração/alias declarativo de campo top-level ou aninhado."""
 
-    path: str
     alias: str
+    path: Optional[str] = None
+    expression: Optional[str] = None
+    cast: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +69,7 @@ class ShapeConfig:
 
     parse_json: List[ShapeJsonConfig] = field(default_factory=list)
     flatten: ShapeFlattenConfig = field(default_factory=ShapeFlattenConfig)
+    zip_arrays: List[ShapeZipArraysConfig] = field(default_factory=list)
     arrays: List[ShapeArrayConfig] = field(default_factory=list)
     columns: Dict[str, ShapeColumnConfig] = field(default_factory=dict)
     allow_cardinality_change_on_bronze: bool = False
@@ -71,12 +82,20 @@ def normalize_shape(value: Any) -> Optional[ShapeConfig]:
     if isinstance(value, ShapeConfig):
         return value
     raw = _require_mapping(value, "shape")
-    unexpected = set(raw) - {"parse_json", "flatten", "arrays", "columns", "allow_cardinality_change_on_bronze"}
+    unexpected = set(raw) - {
+        "parse_json",
+        "flatten",
+        "zip_arrays",
+        "arrays",
+        "columns",
+        "allow_cardinality_change_on_bronze",
+    }
     if unexpected:
         raise ValueError(f"shape possui campos não reconhecidos: {sorted(unexpected)}")
     return ShapeConfig(
         parse_json=_normalize_parse_json(raw.get("parse_json")),
         flatten=_normalize_flatten(raw.get("flatten")),
+        zip_arrays=_normalize_zip_arrays(raw.get("zip_arrays")),
         arrays=_normalize_arrays(raw.get("arrays")),
         columns=_normalize_columns(raw.get("columns")),
         allow_cardinality_change_on_bronze=bool(raw.get("allow_cardinality_change_on_bronze", False)),
@@ -90,8 +109,10 @@ def apply_shape(df: DataFrame, shape: Optional[ShapeConfig], *, layer: str) -> D
     _validate_cardinality_policy(shape, layer)
     _validate_cartesian_arrays(shape)
     df = _apply_parse_json(df, shape.parse_json)
+    df = _apply_zip_arrays(df, shape.zip_arrays)
     df = _apply_arrays(df, shape.arrays)
     df = _apply_columns(df, shape.columns)
+    df = _drop_shape_intermediates(df, shape)
     if shape.flatten.enabled:
         df = _flatten_structs(df, shape.flatten)
     return df
@@ -160,6 +181,42 @@ def _normalize_flatten(value: Any) -> ShapeFlattenConfig:
     )
 
 
+def _normalize_zip_arrays(value: Any) -> List[ShapeZipArraysConfig]:
+    if value is None:
+        return []
+    if isinstance(value, dict) or isinstance(value, str):
+        raise ValueError("shape.zip_arrays deve ser uma lista")
+    zip_configs = []
+    aliases = set()
+    for idx, item in enumerate(value):
+        raw = _require_mapping(item, f"shape.zip_arrays[{idx}]")
+        unexpected = set(raw) - {"alias", "columns"}
+        if unexpected:
+            raise ValueError(f"shape.zip_arrays[{idx}] possui campos não reconhecidos: {sorted(unexpected)}")
+        alias = _optional_alias(raw.get("alias"), f"shape.zip_arrays[{idx}].alias")
+        if not alias:
+            raise ValueError(f"shape.zip_arrays[{idx}].alias não pode ser vazio")
+        columns_raw = _require_mapping(raw.get("columns"), f"shape.zip_arrays[{idx}].columns")
+        if len(columns_raw) < 2:
+            raise ValueError(f"shape.zip_arrays[{idx}].columns deve declarar pelo menos dois arrays")
+        columns = {}
+        output_fields = set()
+        for path, field_alias in columns_raw.items():
+            source_path = _required_path(path, f"shape.zip_arrays[{idx}].columns.<path>")
+            output_alias = _optional_alias(field_alias, f"shape.zip_arrays[{idx}].columns.{source_path}")
+            if not output_alias:
+                raise ValueError(f"shape.zip_arrays[{idx}].columns.{source_path} não pode ser vazio")
+            if output_alias in output_fields:
+                raise ValueError(f"shape.zip_arrays[{idx}] possui campo de saída duplicado: {output_alias}")
+            output_fields.add(output_alias)
+            columns[source_path] = output_alias
+        if alias in aliases:
+            raise ValueError(f"shape.zip_arrays possui alias duplicado: {alias}")
+        aliases.add(alias)
+        zip_configs.append(ShapeZipArraysConfig(alias=alias, columns=columns))
+    return zip_configs
+
+
 def _normalize_arrays(value: Any) -> List[ShapeArrayConfig]:
     if value is None:
         return []
@@ -199,17 +256,31 @@ def _normalize_columns(value: Any) -> Dict[str, ShapeColumnConfig]:
         source_path = _required_path(path, "shape.columns.<path>")
         if isinstance(config, str):
             alias = _optional_alias(config, f"shape.columns.{source_path}.alias")
+            expression = None
+            cast = None
         else:
             raw = _require_mapping(config, f"shape.columns.{source_path}")
-            unexpected = set(raw) - {"alias"}
+            unexpected = set(raw) - {"alias", "cast", "expression"}
             if unexpected:
                 raise ValueError(f"shape.columns.{source_path} possui campos não reconhecidos: {sorted(unexpected)}")
             alias = _optional_alias(raw.get("alias"), f"shape.columns.{source_path}.alias")
+            expression = _optional_non_empty_string(
+                raw.get("expression"),
+                f"shape.columns.{source_path}.expression",
+            )
+            cast = _optional_non_empty_string(raw.get("cast"), f"shape.columns.{source_path}.cast")
         alias = alias or _default_alias(source_path)
+        if expression and not alias:
+            raise ValueError(f"shape.columns.{source_path}.alias é obrigatório quando expression é informado")
         if alias in aliases:
             raise ValueError(f"shape.columns possui alias duplicado: {alias}")
         aliases.add(alias)
-        columns[source_path] = ShapeColumnConfig(path=source_path, alias=alias)
+        columns[source_path] = ShapeColumnConfig(
+            alias=alias,
+            path=None if expression else source_path,
+            expression=expression,
+            cast=cast,
+        )
     return columns
 
 
@@ -231,6 +302,32 @@ def _apply_parse_json(df: DataFrame, configs: List[ShapeJsonConfig]) -> DataFram
         if config.drop_source and alias != config.column and config.column in df.columns:
             df = df.drop(config.column)
             aliases.discard(config.column)
+    return df
+
+
+def _apply_zip_arrays(df: DataFrame, configs: List[ShapeZipArraysConfig]) -> DataFrame:
+    aliases = set(df.columns)
+    for config_idx, config in enumerate(configs):
+        if config.alias in aliases:
+            raise ValueError(f"shape.zip_arrays produziria colisão com coluna existente: {config.alias}")
+        temp_columns = []
+        for path in config.columns:
+            data_type = _data_type_at_path(df.schema, path)
+            if data_type is None:
+                raise ValueError(f"shape.zip_arrays referencia path inexistente: {path}")
+            if not isinstance(data_type, ArrayType):
+                raise ValueError(f"shape.zip_arrays.{path} não é array; tipo encontrado: {data_type.simpleString()}")
+            temp = _unique_temp_column(df.columns, f"__cf_shape_zip_{config_idx}_{len(temp_columns)}")
+            df = df.withColumn(temp, _path_col(path))
+            temp_columns.append((temp, config.columns[path]))
+
+        zipped = F.arrays_zip(*[F.col(temp) for temp, _ in temp_columns])
+        renamed = F.transform(
+            zipped,
+            lambda item: F.struct(*[item.getField(temp).alias(alias) for temp, alias in temp_columns]),
+        )
+        df = df.withColumn(config.alias, renamed).drop(*[temp for temp, _ in temp_columns])
+        aliases.add(config.alias)
     return df
 
 
@@ -280,11 +377,43 @@ def _apply_columns(df: DataFrame, columns: Dict[str, ShapeColumnConfig]) -> Data
     for column in columns.values():
         if column.alias in aliases and column.alias != column.path:
             raise ValueError(f"shape.columns produziria colisão com coluna existente: {column.alias}")
-        if _data_type_at_path(df.schema, column.path) is None:
-            raise ValueError(f"shape.columns referencia path inexistente: {column.path}")
-        df = df.withColumn(column.alias, _path_col(column.path))
+        if column.expression:
+            expr = F.expr(column.expression)
+        else:
+            if not column.path:
+                raise ValueError(f"shape.columns.{column.alias} requer path ou expression")
+            if _data_type_at_path(df.schema, column.path) is None:
+                raise ValueError(f"shape.columns referencia path inexistente: {column.path}")
+            expr = _path_col(column.path)
+        if column.cast:
+            expr = expr.cast(column.cast)
+        df = df.withColumn(column.alias, expr)
         aliases.add(column.alias)
     return df
+
+
+def _drop_shape_intermediates(df: DataFrame, shape: ShapeConfig) -> DataFrame:
+    """Remove aliases técnicos consumidos por transformações declarativas."""
+    column_paths = [column.path for column in shape.columns.values() if column.path]
+    array_paths = [array.path for array in shape.arrays]
+    consumed_paths = [*column_paths, *array_paths]
+    zip_aliases = {
+        zip_config.alias
+        for zip_config in shape.zip_arrays
+        if any(path == zip_config.alias or path.startswith(f"{zip_config.alias}.") for path in array_paths)
+    }
+    exploded_aliases = {
+        array.alias or _default_alias(array.path)
+        for array in shape.arrays
+        if array.mode in CARDINALITY_CHANGING_MODES
+        and any(
+            path == (array.alias or _default_alias(array.path))
+            or path.startswith(f"{array.alias or _default_alias(array.path)}.")
+            for path in consumed_paths
+        )
+    }
+    to_drop = sorted((zip_aliases | exploded_aliases) & set(df.columns))
+    return df.drop(*to_drop) if to_drop else df
 
 
 def _flatten_structs(df: DataFrame, flatten: ShapeFlattenConfig) -> DataFrame:
@@ -402,6 +531,16 @@ def _default_alias(path: str) -> str:
     return path.replace(".", "_")
 
 
+def _unique_temp_column(existing: List[str], prefix: str) -> str:
+    used = set(existing)
+    candidate = prefix
+    idx = 0
+    while candidate in used:
+        idx += 1
+        candidate = f"{prefix}_{idx}"
+    return candidate
+
+
 def _is_excluded(path: str, exclude: set[str]) -> bool:
     return path in exclude or any(path.startswith(f"{item}.") for item in exclude)
 
@@ -410,6 +549,15 @@ def _require_mapping(value: Any, field: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{field} deve ser um objeto/dict")
     return value
+
+
+def _optional_non_empty_string(value: Any, field: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{field} não pode ser vazio")
+    return text
 
 
 def _required_path(value: Any, field: str) -> str:

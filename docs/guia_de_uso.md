@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-1.16.0-py3-none-any.whl
+# gera: dist/contractforge-2.0.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-1.16.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.0.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-1.16.0-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.0.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -136,9 +136,9 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 Em qualquer notebook anexado ao cluster:
 
 ```python
-import lakehouse_ingestion
-print(lakehouse_ingestion.__version__)  # 1.16.0
-from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
+import contractforge
+print(contractforge.__version__)  # 2.0.0
+from contractforge import ingest, IngestionPlan, QualityRules
 ```
 
 ### 2.4 Instalação notebook-scoped (`%pip`)
@@ -146,20 +146,20 @@ from lakehouse_ingestion import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.16.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.0.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==1.16.0
+%pip install --index-url https://<seu_pypi_privado> contractforge==2.0.0
 ```
 
 Em seguida:
 
 ```python
 dbutils.library.restartPython()
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 ```
 
 > `%pip install` instala **só na sessão do notebook**. Outros notebooks no mesmo cluster não enxergam.
@@ -169,7 +169,7 @@ from lakehouse_ingestion import ingest
 Crie um DataFrame de teste e ingerir em uma tabela bronze:
 
 ```python
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 from pyspark.sql import functions as F
 
 # DataFrame in-memory
@@ -249,10 +249,10 @@ Não recomendado para o pacote atual, que tem múltiplos módulos e contrato de 
 
 **Opção 2 — `%run` apontando para um notebook helper**
 
-Crie um notebook `_lakehouse_ingestion_inline` no Workspace contendo a versão monolítica do código (todas as funções em um arquivo só). Depois, em qualquer notebook de ingestão:
+Crie um notebook `_contractforge_inline` no Workspace contendo a versão monolítica do código (todas as funções em um arquivo só). Depois, em qualquer notebook de ingestão:
 
 ```python
-%run /Workspace/.../helpers/_lakehouse_ingestion_inline
+%run /Workspace/.../helpers/_contractforge_inline
 ```
 
 E use:
@@ -286,7 +286,7 @@ from ingestion import ingest, IngestionPlan
 |---|---|---|
 | Versionamento | manual | semver via wheel |
 | Dependências | manual | `pyproject.toml` |
-| Submódulos | precisa juntar | importáveis (`from lakehouse_ingestion.quality import ...`) |
+| Submódulos | precisa juntar | importáveis (`from contractforge.quality import ...`) |
 | Testes em CI | difícil | `pytest` direto |
 | Atualização | re-cole o código | `pip install --upgrade` |
 | Compartilhar entre clusters | copiar | uma vez como library |
@@ -438,8 +438,8 @@ Salve como `/Workspace/.../run_ingestion`:
 # Databricks notebook source
 import yaml
 from pathlib import Path
-from lakehouse_ingestion import ingest_plan, validate_plan_shape
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge import ingest_plan, validate_plan_shape
+from contractforge.plan import build_plan_from_kwargs
 
 # Widgets — recebidos do orchestrator (for_each_task ou master)
 dbutils.widgets.text("contract_path", "")
@@ -509,14 +509,14 @@ contractforge templates list
 contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/s_orders
 contractforge validate contracts/silver/c_pedidos.yaml
 contractforge validate-project contracts
-contractforge schema > lakehouse_ingestion.schema.json
+contractforge schema > contractforge.schema.json
 ```
 
 ```python
 # tests/test_contracts.py
 import pytest, yaml
 from pathlib import Path
-from lakehouse_ingestion.plan import build_plan_from_kwargs
+from contractforge.plan import build_plan_from_kwargs
 
 CONTRACTS = Path("contracts").rglob("*.yaml")
 
@@ -1143,7 +1143,7 @@ df = spark.createDataFrame(
     "id long, nome string"
 )
 
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 
 result = ingest(
     source=df,
@@ -1221,7 +1221,7 @@ Você está rodando fora de Databricks e nenhuma sessão foi criada. Solução: 
 ```python
 from pyspark.sql import SparkSession
 SparkSession.builder.master("local[2]").getOrCreate()
-from lakehouse_ingestion import ingest  # agora resolve a sessão
+from contractforge import ingest  # agora resolve a sessão
 ```
 
 ### "ModuleNotFoundError: No module named 'delta'"
@@ -1294,7 +1294,7 @@ Você tentou `scd1_upsert`/`scd2_historical`/`snapshot_soft_delete` em layer bro
 
 Antes de subir um pipeline novo:
 
-- [ ] **Pacote** instalado no cluster (verificou `import lakehouse_ingestion; print(__version__)`).
+- [ ] **Pacote** instalado no cluster (verificou `import contractforge; print(__version__)`).
 - [ ] **Catálogo `ops`** existe e o cluster tem `CREATE TABLE` lá.
 - [ ] Cada YAML tem `notebook_name` único e descritivo (vai aparecer em logs e OpenLineage).
 - [ ] Cada YAML tem `description`, `owner`, `domain`, `tags` e `sla` quando houver governança mínima.
@@ -1355,7 +1355,7 @@ Não. Apenas as regras de linha (`not_null`, `accepted_values`, `max_null_ratio`
 Sim. Em `tests/conftest.py` já fazemos:
 
 ```python
-from lakehouse_ingestion import _spark as spark_module
+from contractforge import _spark as spark_module
 spark_module._cached_session = sess
 ```
 

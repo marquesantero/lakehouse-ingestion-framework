@@ -1,8 +1,8 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `1.16.0`
+**Versão do pacote:** `2.0.0`
 **Pacote Python:** `contractforge`
-**Import principal:** `lakehouse_ingestion`
+**Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
 **Licença:** MIT
 
@@ -68,10 +68,10 @@ O `contractforge` padroniza a ingestão de dados em Delta Lake fornecendo:
 
 ### 1.3 API pública
 
-A API pública re-exportada em `lakehouse_ingestion/__init__.py` inclui:
+A API pública re-exportada em `contractforge/__init__.py` inclui:
 
 ```python
-from lakehouse_ingestion import (
+from contractforge import (
     ingest,           # função procedural amigável a notebook
     ingest_plan,      # variante recebendo IngestionPlan
     IngestionPlan,    # dataclass do contrato
@@ -91,7 +91,7 @@ Todos os outros símbolos (`writers.*`, `quality.*`, `schema.*`, etc.) são cons
 ## 2. Estrutura do pacote
 
 ```
-lakehouse_ingestion_pkg/
+contractforge_pkg/
 ├── pyproject.toml          # build (setuptools), deps, ruff, pytest
 ├── README.md               # guia rápido + estrutura do pacote
 ├── .gitignore              # build artifacts, venv, caches, derby.log
@@ -99,7 +99,7 @@ lakehouse_ingestion_pkg/
 │   ├── oficial.md          # documentação oficial completa de uso
 │   └── arquitetura.md      # ESTE arquivo (referência técnica)
 ├── src/
-│   └── lakehouse_ingestion/
+│   └── contractforge/
 │       ├── __init__.py     # façade pública
 │       ├── _spark.py       # resolução lazy de SparkSession + serverless
 │       ├── _sql.py         # helpers de identificadores, literais, datas
@@ -955,7 +955,7 @@ Eventos OpenLineage 1.0.5 com facets:
 - **Input dataset facet `schema`** — colunas do `prepared_df`.
 - **Output dataset facet `schema`** — colunas do target após escrita.
 - **Output dataset facet `dataQualityMetrics`** — só `rowCount = rows_written` (não fazemos métricas detalhadas no facet padrão).
-- **Run facet customizado `lakehouse_ingestion`** — modo, layer, rowsRead/Written, deltaVersionBefore/After, operationMetrics, started/finishedAt.
+- **Run facet customizado `contractforge`** — modo, layer, rowsRead/Written, deltaVersionBefore/After, operationMetrics, started/finishedAt.
 
 `_clean_none(value)` recursivamente remove chaves `None` antes da serialização — evita poluir o JSON com `null` em facets opcionais.
 
@@ -1346,10 +1346,10 @@ Tudo via `IngestionPlan` (campos imutáveis) ou kwargs de `ingest()`.
 
 ### 12.2 Globais (`FrameworkConfig`)
 
-A instância singleton `lakehouse_ingestion.config.CONFIG` contém defaults. Você pode trocá-la **antes** da primeira chamada:
+A instância singleton `contractforge.config.CONFIG` contém defaults. Você pode trocá-la **antes** da primeira chamada:
 
 ```python
-import lakehouse_ingestion.config as cfg
+import contractforge.config as cfg
 cfg.CONFIG = cfg.FrameworkConfig(
     ctrl_schema="my_ops",
     default_lock_ttl_minutes=60,
@@ -1398,7 +1398,7 @@ Tenta `delta.configure_spark_with_delta_pip(builder)` se a função existir.
 A fixture **injeta a sessão** no resolver do framework:
 
 ```python
-from lakehouse_ingestion import _spark as spark_module
+from contractforge import _spark as spark_module
 spark_module._cached_session = sess
 ```
 
@@ -1451,7 +1451,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-1.16.0-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.0.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

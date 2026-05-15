@@ -7,7 +7,7 @@ Este guia mostra o menor fluxo funcional para validar o ContractForge sem montar
 No Databricks, instale o wheel versionado no cluster/job:
 
 ```bash
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-1.16.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.0.0-py3-none-any.whl
 ```
 
 Para desenvolvimento local com Spark:
@@ -38,7 +38,7 @@ df.write.mode("overwrite").saveAsTable("main.raw.orders_quickstart")
 ## 3. Execute uma ingestão mínima
 
 ```python
-from lakehouse_ingestion import ingest
+from contractforge import ingest
 
 result = ingest(
     source={

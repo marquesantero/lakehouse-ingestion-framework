@@ -14,7 +14,7 @@ from .plan import IngestionPlan
 from ._spark import spark
 from ._sql import full_table_name, q, qt, safe_truncate, sql_int, sql_lit, to_json, utc_now_str
 
-logger = logging.getLogger("lakehouse_ingestion")
+logger = logging.getLogger("contractforge")
 
 
 def ctrl_table_names(catalog: str, schema: str) -> Dict[str, str]:
@@ -79,7 +79,7 @@ def _record_ctrl_metadata(tables: Dict[str, str]) -> None:
         MERGE INTO {qt(tables['metadata'])} t
         USING (
             SELECT
-                'lakehouse_ingestion' AS component,
+                'contractforge' AS component,
                 {sql_lit(FRAMEWORK_VERSION)} AS framework_version,
                 {sql_int(CTRL_SCHEMA_VERSION)} AS ctrl_schema_version,
                 current_timestamp() AS updated_at_utc

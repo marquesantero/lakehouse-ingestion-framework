@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 
-import lakehouse_ingestion.lineage as lineage_module
-from lakehouse_ingestion.config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
-from lakehouse_ingestion.ingestion import _short_error_message
-from lakehouse_ingestion.lineage import write_openlineage_event
-from lakehouse_ingestion.plan import build_plan_from_kwargs
-from lakehouse_ingestion.writers import logical_row_metrics, resolve_write_metrics
+import contractforge.lineage as lineage_module
+from contractforge.config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
+from contractforge.ingestion import _short_error_message
+from contractforge.lineage import write_openlineage_event
+from contractforge.plan import build_plan_from_kwargs
+from contractforge.writers import logical_row_metrics, resolve_write_metrics
 
 
 def test_short_error_message_uses_last_traceback_line():
@@ -19,7 +19,7 @@ def test_short_error_message_uses_last_traceback_line():
 
 
 def test_framework_and_ctrl_schema_versions_are_current():
-    assert FRAMEWORK_VERSION == "1.16.0"
+    assert FRAMEWORK_VERSION == "2.0.0"
     assert CTRL_SCHEMA_VERSION == 11
 
 

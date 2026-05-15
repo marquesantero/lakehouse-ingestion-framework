@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lakehouse_ingestion.schema import (
+from contractforge.schema import (
     add_row_hash,
     build_custom_keys,
     deduplicate_by_order,

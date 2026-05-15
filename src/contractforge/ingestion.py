@@ -82,7 +82,7 @@ from .writers import (
     write_strategy,
 )
 
-logger = logging.getLogger("lakehouse_ingestion")
+logger = logging.getLogger("contractforge")
 
 
 def _short_error_message(error: Optional[str]) -> Optional[str]:
@@ -758,7 +758,7 @@ def _finalize_execution(
 
 
 def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``lakehouse_ingestion.streaming``."""
+    """Compatibilidade: delega para ``contractforge.streaming``."""
     from .streaming import ingest_stream_plan as _ingest_stream_plan
 
     return _ingest_stream_plan(plan)
@@ -1228,7 +1228,7 @@ def ingest(**kwargs: Any) -> Dict[str, Any]:
 
 
 def ingest_bundle(path: str) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    """Compatibilidade: delega para ``contractforge.bundles``."""
     from .bundles import ingest_bundle as _ingest_bundle
 
     return _ingest_bundle(path)
@@ -1238,14 +1238,14 @@ def apply_governance_bundle(
     path: str,
     run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    """Compatibilidade: delega para ``contractforge.bundles``."""
     from .bundles import apply_governance_bundle as _apply_governance_bundle
 
     return _apply_governance_bundle(path, run_id=run_id)
 
 
 def apply_annotations_bundle(path: str, run_id: Optional[str] = None) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    """Compatibilidade: delega para ``contractforge.bundles``."""
     from .bundles import apply_annotations_bundle as _apply_annotations_bundle
 
     return _apply_annotations_bundle(path, run_id=run_id)
@@ -1257,7 +1257,7 @@ def apply_access_bundle(
     *,
     force_revoke: bool = False,
 ) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    """Compatibilidade: delega para ``contractforge.bundles``."""
     from .bundles import apply_access_bundle as _apply_access_bundle
 
     return _apply_access_bundle(path, run_id=run_id, force_revoke=force_revoke)

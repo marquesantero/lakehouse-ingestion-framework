@@ -20,7 +20,7 @@ from .schema import (
 from ._spark import spark
 from ._sql import q, qt, sql_lit, validate_cols
 
-logger = logging.getLogger("lakehouse_ingestion")
+logger = logging.getLogger("contractforge")
 
 WriteHandler = Callable[[IngestionPlan, DataFrame, str, int], int]
 
