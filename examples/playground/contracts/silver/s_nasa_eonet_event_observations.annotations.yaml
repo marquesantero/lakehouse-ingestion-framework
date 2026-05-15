@@ -1,0 +1,21 @@
+annotations:
+  policy: warn
+  table:
+    description: "Silver NASA EONET com uma linha por observação geográfica do evento."
+    aliases: [nasa_eonet_event_observations]
+    tags:
+      domain: natural-events
+      layer: silver
+      shape: parse_json_arrays_columns_expressions
+      contains_pii: "false"
+  columns:
+    event_id:
+      description: "Identificador do evento EONET."
+    category_title:
+      description: "Categoria principal do evento."
+    observed_at:
+      description: "Timestamp da observação geográfica."
+    longitude:
+      description: "Longitude extraída do array de coordenadas."
+    latitude:
+      description: "Latitude extraída do array de coordenadas."

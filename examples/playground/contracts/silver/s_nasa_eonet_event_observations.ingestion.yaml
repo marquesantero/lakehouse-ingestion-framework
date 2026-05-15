@@ -1,0 +1,102 @@
+source: main.bronze.b_nasa_eonet_events
+
+target:
+  catalog: main
+  schema: silver
+  table: s_nasa_eonet_event_observations
+
+layer: silver
+mode: scd1_hash_diff
+source_system: nasa_eonet
+schema_policy: additive_only
+select_columns: [raw_response, response_page_number]
+
+shape:
+  parse_json:
+    - column: raw_response
+      alias: payload
+      schema: >
+        STRUCT<
+          events: ARRAY<STRUCT<
+            id: STRING,
+            title: STRING,
+            description: STRING,
+            closed: STRING,
+            categories: ARRAY<STRUCT<id: STRING, title: STRING>>,
+            geometry: ARRAY<STRUCT<
+              date: STRING,
+              type: STRING,
+              coordinates: ARRAY<DOUBLE>,
+              magnitudeValue: DOUBLE,
+              magnitudeUnit: STRING
+            >>
+          >>
+        >
+  arrays:
+    - path: payload.events
+      mode: explode_outer
+      alias: event
+    - path: event.categories
+      mode: first
+      alias: category
+    - path: event.geometry
+      mode: explode_outer
+      alias: geometry_item
+  columns:
+    event.id:
+      alias: event_id
+      cast: STRING
+    event.title:
+      alias: event_title
+      cast: STRING
+    event.description:
+      alias: event_description
+      cast: STRING
+    event.closed:
+      alias: closed_at
+      cast: TIMESTAMP
+    category.id:
+      alias: category_id
+      cast: STRING
+    category.title:
+      alias: category_title
+      cast: STRING
+    geometry_item.date:
+      alias: observed_at
+      cast: TIMESTAMP
+    observed_date:
+      alias: observed_date
+      expression: TO_DATE(observed_at)
+    geometry_item.type:
+      alias: geometry_type
+      cast: STRING
+    geometry_item.magnitudeValue:
+      alias: magnitude_value
+      cast: DOUBLE
+    geometry_item.magnitudeUnit:
+      alias: magnitude_unit
+      cast: STRING
+    geometry_item.coordinates:
+      alias: coordinates
+    longitude:
+      alias: longitude
+      expression: CAST(coordinates[0] AS DOUBLE)
+    latitude:
+      alias: latitude
+      expression: CAST(coordinates[1] AS DOUBLE)
+    normalized_at_utc:
+      alias: normalized_at_utc
+      expression: CURRENT_TIMESTAMP()
+
+hash_keys: [event_id, response_page_number, observed_at]
+dedup_order_expr: normalized_at_utc DESC NULLS LAST
+hash_exclude_columns: [normalized_at_utc]
+cluster_columns: [observed_date, category_id]
+
+quality_rules:
+  not_null: [event_id]
+  expressions:
+    - name: coordinates_reasonable
+      expression: coordinates IS NULL OR ((latitude IS NULL OR latitude BETWEEN -90 AND 90) AND (longitude IS NULL OR longitude BETWEEN -180 AND 180))
+      severity: warn
+      message: Coordenadas fora do intervalo geográfico esperado.

@@ -937,6 +937,53 @@ layer: bronze
 mode: scd0_append
 ```
 
+Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Esse modo é adequado para JSON plano e estável.
+
+Para APIs com JSON complexo, arrays de structs, campos opcionais heterogêneos ou schema que precisa ser controlado por contrato, use `response.mode: raw`. Nesse modo o conector não transforma os registros: ele grava uma linha por página com o payload bruto em uma coluna string. O tratamento fica no `shape`.
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: nasa_eonet_events
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+    method: GET
+    params:
+      status: open
+      limit: "50"
+    headers:
+      Accept: application/json
+  response:
+    mode: raw
+    raw_column: raw_response
+  limits:
+    timeout_seconds: 60
+    retry_attempts: 3
+    max_page_bytes: 10485760
+    max_total_bytes: 52428800
+
+shape:
+  parse_json:
+    - column: raw_response
+      alias: payload
+      schema: >
+        STRUCT<
+          events: ARRAY<STRUCT<
+            id: STRING,
+            title: STRING,
+            categories: ARRAY<STRUCT<id: STRING, title: STRING>>,
+            geometry: ARRAY<STRUCT<date: STRING, type: STRING, coordinates: ARRAY<DOUBLE>>>
+          >>
+        >
+```
+
+Limites de segurança:
+
+- `limits.max_page_bytes`: falha se uma página/resposta individual exceder o tamanho declarado.
+- `limits.max_total_bytes`: falha se a soma das respostas da execução exceder o tamanho declarado.
+- Para payloads grandes, recorrentes ou que exigem replay completo, prefira landing em storage e Auto Loader. O conector REST roda no driver Python e é intencionalmente voltado a APIs pequenas/médias.
+
 Autenticação suportada:
 
 - `none`

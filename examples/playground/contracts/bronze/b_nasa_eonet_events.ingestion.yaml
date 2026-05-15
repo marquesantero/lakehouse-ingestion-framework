@@ -1,0 +1,41 @@
+source:
+  type: connector
+  connector: rest_api
+  name: nasa_eonet_events
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+    method: GET
+    headers:
+      Accept: application/json
+    params:
+      status: open
+      limit: "50"
+  response:
+    mode: raw
+    raw_column: raw_response
+  limits:
+    timeout_seconds: 60
+    retry_attempts: 3
+    retry_backoff_seconds: 2
+    max_page_bytes: 10485760
+    max_total_bytes: 52428800
+
+target:
+  catalog: main
+  schema: bronze
+  table: b_nasa_eonet_events
+
+layer: bronze
+mode: scd0_overwrite
+source_system: nasa_eonet
+schema_policy: permissive
+delta_properties:
+  delta.enableChangeDataFeed: "true"
+
+quality_rules:
+  required_columns: [raw_response, response_page_number]
+  not_null: [raw_response]
+  unique_key: [response_page_number]
+
+on_quality_fail: fail
+cluster_columns: [response_page_number]

@@ -6,6 +6,15 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.2.0 - 2026-05-15
+
+- Adiciona `response.mode: raw` no conector `rest_api` para baixar payloads JSON complexos como string, uma linha por página.
+- Mantém a estruturação de JSON aninhado no `shape.parse_json`, com schema DDL explícito, sem transformação semântica no conector.
+- Adiciona `response.raw_column` para nomear a coluna de payload bruto e `response_page_number` para rastrear páginas.
+- Adiciona limites `limits.max_page_bytes` e `limits.max_total_bytes` para proteger o driver contra payloads grandes.
+- Registra métricas `response_mode`, `raw_payloads_read`, limites de bytes e bytes lidos em `source_metrics`.
+- Atualiza documentação de REST API com exemplos de payload raw e recomendação de landing + Auto Loader para alto volume.
+
 ## 2.1.0 - 2026-05-15
 
 - Adiciona conector nativo `http_file` para baixar arquivos HTTP(S) pelo driver Python e materializar DataFrame Spark sem depender de `spark.read` direto em `https://`.

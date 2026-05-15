@@ -28,6 +28,7 @@ _CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _SECRET_PLACEHOLDER_RE = re.compile(r"\{\{\s*secret:[^}]+\}\}", re.IGNORECASE)
 _AUTH_HEADER_RE = re.compile(r"\b(Bearer|Basic)\s+[^,\s'\"}]+", re.IGNORECASE)
 _URL_USERINFO_RE = re.compile(r"([a-z][a-z0-9+.-]*://)([^:/@\s]+):([^@\s]+)@", re.IGNORECASE)
+_SIMPLE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SENSITIVE_PARAM_RE = re.compile(
     r"(?i)([?&;](?:password|passwd|pwd|token|access_token|refresh_token|secret|client_secret|api_key|apikey)=)"
     r"([^&;\s]+)"
@@ -232,7 +233,7 @@ BUILTIN_CONNECTOR_METADATA: Dict[str, Dict[str, Any]] = {
     },
     "rest_api": {
         "family": "external",
-        "description": "API REST JSON em batch com auth, paginação e retry.",
+        "description": "API REST JSON em batch com auth, paginação, retry e modo raw para shape.parse_json.",
         "required": ["request.url"],
         "incremental": True,
     },
@@ -1162,13 +1163,15 @@ class RestApiConnector:
         headers: Mapping[str, str],
         body: Optional[bytes],
         timeout: int,
-    ) -> tuple[Any, Mapping[str, str], str, int]:
+        *,
+        parse_json_payload: bool,
+    ) -> tuple[Any, Mapping[str, str], str, int, str]:
         request = urllib.request.Request(url=url, method=method, headers=dict(headers), data=body)
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
             text = raw.decode(response.headers.get_content_charset() or "utf-8")
-            payload = json.loads(text) if text else None
-            return payload, response.headers, response.geturl(), len(raw)
+            payload = json.loads(text) if parse_json_payload and text else None
+            return payload, response.headers, response.geturl(), len(raw), text
 
     def _headers(self, spec: ConnectorSpec) -> Dict[str, str]:
         return _request_headers(spec, "rest_api", self._oauth_client_credentials_token)
@@ -1273,9 +1276,23 @@ class RestApiConnector:
         retry_attempts = int(spec.limits.get("retry_attempts") or 3)
         backoff = float(spec.limits.get("retry_backoff_seconds") or 1)
         rate_limit_per_minute = int(spec.limits.get("rate_limit_per_minute") or 0)
+        max_page_bytes = int(spec.limits.get("max_page_bytes") or 0)
+        max_total_bytes = int(spec.limits.get("max_total_bytes") or 0)
         min_request_interval = 60.0 / rate_limit_per_minute if rate_limit_per_minute > 0 else 0.0
         last_request_at = 0.0
+        response_mode = str(spec.response.get("mode") or "records").strip().lower()
+        raw_column = str(spec.response.get("raw_column") or "raw_response").strip()
         records_path = spec.response.get("records_path") if spec.response else None
+        if response_mode not in {"records", "raw"}:
+            raise ValueError("source.response.mode deve ser 'records' ou 'raw'")
+        if response_mode == "raw" and records_path:
+            raise ValueError("source.response.records_path não deve ser usado quando response.mode=raw")
+        if response_mode == "raw" and not raw_column:
+            raise ValueError("source.response.raw_column não pode ser vazio quando response.mode=raw")
+        if response_mode == "raw" and not _SIMPLE_COLUMN_RE.match(raw_column):
+            raise ValueError("source.response.raw_column deve ser um nome de coluna simples")
+        if max_page_bytes < 0 or max_total_bytes < 0:
+            raise ValueError("limits.max_page_bytes e limits.max_total_bytes devem ser positivos")
         headers = self._headers(spec)
         if watermark_value and spec.incremental.get("watermark_header"):
             headers[str(spec.incremental["watermark_header"])] = watermark_value
@@ -1283,8 +1300,10 @@ class RestApiConnector:
         page_type = str((spec.pagination or {}).get("type") or "none")
         max_pages = int(spec.limits.get("max_pages") or spec.pagination.get("max_pages") or 1)
         all_records: list[Any] = []
+        raw_rows: list[dict[str, Any]] = []
         next_url: Optional[str] = None
         bytes_read = 0
+        parse_json_payload = response_mode == "records" or page_type == "cursor"
 
         pages = 0
         while True:
@@ -1304,14 +1323,37 @@ class RestApiConnector:
                     elapsed = time.monotonic() - last_request_at
                     if elapsed < min_request_interval:
                         time.sleep(min_request_interval - elapsed)
-                payload, response_headers, final_url, response_bytes = self._request_with_retry(
-                    current_url, method, headers, body, timeout, retry_attempts, backoff
+                payload, response_headers, final_url, response_bytes, response_text = self._request_with_retry(
+                    current_url,
+                    method,
+                    headers,
+                    body,
+                    timeout,
+                    retry_attempts,
+                    backoff,
+                    parse_json_payload=parse_json_payload,
                 )
+                if max_page_bytes > 0 and response_bytes > max_page_bytes:
+                    raise ValueError(
+                        "rest_api response excedeu limits.max_page_bytes: "
+                        f"{response_bytes} > {max_page_bytes}. "
+                        "Use paginação, reduza o range ou faça landing em storage + Auto Loader."
+                    )
                 last_request_at = time.monotonic()
                 pages += 1
                 bytes_read += response_bytes
-                records = _records_from_response(payload, records_path)
-                all_records.extend(records)
+                if max_total_bytes > 0 and bytes_read > max_total_bytes:
+                    raise ValueError(
+                        "rest_api response excedeu limits.max_total_bytes: "
+                        f"{bytes_read} > {max_total_bytes}. "
+                        "Use paginação, reduza o range ou faça landing em storage + Auto Loader."
+                    )
+                if response_mode == "raw":
+                    raw_rows.append({raw_column: response_text, "response_page_number": pages})
+                    records = raw_rows[-1:]
+                else:
+                    records = _records_from_response(payload, records_path)
+                    all_records.extend(records)
                 if page_type == "cursor":
                     cursor = _json_path(payload, spec.pagination.get("next_cursor_path"))
                     if not cursor:
@@ -1331,15 +1373,19 @@ class RestApiConnector:
             if page_type not in {"cursor", "link_header"} or not next_url:
                 break
 
-        df = _records_to_dataframe(spark, all_records)
+        df = _records_to_dataframe(spark, raw_rows if response_mode == "raw" else all_records)
         capabilities = self.capabilities(spec)
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "rest_api",
+            "response_mode": response_mode,
             "request_count": pages,
             "pages_read": pages,
-            "records_read": len(all_records),
+            "records_read": len(raw_rows) if response_mode == "raw" else len(all_records),
+            "raw_payloads_read": len(raw_rows) if response_mode == "raw" else 0,
             "bytes_read": bytes_read,
+            "max_page_bytes": max_page_bytes,
+            "max_total_bytes": max_total_bytes,
             "pagination_type": page_type,
             "incremental_applied": watermark_value is not None,
             "watermark_value": watermark_value,
@@ -1364,11 +1410,20 @@ class RestApiConnector:
         timeout: int,
         attempts: int,
         backoff: float,
-    ) -> tuple[Any, Mapping[str, str], str, int]:
+        *,
+        parse_json_payload: bool,
+    ) -> tuple[Any, Mapping[str, str], str, int, str]:
         last_error: Optional[Exception] = None
         for attempt in range(1, attempts + 1):
             try:
-                return self._request(url, method, headers, body, timeout)
+                return self._request(
+                    url,
+                    method,
+                    headers,
+                    body,
+                    timeout,
+                    parse_json_payload=parse_json_payload,
+                )
             except urllib.error.HTTPError as exc:
                 last_error = exc
                 if exc.code < 500 and exc.code != 429:
