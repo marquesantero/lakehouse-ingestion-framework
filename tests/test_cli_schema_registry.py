@@ -4,8 +4,8 @@ import json
 
 import pytest
 
+import lakehouse_ingestion.bundles as bundles_module
 import lakehouse_ingestion.governance as governance_module
-import lakehouse_ingestion.ingestion as ingestion_module
 from lakehouse_ingestion.cli import main
 from lakehouse_ingestion.contract_schema import yaml_schema
 from lakehouse_ingestion.plan import build_plan_from_kwargs
@@ -330,7 +330,7 @@ def test_cli_apply_access_uses_dedicated_command(tmp_path, monkeypatch, capsys):
     def fake_apply_access_bundle(path, *, force_revoke=False):
         return {"status": "SUCCESS", "path": path, "force_revoke": force_revoke}
 
-    monkeypatch.setattr(ingestion_module, "apply_access_bundle", fake_apply_access_bundle)
+    monkeypatch.setattr(bundles_module, "apply_access_bundle", fake_apply_access_bundle)
 
     assert main(["apply-access", str(base), "--force-revoke"]) == 0
     output = capsys.readouterr().out
@@ -347,7 +347,7 @@ def test_cli_apply_annotations_uses_dedicated_command(tmp_path, monkeypatch, cap
     def fake_apply_annotations_bundle(path):
         return {"status": "SUCCESS", "path": path}
 
-    monkeypatch.setattr(ingestion_module, "apply_annotations_bundle", fake_apply_annotations_bundle)
+    monkeypatch.setattr(bundles_module, "apply_annotations_bundle", fake_apply_annotations_bundle)
 
     assert main(["apply-annotations", str(base)]) == 0
     output = capsys.readouterr().out

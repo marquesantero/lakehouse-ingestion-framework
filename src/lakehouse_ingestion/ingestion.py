@@ -19,7 +19,6 @@ from .config import CONFIG, CONTROL_COLUMNS, CTRL_SCHEMA_VERSION, FRAMEWORK_VERS
 from .governance import (
     access_sql_preview,
     annotation_sql_preview,
-    apply_access_contract,
     apply_annotations_contract,
     record_operations_contract,
     validate_governance_contract,
@@ -63,7 +62,6 @@ from .state import (
     ensure_ctrl_tables,
     find_idempotent_run,
     log_error,
-    log_access_entries,
     log_annotation_entries,
     log_operations_contract,
     log_run,
@@ -1230,100 +1228,27 @@ def ingest(**kwargs: Any) -> Dict[str, Any]:
 
 
 def ingest_bundle(path: str) -> Dict[str, Any]:
-    """Carrega contrato dividido e executa o plano de ingestao."""
-    from .contract_bundle import load_contract_bundle
+    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    from .bundles import ingest_bundle as _ingest_bundle
 
-    bundle = load_contract_bundle(path)
-    return ingest_plan(bundle.ingestion)
+    return _ingest_bundle(path)
 
 
 def apply_governance_bundle(
     path: str,
     run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Aplica operations e annotations de um bundle sem reprocessar dados.
+    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    from .bundles import apply_governance_bundle as _apply_governance_bundle
 
-    Access tem ciclo proprio por normalmente exigir permissoes elevadas. Use
-    ``apply_access_bundle`` para grants, row filters e column masks.
-    """
-    from .contract_bundle import governance_preview, load_contract_bundle
-
-    bundle = load_contract_bundle(path)
-    plan = bundle.ingestion
-    target = target_full_table_name(plan)
-    governance_run_id = run_id or new_run_id()
-    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
-    stage_started = utc_now_ts()
-    governance_validation = validate_governance_contract(target, plan.annotations, None)
-    if governance_validation["status"] == "FAILED":
-        raise ValueError(f"Contrato de governança inválido: {to_json(governance_validation['issues'])}")
-    results = {
-        "validation": governance_validation,
-        "operations": record_operations_contract(
-            tables,
-            governance_run_id,
-            target,
-            plan.operations,
-            log_operations_contract,
-        ),
-        "annotations": apply_annotations_contract(
-            tables,
-            governance_run_id,
-            target,
-            plan.annotations,
-            log_annotation_entries,
-        ),
-        "access": {
-            "status": "DEFERRED",
-            "reason": "access deve ser aplicado por apply_access_bundle",
-            "sql_preview": access_sql_preview(target, plan.access),
-        } if plan.access else {"status": "NOT_CONFIGURED"},
-    }
-    return {
-        "status": "SUCCESS",
-        "run_id": governance_run_id,
-        "target_table": target,
-        "target_schema": target_schema_name(plan),
-        "governance": results,
-        "preview": governance_preview(bundle),
-        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
-        "framework_version": FRAMEWORK_VERSION,
-        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
-    }
+    return _apply_governance_bundle(path, run_id=run_id)
 
 
 def apply_annotations_bundle(path: str, run_id: Optional[str] = None) -> Dict[str, Any]:
-    """Aplica apenas annotations de um bundle, sem operations nem access."""
-    from .contract_bundle import governance_preview, load_contract_bundle
+    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    from .bundles import apply_annotations_bundle as _apply_annotations_bundle
 
-    bundle = load_contract_bundle(path)
-    plan = bundle.ingestion
-    target = target_full_table_name(plan)
-    annotations_run_id = run_id or new_run_id()
-    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
-    stage_started = utc_now_ts()
-    validation = validate_governance_contract(target, plan.annotations, None)
-    if validation["status"] == "FAILED":
-        raise ValueError(f"Contrato de annotations inválido: {to_json(validation['issues'])}")
-    result = apply_annotations_contract(
-        tables,
-        annotations_run_id,
-        target,
-        plan.annotations,
-        log_annotation_entries,
-    )
-    return {
-        "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
-        "run_id": annotations_run_id,
-        "target_table": target,
-        "target_schema": target_schema_name(plan),
-        "validation": validation,
-        "annotations": result,
-        "preview": governance_preview(bundle),
-        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
-        "framework_version": FRAMEWORK_VERSION,
-        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
-    }
+    return _apply_annotations_bundle(path, run_id=run_id)
 
 
 def apply_access_bundle(
@@ -1332,38 +1257,10 @@ def apply_access_bundle(
     *,
     force_revoke: bool = False,
 ) -> Dict[str, Any]:
-    """Aplica apenas o contrato de access de um bundle."""
-    from .contract_bundle import governance_check, load_contract_bundle
+    """Compatibilidade: delega para ``lakehouse_ingestion.bundles``."""
+    from .bundles import apply_access_bundle as _apply_access_bundle
 
-    bundle = load_contract_bundle(path)
-    plan = bundle.ingestion
-    target = target_full_table_name(plan)
-    access_run_id = run_id or new_run_id()
-    tables = ensure_ctrl_tables(plan.catalog, plan.ctrl_schema)
-    stage_started = utc_now_ts()
-    validation = validate_governance_contract(target, None, plan.access)
-    if validation["status"] == "FAILED":
-        raise ValueError(f"Contrato de access inválido: {to_json(validation['issues'])}")
-    result = apply_access_contract(
-        tables,
-        access_run_id,
-        target,
-        plan.access,
-        log_access_entries,
-        allow_revoke_unmanaged=force_revoke,
-    )
-    return {
-        "status": "SUCCESS" if result.get("status") not in {"FAILED", "WARNED"} else result.get("status"),
-        "run_id": access_run_id,
-        "target_table": target,
-        "target_schema": target_schema_name(plan),
-        "validation": validation,
-        "access": result,
-        "check": governance_check(bundle),
-        "duration_seconds": (utc_now_ts() - stage_started).total_seconds(),
-        "framework_version": FRAMEWORK_VERSION,
-        "ctrl_schema_version": CTRL_SCHEMA_VERSION,
-    }
+    return _apply_access_bundle(path, run_id=run_id, force_revoke=force_revoke)
 
 
 EXAMPLE_BRONZE_PLAN = {

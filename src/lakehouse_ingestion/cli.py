@@ -339,7 +339,7 @@ def _check_governance(paths: List[Path], indent: int) -> int:
 
 
 def _apply_governance(paths: List[Path]) -> int:
-    from .ingestion import apply_governance_bundle
+    from .bundles import apply_governance_bundle
 
     exit_code = 0
     for path in paths:
@@ -353,7 +353,7 @@ def _apply_governance(paths: List[Path]) -> int:
 
 
 def _apply_annotations(paths: List[Path]) -> int:
-    from .ingestion import apply_annotations_bundle
+    from .bundles import apply_annotations_bundle
 
     exit_code = 0
     for path in paths:
@@ -367,7 +367,7 @@ def _apply_annotations(paths: List[Path]) -> int:
 
 
 def _apply_access(paths: List[Path], *, force_revoke: bool = False) -> int:
-    from .ingestion import apply_access_bundle
+    from .bundles import apply_access_bundle
 
     exit_code = 0
     for path in paths:

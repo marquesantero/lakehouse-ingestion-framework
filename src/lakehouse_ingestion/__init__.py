@@ -19,6 +19,12 @@ from .governance import (
 )
 from .hooks import IngestionHooks
 from .maintenance import apply_ctrl_retention, build_ctrl_retention_plan
+from .bundles import (
+    apply_access_bundle,
+    apply_annotations_bundle,
+    apply_governance_bundle,
+    ingest_bundle,
+)
 from .ingestion import (
     FrameworkConfig,
     QualityExpression,
@@ -26,15 +32,11 @@ from .ingestion import (
     IngestionPlan,
     QualityRules,
     SourceSpec,
-    apply_access_bundle,
-    apply_annotations_bundle,
-    apply_governance_bundle,
     ingest,
-    ingest_bundle,
     ingest_plan,
-    ingest_stream_plan,
     validate_plan_shape,
 )
+from .streaming import ingest_stream_plan
 from .sources import (
     ConnectorCapabilities,
     SourceResolution,
