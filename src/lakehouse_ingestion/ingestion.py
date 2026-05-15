@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import traceback
 from datetime import datetime
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
 from pyspark.sql import DataFrame
@@ -660,44 +660,80 @@ def _build_dry_run_result(
     }
 
 
+@dataclass(frozen=True)
+class ExecutionLogPayload:
+    plan: IngestionPlan
+    run_id: str
+    run_ts: str
+    run_date: str
+    source_name: str
+    source_metadata: Dict[str, Any]
+    target: str
+    status: str
+    started_dt: datetime
+    finished_dt: datetime
+    rows_read: int
+    rows_written: int
+    rows_quarantined: int
+    wm_prev: Optional[str]
+    wm_current: Optional[str]
+    quality_status: str
+    schema_changes: Dict[str, Any]
+    operation_metrics: Dict[str, Any]
+    write_started_at: Optional[str]
+    write_finished_at: Optional[str]
+    delta_version_before: Optional[int]
+    delta_version_after: Optional[int]
+    write_committed: bool
+    error: Optional[str]
+    row_metrics: Dict[str, int]
+    metrics_source: str
+    runtime_meta: Dict[str, Optional[str]]
+    skip_reason: Optional[str]
+    skipped_by_run_id: Optional[str]
+    stage_durations: Dict[str, float]
+    governance_results: Optional[Dict[str, Any]]
+
+
 def _finalize_execution(
     tables: Dict[str, str],
-    plan: IngestionPlan,
-    run_id: str,
-    run_ts: str,
-    run_date: str,
-    source_name: str,
-    source_metadata: Dict[str, Any],
-    target: str,
-    status: str,
-    started_dt: datetime,
-    finished_dt: datetime,
-    rows_read: int,
-    rows_written: int,
-    rows_quarantined: int,
-    wm_prev: Optional[str],
-    wm_current: Optional[str],
-    quality_status: str,
-    schema_changes: Dict[str, Any],
-    operation_metrics: Dict[str, Any],
-    write_started_at: Optional[str],
-    write_finished_at: Optional[str],
-    delta_version_before: Optional[int],
-    delta_version_after: Optional[int],
-    write_committed: bool,
-    error: Optional[str],
-    row_metrics: Dict[str, int],
-    metrics_source: str,
-    runtime_meta: Dict[str, Optional[str]],
-    skip_reason: Optional[str],
-    skipped_by_run_id: Optional[str],
-    stage_durations: Dict[str, float],
-    governance_results: Optional[Dict[str, Any]],
+    payload: ExecutionLogPayload,
 ) -> None:
     """Monta o payload completo e grava em ``ctrl_ingestion_runs`` via ``log_run``.
 
     Chamado no ``finally`` do orquestrador — sempre executa, mesmo em falha.
     """
+    plan = payload.plan
+    run_id = payload.run_id
+    run_ts = payload.run_ts
+    run_date = payload.run_date
+    source_name = payload.source_name
+    source_metadata = payload.source_metadata
+    target = payload.target
+    status = payload.status
+    started_dt = payload.started_dt
+    finished_dt = payload.finished_dt
+    rows_read = payload.rows_read
+    rows_written = payload.rows_written
+    rows_quarantined = payload.rows_quarantined
+    wm_prev = payload.wm_prev
+    wm_current = payload.wm_current
+    quality_status = payload.quality_status
+    schema_changes = payload.schema_changes
+    operation_metrics = payload.operation_metrics
+    write_started_at = payload.write_started_at
+    write_finished_at = payload.write_finished_at
+    delta_version_before = payload.delta_version_before
+    delta_version_after = payload.delta_version_after
+    write_committed = payload.write_committed
+    error = payload.error
+    runtime_meta = payload.runtime_meta
+    row_metrics = payload.row_metrics
+    metrics_source = payload.metrics_source
+    skip_reason = payload.skip_reason
+    skipped_by_run_id = payload.skipped_by_run_id
+    stage_durations = payload.stage_durations
+    governance_results = payload.governance_results
     duration = (finished_dt - started_dt).total_seconds()
     annotations_result = (governance_results or {}).get("annotations") or {}
     operations_result = (governance_results or {}).get("operations") or {}
@@ -1450,12 +1486,40 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 logger.error("Falha ao registrar evento OpenLineage: %s", lineage_exc)
             try:
                 _finalize_execution(
-                    tables, plan, run_id, run_ts, run_date, source_name, source_metadata, target,
-                    status, started_dt, finished_dt, rows_read, rows_written, rows_quarantined,
-                    wm_prev, wm_current, quality_status, schema_changes, operation_metrics, write_started_at,
-                    write_finished_at, delta_version_before, delta_version_after, write_committed,
-                    error, row_metrics, metrics_source, runtime_meta,
-                    skip_reason, skipped_by_run_id, stage_durations, governance_results,
+                    tables,
+                    ExecutionLogPayload(
+                        plan=plan,
+                        run_id=run_id,
+                        run_ts=run_ts,
+                        run_date=run_date,
+                        source_name=source_name,
+                        source_metadata=source_metadata,
+                        target=target,
+                        status=status,
+                        started_dt=started_dt,
+                        finished_dt=finished_dt,
+                        rows_read=rows_read,
+                        rows_written=rows_written,
+                        rows_quarantined=rows_quarantined,
+                        wm_prev=wm_prev,
+                        wm_current=wm_current,
+                        quality_status=quality_status,
+                        schema_changes=schema_changes,
+                        operation_metrics=operation_metrics,
+                        write_started_at=write_started_at,
+                        write_finished_at=write_finished_at,
+                        delta_version_before=delta_version_before,
+                        delta_version_after=delta_version_after,
+                        write_committed=write_committed,
+                        error=error,
+                        row_metrics=row_metrics,
+                        metrics_source=metrics_source,
+                        runtime_meta=runtime_meta,
+                        skip_reason=skip_reason,
+                        skipped_by_run_id=skipped_by_run_id,
+                        stage_durations=stage_durations,
+                        governance_results=governance_results,
+                    ),
                 )
             except Exception as log_exc:
                 logger.error("Falha ao registrar execução: %s", log_exc)
