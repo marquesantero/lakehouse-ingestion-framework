@@ -892,7 +892,7 @@ def apply_annotations_contract(
             if contract.policy == "fail":
                 log_entries(tables, run_id, target_table, entries)
                 raise
-            logger.warning(f"Falha ao aplicar annotation em {target_table}: {exc}")
+            logger.warning("Falha ao aplicar annotation em %s: %s", target_table, exc)
     if result["failed"]:
         result["status"] = "WARNED"
     log_entries(tables, run_id, target_table, entries)
@@ -1011,7 +1011,7 @@ def apply_access_contract(
             if contract.on_drift == "fail":
                 log_entries(tables, run_id, target_table, entries)
                 raise
-            logger.warning(f"Falha ao aplicar access em {target_table}: {exc}")
+            logger.warning("Falha ao aplicar access em %s: %s", target_table, exc)
     if result["failed"]:
         result["status"] = "WARNED"
     log_entries(tables, run_id, target_table, entries)

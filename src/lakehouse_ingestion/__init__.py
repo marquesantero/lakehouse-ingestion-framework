@@ -1,3 +1,5 @@
+import logging
+
 from ._uc_capabilities import UCCapabilities, get_uc_capabilities
 from .contract_bundle import ContractBundle, governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
@@ -128,5 +130,7 @@ __all__ = [
     "validate_governance_contract",
     "yaml_schema",
 ]
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __version__ = "1.16.0"
