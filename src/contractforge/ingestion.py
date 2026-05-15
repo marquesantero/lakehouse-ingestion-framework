@@ -355,7 +355,7 @@ def _prepare_dataframe(
         df = deduplicate_by_order(df, dedup_keys, plan.dedup_order_expr)
 
     df = fix_encoding(df, plan.fix_encoding, plan.encoding, plan.encoding_columns)
-    _validate_no_reserved_source_columns(df)
+    df = _drop_reserved_control_columns(df)
     df = (
         df.withColumn("ingestion_date", F.to_date(F.lit(run_date)))
         .withColumn("ingestion_ts_utc", F.lit(run_ts).cast("timestamp"))
@@ -385,14 +385,23 @@ def _validate_column_mapping(df: DataFrame, plan: IngestionPlan) -> None:
         raise ValueError(f"column_mapping produziria colisão com colunas existentes: {collisions}")
 
 
-def _validate_no_reserved_source_columns(df: DataFrame) -> None:
-    """Impede sobrescrita silenciosa de colunas técnicas vindas da origem."""
+def _drop_reserved_control_columns(df: DataFrame) -> DataFrame:
+    """Remove colunas gerenciadas pelo framework antes de recriá-las.
+
+    Isso mantém pipelines ContractForge -> ContractForge composáveis: uma tabela
+    bronze/silver pode ser usada como fonte sem carregar metadados técnicos para
+    a próxima camada. Se a origem tiver uma coluna de negócio com nome reservado,
+    o contrato deve preservá-la explicitamente com ``column_mapping`` para um
+    nome não reservado antes desta etapa.
+    """
     reserved = sorted(set(df.columns) & CONTROL_COLUMNS)
     if reserved:
-        raise ValueError(
-            "Origem contém colunas técnicas reservadas pelo framework. "
-            f"Renomeie/remova antes da ingestão ou use column_mapping: {reserved}"
+        logger.warning(
+            "Removendo colunas técnicas reservadas da origem antes da escrita: %s",
+            reserved,
         )
+        return df.drop(*reserved)
+    return df
 
 
 def _validate_merge_key_nulls(df: DataFrame, keys: list[str], row_count: int, mode: str) -> None:

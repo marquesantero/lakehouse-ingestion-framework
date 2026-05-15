@@ -109,7 +109,7 @@ quality_rules:
 
 ## Shape Declarativo
 
-`shape` normaliza JSON, structs e arrays antes de quality/write. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
+`shape` normaliza JSON, structs e arrays antes de quality/write. Quando `shape.columns` é declarado, ele funciona como projeção: só os aliases declarados seguem como colunas de negócio, evitando carregar campos brutos ou colunas técnicas de camadas anteriores. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
 
 ```yaml
 shape:
@@ -123,6 +123,7 @@ shape:
       mode: explode_outer
       alias: hour
   columns:
+    location_id: location_id
     hour.time: forecast_hour
     hour.temperature_2m:
       alias: temperature_2m

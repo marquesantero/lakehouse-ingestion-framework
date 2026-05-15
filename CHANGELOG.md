@@ -6,6 +6,14 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.3.0 - 2026-05-15
+
+- Ajusta `shape.columns` para atuar como projeção declarativa: quando declarado, só os aliases informados seguem como colunas de negócio.
+- Remove automaticamente colunas técnicas gerenciadas pela ContractForge herdadas da origem antes de recriá-las na execução atual.
+- Mantém a possibilidade de preservar uma coluna de origem com nome reservado via `column_mapping` para um nome não reservado.
+- Melhora a composição bronze -> silver -> gold sem exigir `select_columns` apenas para limpar metadados técnicos da camada anterior.
+- Atualiza testes e documentação da semântica de `shape` e colunas técnicas.
+
 ## 2.2.0 - 2026-05-15
 
 - Adiciona `response.mode: raw` no conector `rest_api` para baixar payloads JSON complexos como string, uma linha por página.

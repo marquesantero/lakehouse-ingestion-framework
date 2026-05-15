@@ -123,7 +123,6 @@ def test_shape_flattens_structs_and_extracts_nested_columns(spark, unique_name):
         source=df,
         mode="scd0_append",
         shape={
-            "columns": {"customer.email": "customer_email"},
             "flatten": {"enabled": True, "include": ["customer"]},
         },
         **_common(table, "silver"),
@@ -131,8 +130,9 @@ def test_shape_flattens_structs_and_extracts_nested_columns(spark, unique_name):
 
     assert res["status"] == "SUCCESS"
     final = spark.table(f"spark_catalog.silver.{table}")
-    assert {"customer_email", "customer_address_city"}.issubset(set(final.columns))
-    row = final.select("customer_email", "customer_address_city").first()
+    assert {"customer_email", "customer_address_city", "id"}.issubset(set(final.columns))
+    row = final.select("customer_email", "customer_address_city", "id").first()
+    assert row["id"] == 1
     assert row["customer_email"] == "a@example.com"
     assert row["customer_address_city"] == "SP"
 
@@ -149,7 +149,7 @@ def test_json_like_string_is_not_parsed_when_shape_is_absent(spark, make_df, uni
     assert final.select("payload").first()["payload"] == '{"customer":{"email":"a@example.com"}}'
 
 
-def test_shape_parses_json_string_before_arrays_columns_and_flatten(spark, make_df, unique_name):
+def test_shape_parses_json_string_before_arrays_and_columns(spark, make_df, unique_name):
     table = f"{unique_name}_shape_json_string"
     df = make_df(
         [
@@ -176,11 +176,12 @@ def test_shape_parses_json_string_before_arrays_columns_and_flatten(spark, make_
             ],
             "arrays": [{"path": "payload.items", "mode": "explode_outer", "alias": "item"}],
             "columns": {
+                "order_id": "order_id",
                 "payload.customer.email": "customer_email",
+                "payload.customer.address.city": "customer_city",
                 "item.sku": "item_sku",
                 "item.qty": "item_qty",
             },
-            "flatten": {"enabled": True, "include": ["payload"]},
         },
         **_common(table, "silver"),
     )
@@ -191,17 +192,17 @@ def test_shape_parses_json_string_before_arrays_columns_and_flatten(spark, make_
         "customer_email",
         "item_sku",
         "item_qty",
-        "payload_customer_address_city",
-        "payload_tags",
+        "customer_city",
     }.issubset(set(final.columns))
+    assert "payload" not in final.columns
     rows = sorted(
-        (r["order_id"], r["customer_email"], r["item_sku"], r["item_qty"], r["payload_customer_address_city"])
+        (r["order_id"], r["customer_email"], r["item_sku"], r["item_qty"], r["customer_city"])
         for r in final.select(
             "order_id",
             "customer_email",
             "item_sku",
             "item_qty",
-            "payload_customer_address_city",
+            "customer_city",
         ).collect()
     )
     assert rows == [
@@ -220,7 +221,7 @@ def test_shape_parses_json_string_array_root(spark, make_df, unique_name):
         shape={
             "parse_json": [{"column": "payload", "schema": "ARRAY<STRUCT<sku: STRING, qty: BIGINT>>"}],
             "arrays": [{"path": "payload", "mode": "explode_outer", "alias": "item"}],
-            "columns": {"item.sku": "item_sku", "item.qty": "item_qty"},
+            "columns": {"order_id": "order_id", "item.sku": "item_sku", "item.qty": "item_qty"},
         },
         **_common(table, "silver"),
     )
@@ -285,7 +286,7 @@ def test_shape_explodes_arrays_of_structs_in_dependency_order(spark, unique_name
                 {"path": "item.discounts", "mode": "explode_outer", "alias": "discount"},
                 {"path": "items", "mode": "explode_outer", "alias": "item"},
             ],
-            "columns": {"item.sku": "item_sku", "discount.code": "discount_code"},
+            "columns": {"order_id": "order_id", "item.sku": "item_sku", "discount.code": "discount_code"},
         },
         **_common(table, "silver"),
     )
@@ -346,6 +347,7 @@ def test_shape_zips_parallel_arrays_before_explode(spark, unique_name):
             ],
             "arrays": [{"path": "hourly_rows", "mode": "explode_outer", "alias": "hour"}],
             "columns": {
+                "location_id": "location_id",
                 "hour.time": "forecast_hour",
                 "hour.temperature_2m": {"alias": "temperature_2m", "cast": "DOUBLE"},
                 "hour.humidity": "humidity",
@@ -407,12 +409,30 @@ def test_shape_blocks_sibling_array_cartesian(spark, unique_name):
     assert "produto cartesiano" in (res["error_message"] or "")
 
 
-def test_reserved_source_columns_fail_before_silent_overwrite(spark, make_df, unique_name):
+def test_reserved_source_columns_are_recreated_not_carried(spark, make_df, unique_name):
     table = f"{unique_name}_reserved"
     df = make_df([(1, "2026-05-12")], "id long, ingestion_date string")
     res = ingest(source=df, mode="scd0_append", **_common(table, "bronze"))
-    assert res["status"] == "FAILED"
-    assert "colunas técnicas reservadas" in (res["error_message"] or "")
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.bronze.{table}")
+    assert final.select("id").first()["id"] == 1
+    assert final.schema["ingestion_date"].dataType.simpleString() == "date"
+
+
+def test_reserved_source_column_can_be_preserved_with_column_mapping(spark, make_df, unique_name):
+    table = f"{unique_name}_reserved_mapping"
+    df = make_df([(1, "2026-05-12")], "id long, ingestion_date string")
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        column_mapping={"ingestion_date": "source_ingestion_date"},
+        **_common(table, "bronze"),
+    )
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.bronze.{table}")
+    row = final.select("id", "source_ingestion_date").first()
+    assert row["id"] == 1
+    assert row["source_ingestion_date"] == "2026-05-12"
 
 
 def test_merge_keys_all_null_fail_before_merge(spark, make_df, unique_name):

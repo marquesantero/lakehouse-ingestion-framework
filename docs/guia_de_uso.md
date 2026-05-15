@@ -489,7 +489,9 @@ dbutils.notebook.exit(json.dumps(result, default=str))
 **Características:**
 
 - `build_plan_from_kwargs` valida campos desconhecidos, normaliza listas com `|` e rejeita `quality_rules` malformadas.
-- `column_mapping` permite contratos com nomes source/target diferentes; colisões e colunas técnicas reservadas são bloqueadas.
+- `column_mapping` permite contratos com nomes source/target diferentes; colisões e destinos com nomes técnicos reservados são bloqueados.
+- Colunas técnicas herdadas de tabelas geradas pela ContractForge são descartadas automaticamente antes de recriar os metadados da execução atual.
+- `shape.columns` é projeção declarativa: declare todos os campos de negócio que devem seguir para a tabela final.
 - `delta_properties` aplica TBLPROPERTIES na criação da tabela Delta.
 - `retry_attempts` e `retry_backoff_seconds` podem ser definidos por YAML quando um plano precisar de política própria.
 - `validate_plan_shape` é validação pura de contrato; pode rodar em CI sem Spark.

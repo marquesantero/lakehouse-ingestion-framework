@@ -373,10 +373,10 @@ def _apply_array(df: DataFrame, array: ShapeArrayConfig) -> DataFrame:
 
 
 def _apply_columns(df: DataFrame, columns: Dict[str, ShapeColumnConfig]) -> DataFrame:
-    aliases = set(df.columns)
+    if not columns:
+        return df
+    projected = []
     for column in columns.values():
-        if column.alias in aliases and column.alias != column.path:
-            raise ValueError(f"shape.columns produziria colisão com coluna existente: {column.alias}")
         if column.expression:
             expr = F.expr(column.expression)
         else:
@@ -388,8 +388,8 @@ def _apply_columns(df: DataFrame, columns: Dict[str, ShapeColumnConfig]) -> Data
         if column.cast:
             expr = expr.cast(column.cast)
         df = df.withColumn(column.alias, expr)
-        aliases.add(column.alias)
-    return df
+        projected.append(F.col(column.alias).alias(column.alias))
+    return df.select(*projected)
 
 
 def _drop_shape_intermediates(df: DataFrame, shape: ShapeConfig) -> DataFrame:
