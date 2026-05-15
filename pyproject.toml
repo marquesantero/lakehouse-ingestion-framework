@@ -33,14 +33,14 @@ Issues = "https://github.com/marquesantero/contractforge/issues"
 
 [project.optional-dependencies]
 databricks = ["databricks-sdk>=0.20"]
-spark = ["pyspark>=3.4,<4", "delta-spark>=3.0,<4"]
+spark = ["pyspark>=3.4,<5", "delta-spark>=3.0,<4"]
 dev = [
     "build>=1.0",
     "twine>=4.0",
     "pytest>=7.0",
     "ruff>=0.4",
     "tomli>=2.0; python_version<'3.11'",
-    "pyspark>=3.4,<4",
+    "pyspark>=3.4,<5",
     "delta-spark>=3.0,<4",
 ]
 
