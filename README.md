@@ -173,6 +173,27 @@ mode: scd0_overwrite
 
 Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Aliases: `http_csv`, `http_json` e `http_text`.
 
+## Azure Blob
+
+Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia o path governado diretamente. Esse é o caminho mais previsível para Azure Blob/ADLS, porque credencial e rede ficam sob governança do Unity Catalog.
+
+```yaml
+source:
+  type: connector
+  connector: azure_blob
+  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  format: csv
+  options:
+    header: true
+    inferSchema: false
+  read:
+    source_complete: true
+```
+
+Em job cluster/classic/local, também é possível declarar SAS com `account_url`, `container` e `auth.sas_token`; nesse caso a ContractForge monta `wasbs://...` e configura `fs.azure.sas...` no Spark. Em Databricks serverless/Spark Connect, essa configuração pode ser bloqueada; nesse caso a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para liberar o destino. O conector `azure_blob` não faz fallback REST implícito, porque isso muda semântica, custo, limites de memória e comportamento de rede. Para arquivos HTTP(S) explícitos de volume controlado, use `http_file`.
+
+Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
+
 Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
 
 ```yaml

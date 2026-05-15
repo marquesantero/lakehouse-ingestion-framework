@@ -37,6 +37,7 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(password|passwd|pwd|token|access_token|refresh_token|secret|client_secret|api_key|apikey|authorization)"
     r"(\s*[:=]\s*)([^\s,;})\]]+)"
 )
+_JSON_LINES_FORMATS = {"jsonl", "ndjson"}
 
 
 @dataclass(frozen=True)
@@ -777,7 +778,7 @@ class FileConnector:
             raise ValueError(f"source.path é obrigatório para connector={spec.connector}")
         options = resolve_secrets(spec.options)
         capabilities = self.capabilities(spec)
-        df = spark.read.format(fmt).options(**_spark_options(options)).load(str(path))
+        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
@@ -817,11 +818,122 @@ class ObjectStorageConnector(FileConnector):
             )
         if not spec.format:
             raise ValueError(f"source.format é obrigatório para connector={spec.connector}")
-        resolved = super().resolve_batch(spec, plan)
+        fmt = (spec.format or self.default_format or spec.connector).strip()
+        if fmt not in VALID_FILE_CONNECTOR_FORMATS:
+            raise ValueError(f"Formato de arquivo não suportado: {fmt}. Válidos: {sorted(VALID_FILE_CONNECTOR_FORMATS)}")
+        try:
+            path, options, storage_metrics = self._resolve_storage_path_and_options(spec, provider)
+        except Exception as exc:
+            if provider == "azure_blob" and self._is_spark_config_blocked(exc):
+                raise RuntimeError(
+                    "Databricks serverless/Spark Connect bloqueou a configuração de SAS no Spark para "
+                    f"connector=azure_blob e format={fmt!r}. Em serverless, use Unity Catalog External "
+                    "Location/Volume com path abfss:// ou /Volumes/..., ou configure Serverless Network "
+                    "Policy/NCC para permitir o destino. Use SAS direto apenas em job cluster/classic/local "
+                    "onde Hadoop config fs.azure.sas.* é permitido."
+                ) from exc
+            raise
+        capabilities = self.capabilities(spec)
+        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
+        metadata = _connector_metadata(spec, capabilities)
+        metadata["source_metrics"] = {
+            "read_strategy": "spark_files",
+            "file_format": fmt,
+            "source_complete": capabilities.source_complete,
+            **storage_metrics,
+        }
+        resolved = SourceResolution(
+            df,
+            redact_text(f"{spec.connector}:{path}"),
+            spec.connector,
+            metadata,
+            capabilities,
+        )
         resolved.metadata["source_provider"] = provider or spec.provider
         resolved.metadata["source_metrics"]["object_storage_provider"] = provider or spec.provider
         return resolved
 
+    def _resolve_storage_path_and_options(
+        self,
+        spec: ConnectorSpec,
+        provider: str,
+    ) -> tuple[str, Mapping[str, Any], dict[str, Any]]:
+        options = resolve_secrets(spec.options)
+        raw_path = spec.path or options.get("path")
+        if not raw_path:
+            raise ValueError(f"source.path é obrigatório para connector={spec.connector}")
+        path = str(raw_path)
+        metrics: dict[str, Any] = {}
+        if provider == "azure_blob":
+            path = self._resolve_azure_blob_path(spec, path)
+            metrics["azure_auth_configured"] = bool((spec.auth or {}).get("sas_token") or (spec.auth or {}).get("token"))
+            metrics["azure_container"] = spec.container or self._azure_container_from_uri(path)
+        return path, options, metrics
+
+    def _resolve_azure_blob_path(self, spec: ConnectorSpec, path: str) -> str:
+        auth = resolve_secrets(spec.auth or {})
+        sas_token = auth.get("sas_token") or auth.get("token")
+        if spec.account_url or spec.container:
+            account = self._azure_account_from_url(spec.account_url or "")
+            container = str(spec.container or "").strip()
+            if not account:
+                raise ValueError("source.account_url é obrigatório para connector=azure_blob quando source.container é usado")
+            if not container:
+                raise ValueError("source.container é obrigatório para connector=azure_blob quando source.account_url é usado")
+            if sas_token:
+                self._configure_azure_blob_sas(account, container, str(sas_token))
+            if "://" not in path:
+                normalized_path = path.lstrip("/")
+                return f"wasbs://{container}@{account}.blob.core.windows.net/{normalized_path}"
+            return path
+        if sas_token:
+            account, container = self._azure_account_container_from_uri(path)
+            if not account or not container:
+                raise ValueError(
+                    "auth.sas_token em connector=azure_blob requer source.account_url/source.container "
+                    "ou path wasbs://container@account.blob.core.windows.net/..."
+                )
+            self._configure_azure_blob_sas(account, container, str(sas_token))
+        return path
+
+    @staticmethod
+    def _azure_account_from_url(account_url: str) -> str:
+        if not account_url:
+            return ""
+        parsed = urllib.parse.urlparse(account_url if "://" in account_url else f"https://{account_url}")
+        host = parsed.netloc or parsed.path
+        return host.split(".", 1)[0].strip()
+
+    @classmethod
+    def _azure_account_container_from_uri(cls, path: str) -> tuple[str, str]:
+        parsed = urllib.parse.urlparse(path)
+        if parsed.scheme not in {"wasbs", "wasb", "abfss", "abfs"}:
+            return "", ""
+        netloc = parsed.netloc
+        if "@" not in netloc:
+            return "", ""
+        container, host = netloc.split("@", 1)
+        account = host.split(".", 1)[0].strip()
+        return account, container.strip()
+
+    @classmethod
+    def _azure_container_from_uri(cls, path: str) -> Optional[str]:
+        _, container = cls._azure_account_container_from_uri(path)
+        return container or None
+
+    @staticmethod
+    def _configure_azure_blob_sas(account: str, container: str, sas_token: str) -> None:
+        token = sas_token.strip()
+        if token.startswith("?"):
+            token = token[1:]
+        if not token:
+            raise ValueError("auth.sas_token não pode ser vazio para connector=azure_blob")
+        spark.conf.set(f"fs.azure.sas.{container}.{account}.blob.core.windows.net", token)
+
+    @staticmethod
+    def _is_spark_config_blocked(exc: Exception) -> bool:
+        message = str(exc)
+        return "CONFIG_NOT_AVAILABLE" in message or "Configuration fs.azure.sas" in message
 
 class SparkFormatConnector:
     """Lê fontes externas por ``spark.read.format`` quando o runtime já possui o conector Spark."""
@@ -1106,7 +1218,7 @@ class HttpFileConnector:
             payload = json.loads(text) if text.strip() else []
             records_path = spec.response.get("records_path") if spec.response else None
             return _records_from_response(payload, records_path)
-        if fmt in {"jsonl", "ndjson"}:
+        if fmt in _JSON_LINES_FORMATS:
             return [json.loads(line) for line in text.splitlines() if line.strip()]
         if fmt == "text":
             return [{"value": line} for line in text.splitlines()]
@@ -1448,6 +1560,11 @@ def _records_to_dataframe(session: SparkSession, records: list[Any]) -> DataFram
         return session.createDataFrame([], "value string").limit(0)
     normalized = [record if isinstance(record, Mapping) else {"value": record} for record in records]
     return session.createDataFrame(normalized)
+
+
+def _spark_file_format(fmt: str) -> str:
+    """Map ContractForge logical file formats to Spark reader names."""
+    return "json" if fmt in _JSON_LINES_FORMATS else fmt
 
 
 register_source_resolver("autoloader", AutoloaderResolver())

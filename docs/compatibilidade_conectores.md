@@ -6,13 +6,13 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 |----------|------------------|---------------------|-------------|--------------------|-----------------------|-------------|
 | `table`, `delta_table`, `view` | Spark catalog | Nenhuma além do Spark/Delta | Sim | Sim | Sim | Depende de permissões no catálogo/schema/tabela. |
 | `sql` | Spark SQL | Nenhuma além do Spark | Sim | Sim | Sim | Use para queries rastreáveis e versionadas; evite SQL muito grande no YAML. |
-| `parquet`, `json`, `csv`, `orc`, `text` | Spark file reader | Conectores Hadoop do runtime | Sim | Sim | Sim | Path e credenciais precisam estar acessíveis ao Spark. |
+| `parquet`, `json`, `jsonl`, `ndjson`, `csv`, `orc`, `text`, `avro`, `xml` | Spark file reader | Conectores Hadoop/Spark do runtime | Sim | Sim | Sim | Path e credenciais precisam estar acessíveis ao Spark; `jsonl/ndjson` usam reader `json`; `xml` depende do suporte do runtime. |
 | `http_file` | Driver Python | Biblioteca padrão `urllib` | Sim | Sim | Sim | Baixa HTTP(S) no driver e cria DataFrame; use `format=csv|json|jsonl|ndjson|text`. |
 | `http_csv`, `http_json`, `http_text` | Driver Python | Biblioteca padrão `urllib` | Sim | Sim | Sim | Aliases de `http_file`; úteis quando Spark não consegue ler `https://` como filesystem. |
 | `delta` | Spark Delta reader | Delta Lake | Sim com extra `spark` | Sim | Sim | Por path; para tabela registrada prefira `delta_table`/`table`. |
-| `object_storage`, `blob` | Spark file reader | Credencial cloud configurada | Parcial | Sim | Sim | Use `provider=adls|azure_blob|s3|gcs`. |
+| `object_storage`, `blob` | Spark file reader | Credencial cloud configurada | Parcial | Sim | Sim | Use `provider=adls|azure_blob|s3|gcs`; para Azure Blob, SAS pode ser declarado em `auth.sas_token`. |
 | `s3` | Spark file reader | Acesso S3 no runtime | Parcial | Sim | Sim | Alias de object storage com provider inferido. |
-| `adls`, `azure_blob` | Spark file reader | Acesso Azure Storage no runtime | Parcial | Sim | Sim | Em Databricks, prefira UC external locations/Volumes quando possível. |
+| `adls`, `azure_blob` | Spark file reader | Acesso Azure Storage no runtime/Unity Catalog ou SAS em runtime que permita config Hadoop | Parcial | Sim | Sim, via External Location/Volume ou rede liberada | `azure_blob` aceita `account_url`, `container` e `auth.sas_token`; se serverless bloquear `fs.azure.sas...`, a lib falha rápido com orientação operacional. |
 | `gcs` | Spark file reader | Acesso GCS no runtime | Parcial | Sim | Sim | Requer configuração GCS no cluster/serverless. |
 | `jdbc` | Spark JDBC | Driver JDBC | Sim | Sim | Sim, se driver/runtime suportar | Exige `options.url` e `dbtable` ou `query`. |
 | `postgres`, `postgresql` | Spark JDBC | Driver PostgreSQL | Sim | Sim | Sim, se driver disponível | Alias de `jdbc`; melhora clareza e observabilidade. |
@@ -33,6 +33,9 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 - Para JDBC em tabelas grandes, configure `partition_column`, `lower_bound`, `upper_bound`, `num_partitions` e `fetchsize`.
 - Para Snowflake/BigQuery, valide o conector Spark no runtime antes de usar o contrato em produção.
 - Para conectores que usam credenciais, use `{{ secret:scope/key }}` e valide que `contractforge validate`/`connectors doctor` não exibem segredo literal.
+- Para Azure Blob com SAS, salve apenas o SAS token no secret scope e declare `account_url`, `container` e `path` separadamente no contrato.
+- Para Azure Blob em Databricks serverless, prefira Unity Catalog External Location/Volume e paths `abfss://...` ou `/Volumes/...`; SAS direto via `fs.azure.sas...` pode ser bloqueado por Spark Connect.
+- Se a origem é um arquivo HTTP(S) explícito e pequeno/médio, use `http_file`. Não trate `azure_blob` como downloader REST implícito.
 
 ## Exemplos de validação
 

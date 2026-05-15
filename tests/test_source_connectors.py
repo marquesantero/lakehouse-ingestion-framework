@@ -10,6 +10,7 @@ from contractforge.sources import (
     FileConnector,
     HttpFileConnector,
     JdbcConnector,
+    ObjectStorageConnector,
     RestApiConnector,
     SparkFormatConnector,
     SourceResolution,
@@ -272,6 +273,189 @@ def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch
     assert resolved.metadata["source_provider"] == "s3"
     assert resolved.metadata["source_metrics"]["object_storage_provider"] == "s3"
     assert resolved.metadata["source_metrics"]["source_complete"] is True
+
+
+@pytest.mark.parametrize("fmt", ["avro", "xml"])
+def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
+    calls = {"format": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "azure_blob",
+            "format": fmt,
+            "path": f"wasbs://container@account.blob.core.windows.net/blob_teste/generated/{fmt}/sample",
+        },
+        target_table="b_data",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["format"] == fmt
+    assert calls["load"].endswith(f"generated/{fmt}/sample")
+
+
+@pytest.mark.parametrize("fmt", ["jsonl", "ndjson"])
+def test_file_and_object_storage_map_json_lines_to_spark_json(monkeypatch, fmt):
+    calls = {"format": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={"type": "connector", "connector": "azure_blob", "format": fmt, "path": f"wasbs://c@a.blob.core.windows.net/data/events.{fmt}"},
+        target_table="b_events",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["format"] == "json"
+    assert calls["load"].endswith(f"events.{fmt}")
+
+
+def test_azure_blob_connector_builds_wasbs_path_and_configures_sas(monkeypatch):
+    calls = {"format": None, "options": {}, "load": None, "conf": {}}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setenv("CONTRACTFORGE_SECRET_SCOPE_BLOB_SAS", "?sv=1&sig=secret")
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "azure_blob",
+            "format": "csv",
+            "account_url": "https://generalcafe.blob.core.windows.net/",
+            "container": "databricksdata",
+            "path": "blob_teste/generated/csv/partitioned/sales",
+            "auth": {"sas_token": "{{ secret:scope/blob-sas }}"},
+            "options": {"header": True},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["format"] == "csv"
+    assert calls["options"] == {"header": "true"}
+    assert calls["load"] == (
+        "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/csv/partitioned/sales"
+    )
+    assert calls["conf"] == {
+        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+    }
+    assert resolved.metadata["source_provider"] == "azure_blob"
+    assert resolved.metadata["source_metrics"]["azure_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["azure_container"] == "databricksdata"
+    _assert_text_not_present(resolved.metadata, "secret")
+
+
+def test_azure_blob_connector_configures_sas_for_declared_wasbs_path(monkeypatch):
+    calls = {"load": None, "conf": {}}
+
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="azure_blob",
+        format="json",
+        path="wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl",
+        auth={"sas_token": "sv=1&sig=secret"},
+    )
+
+    resolved = resolve_batch_source(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert calls["load"] == "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl"
+    assert calls["conf"] == {
+        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+    }
+
+
+def test_azure_blob_connector_reports_blocked_spark_config_with_serverless_guidance(monkeypatch):
+    def blocked_config(account, container, sas_token):
+        raise RuntimeError("[CONFIG_NOT_AVAILABLE] Configuration fs.azure.sas is not available")
+
+    monkeypatch.setattr(ObjectStorageConnector, "_configure_azure_blob_sas", staticmethod(blocked_config))
+    spec = ConnectorSpec(
+        connector="azure_blob",
+        format="csv",
+        account_url="https://generalcafe.blob.core.windows.net/",
+        container="databricksdata",
+        path="blob_teste/generated/csv/large/orders_250k.csv",
+        auth={"sas_token": "sv=1&sig=secret"},
+    )
+
+    with pytest.raises(RuntimeError, match="External Location/Volume"):
+        resolve_batch_source(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_http_csv_connector_downloads_csv_without_spark_https_filesystem(monkeypatch):

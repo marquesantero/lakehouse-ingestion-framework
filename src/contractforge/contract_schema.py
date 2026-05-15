@@ -77,6 +77,8 @@ def yaml_schema() -> Dict[str, Any]:
             "provider": {"type": ["string", "null"]},
             "format": {"type": ["string", "null"]},
             "path": {"type": ["string", "null"]},
+            "account_url": {"type": ["string", "null"]},
+            "container": {"type": ["string", "null"]},
             "table": {"type": ["string", "null"]},
             "query": {"type": ["string", "null"]},
             "options": {"type": "object"},

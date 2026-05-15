@@ -612,6 +612,29 @@ mode: scd0_overwrite
 source_system: covid19br_github
 ```
 
+Em Databricks serverless, use Azure Blob/ADLS por Unity Catalog External Location ou Volume:
+
+```yaml
+source:
+  type: connector
+  connector: azure_blob
+  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/json/jsonl/iot_events_120k.jsonl
+  format: jsonl
+  read:
+    source_complete: true
+
+target_table: b_iot_events_blob
+catalog: workspace
+layer: bronze
+mode: scd0_overwrite
+```
+
+Para job cluster/classic/local, Azure Blob com SAS também pode ser declarado sem configurar o Spark manualmente no notebook usando `account_url`, `container` e `auth.sas_token`. A ContractForge monta o `wasbs://...` e configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` em tempo de execução. O valor do secret pode conter o SAS com ou sem `?` inicial. Esse caminho é voltado a runtimes onde configuração Hadoop/Spark é permitida.
+
+Em Databricks serverless/Spark Connect, se essa configuração for bloqueada, a ContractForge falha rápido com uma mensagem direcionando para Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou Serverless Network Policy/NCC. O conector `azure_blob` não baixa blobs por fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`.
+
+Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` usam o reader Spark `json`; `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog.
+
 ```yaml
 source:
   type: connector

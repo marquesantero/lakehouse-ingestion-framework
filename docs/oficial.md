@@ -772,7 +772,28 @@ source:
     multiline: true
 ```
 
-`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. A lib valida o contrato, mas não configura credenciais de cloud storage; isso deve estar no cluster/serverless/Unity Catalog external location.
+`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. Para `s3`, `adls`, `azure_blob` e `gcs`, a lib valida o contrato e delega credenciais ao runtime Spark/Unity Catalog quando o path já está governado pelo ambiente.
+
+Em Databricks serverless, prefira External Location/Volume:
+
+```yaml
+source:
+  type: connector
+  connector: azure_blob
+  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  format: csv
+  options:
+    header: true
+    inferSchema: false
+  read:
+    source_complete: true
+```
+
+Para `azure_blob`, também é possível declarar SAS diretamente no contrato usando secret placeholder em job cluster/classic/local. Nesse caso, a ContractForge resolve o secret, configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` e monta o path `wasbs://...` automaticamente. O secret pode conter o SAS com ou sem `?` inicial. Esse caminho é apropriado para runtimes onde configuração Hadoop/Spark é permitida.
+
+Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
+
+Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl` e `ndjson` são formatos lógicos da ContractForge e usam o reader Spark `json`. A leitura de `xml` depende de suporte do runtime Spark; Excel não é formato Spark nativo e deve usar um conector específico/runtime externo.
 
 ### 5C.2B HTTP File
 

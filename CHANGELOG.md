@@ -6,6 +6,15 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.4.3 - 2026-05-15
+
+- Adiciona suporte declarativo a Azure Blob com SAS no conector `azure_blob`.
+- Permite `source.account_url`, `source.container` e `source.auth.sas_token`, montando automaticamente o path `wasbs://container@account.blob.core.windows.net/...`.
+- Configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` em tempo de execução quando `sas_token` é informado.
+- Em Databricks serverless/Spark Connect, quando `spark.conf.set` é bloqueado, falha rápido com orientação para Unity Catalog External Location/Volume ou Network Policy/NCC; não há fallback REST implícito no `azure_blob`.
+- Passa a aceitar `avro` e `xml` como formatos de arquivo em conectores de arquivo/object storage, delegando a leitura ao runtime Spark.
+- Mantém segredos redigidos nos metadados de source e adiciona métricas de provider/container/auth configurada.
+
 ## 2.3.0 - 2026-05-15
 
 - Ajusta `shape.columns` para atuar como projeção declarativa: quando declarado, só os aliases informados seguem como colunas de negócio.

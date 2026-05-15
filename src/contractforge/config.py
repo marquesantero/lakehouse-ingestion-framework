@@ -10,7 +10,7 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
-FRAMEWORK_VERSION = "2.3.0"
+FRAMEWORK_VERSION = "2.4.3"
 CTRL_SCHEMA_VERSION = 11
 
 #: Camadas reconhecidas (Medallion Architecture).
@@ -176,7 +176,7 @@ VALID_SOURCE_CONNECTORS = {
 
 VALID_OBJECT_STORAGE_PROVIDERS = {"adls", "azure_blob", "gcs", "s3"}
 
-VALID_FILE_CONNECTOR_FORMATS = {"csv", "delta", "json", "orc", "parquet", "text"}
+VALID_FILE_CONNECTOR_FORMATS = {"avro", "csv", "delta", "json", "jsonl", "ndjson", "orc", "parquet", "text", "xml"}
 
 VALID_HTTP_FILE_FORMATS = {"csv", "json", "jsonl", "ndjson", "text"}
 

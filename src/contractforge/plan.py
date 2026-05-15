@@ -181,6 +181,8 @@ def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
         provider=(str(raw["provider"]).strip() if raw.get("provider") is not None else None),
         format=(str(raw["format"]).strip() if raw.get("format") is not None else None),
         path=(str(raw["path"]).strip() if raw.get("path") is not None else None),
+        account_url=(str(raw["account_url"]).strip() if raw.get("account_url") is not None else None),
+        container=(str(raw["container"]).strip() if raw.get("container") is not None else None),
         table=(str(raw["table"]).strip() if raw.get("table") is not None else None),
         query=(str(raw["query"]).strip() if raw.get("query") is not None else None),
         options=_normalize_options(raw.get("options"), "source.options"),
@@ -439,6 +441,8 @@ class ConnectorSpec:
     provider: Optional[str] = None
     format: Optional[str] = None
     path: Optional[str] = None
+    account_url: Optional[str] = None
+    container: Optional[str] = None
     table: Optional[str] = None
     query: Optional[str] = None
     options: Dict[str, Any] = field(default_factory=dict)
