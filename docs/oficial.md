@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.0.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.4.3 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -53,7 +53,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - **Não orquestra** — agendamento e DAGs ficam com Databricks Workflows, Airflow, DAB, etc.
 - **Não substitui DLT** (Delta Live Tables) — é uma alternativa batch declarativa.
-- **Não faz streaming contínuo** — a versão 2.0.0 suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
+- **Não faz streaming contínuo** — a versão atual suporta Autoloader em `available_now`, que é execução finita com checkpoint; processamento contínuo fica fora do escopo.
 - **Não substitui IAM/Unity Catalog** — access declarativo aplica ou valida políticas, mas a autoridade continua no catálogo e nos grupos corporativos.
 - **Não é um catálogo de qualidade empresarial** — as regras são para gates de pipeline.
 
@@ -162,14 +162,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.0.0-py3-none-any.whl
+# → dist/contractforge-2.4.3-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.0.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.0.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -3397,7 +3397,7 @@ ORDER BY change_ts_utc DESC;
 ## 21. FAQ
 
 **P: Posso usar o framework com Structured Streaming?**
-Para streaming contínuo, não. A versão 2.0.0 suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
+Para streaming contínuo, não. A versão atual suporta Autoloader em `available_now`, que é uma execução finita com checkpoint e `foreachBatch`. Para processamento contínuo, considere Delta Live Tables (DLT) ou Structured Streaming direto.
 
 **P: O framework suporta CDC (Change Data Feed) como origem?**
 Não nativamente. Você pode processar o CDF antes e passar um DataFrame para o `ingest()`, mas o framework não lê o feed automaticamente.
@@ -3479,9 +3479,9 @@ Adicione `dry_run: true` no YAML ou passe `dry_run=True`. O framework valida sch
 | Conector | Databricks Classic | Databricks Serverless | PySpark Local | Dependência externa | Observação |
 |----------|:---:|:---:|:---:|---------------------|------------|
 | `table`, `delta_table`, `view`, `sql` | ✅ | ✅ | ✅ | Spark catalog | Depende de permissões no catálogo/schema/tabela. |
-| `parquet`, `delta`, `json`, `csv`, `orc`, `text` | ✅ | ✅ | ✅ | Spark/Hadoop file readers | Path precisa estar acessível ao Spark. |
+| `parquet`, `delta`, `json`, `jsonl`, `ndjson`, `csv`, `orc`, `text`, `avro`, `xml` | ✅ | ✅ | ✅ | Spark/Hadoop file readers | Path precisa estar acessível ao Spark; `jsonl/ndjson` usam reader `json`; `xml` depende do suporte do runtime. |
 | `http_file`, `http_csv`, `http_json`, `http_text` | ✅ | ✅ | ✅ | Biblioteca padrão Python | Baixa HTTP(S) no driver; não depende de Spark filesystem para `https://`. |
-| `object_storage`, `blob`, `s3`, `adls`, `azure_blob`, `gcs` | ✅ | ✅ | Parcial | Credenciais cloud no runtime | A lib não configura IAM/storage credentials. |
+| `object_storage`, `blob`, `s3`, `adls`, `azure_blob`, `gcs` | ✅ | ✅ via External Location/Volume ou rede liberada | Parcial | Credenciais cloud no runtime/Unity Catalog | Para Azure Blob, SAS direto é suportado em classic/job cluster/local quando `spark.conf.set` é permitido; em serverless, prefira External Location/Volume. |
 | `jdbc`, `postgres`, `postgresql`, `sqlserver`, `mysql`, `oracle` | ✅ | ✅ se driver disponível | ✅ se driver disponível | Driver JDBC | Use particionamento e `fetchsize` para volume grande. |
 | `rest_api` | ✅ | ✅ | ✅ | Biblioteca padrão Python | Indicado para APIs paginadas de volume controlado. |
 | `snowflake` | ✅ se conector instalado | ✅ se suportado pelo runtime | ✅ se instalado | Spark Snowflake connector | Delegado a `spark.read.format("snowflake")`. |
