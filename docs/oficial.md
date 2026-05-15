@@ -89,8 +89,9 @@ Cada chamada `ingest()` ou `ingest_plan()` segue este pipeline determinístico:
 1. Resolve a fonte (tabela ou DataFrame)
 2. Lê watermark anterior do ctrl_ingestion_state
 3. Prepara o DataFrame:
-   → select_columns → filter_expression → custom_keys
+   → select_columns → column_mapping → shape → filter_expression → custom_keys
    → apply_watermark → deduplicate_by_order → fix_encoding
+   → remove colunas técnicas herdadas de execuções ContractForge anteriores
    → adiciona colunas técnicas (ingestion_date, source_system, __run_id)
 4. Valida schema policy + regras de modo
 5. Avalia quality gates (single-pass aggregation)
@@ -1280,6 +1281,20 @@ shape:
 ```
 
 Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_keys` e escrita.
+
+Quando `shape.columns` é declarado, ele atua como **projeção declarativa**: a saída de negócio contém apenas os aliases declarados em `shape.columns` mais as colunas técnicas adicionadas pelo framework. Isso evita carregar, por acidente, colunas brutas ou metadados técnicos de uma camada anterior para a próxima. Para preservar uma coluna, declare-a explicitamente:
+
+```yaml
+shape:
+  columns:
+    order_id: order_id
+    customer.email: customer_email
+    event_ts:
+      expression: "TO_TIMESTAMP(event_epoch_ms / 1000)"
+      alias: event_ts
+```
+
+Colunas técnicas gerenciadas pelo framework (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, campos SCD etc.) são removidas automaticamente antes de serem recriadas na execução atual. Se a origem tiver uma coluna de negócio com nome reservado, preserve-a antes com `column_mapping` para um nome não reservado.
 
 `shape.columns` aceita três formas:
 
