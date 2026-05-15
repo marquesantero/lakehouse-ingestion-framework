@@ -1,0 +1,17 @@
+target:
+  catalog: main
+  schema: sales_mart
+  table: g_daily_orders
+
+table:
+  description: KPIs diários de pedidos para consumo executivo.
+  tags:
+    domain: sales
+    layer: gold
+    data_product: orders
+
+columns:
+  order_date:
+    description: Data de referência do KPI.
+  gross_revenue:
+    description: Receita bruta diária.

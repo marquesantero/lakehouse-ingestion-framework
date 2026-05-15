@@ -1,0 +1,17 @@
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+ownership:
+  business_owner: sales-ops
+  technical_owner: data-platform
+  support_group: data-platform
+
+operations:
+  criticality: high
+  expected_frequency: daily
+  freshness_sla_minutes: 180
+  alert_on_failure: true
+  alert_on_quality_fail: true
+  runbook_url: https://wiki.example.com/runbooks/s_orders

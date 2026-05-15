@@ -1,0 +1,13 @@
+target:
+  catalog: main
+  schema: sales_mart
+  table: g_daily_orders
+
+access_policy:
+  mode: validate_only
+  on_drift: warn
+  revoke_unmanaged: false
+
+grants:
+  - principal: executive-dashboards
+    privileges: [SELECT]

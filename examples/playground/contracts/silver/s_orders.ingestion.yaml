@@ -1,0 +1,43 @@
+preset:
+  - silver_incremental_watermark_upsert
+  - quality_quarantine
+  - delta_optimized_writes
+
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:erp/postgres_url }}"
+    dbtable: public.orders
+    user: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
+  incremental:
+    watermark_column: updated_at
+    initial_value: "1970-01-01 00:00:00"
+  read:
+    fetchsize: 10000
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 10000000
+    num_partitions: 16
+
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+layer: silver
+merge_keys: [order_id]
+watermark_columns: [updated_at]
+dedup_order_expr: updated_at DESC NULLS LAST
+column_mapping:
+  id: order_id
+
+quality_rules:
+  not_null: [order_id, updated_at]
+  unique_key: [order_id]
+  expressions:
+    - name: positive_amount
+      expression: amount >= 0
+      severity: quarantine
+      message: amount negativo

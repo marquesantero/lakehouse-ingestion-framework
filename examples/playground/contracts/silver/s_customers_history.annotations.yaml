@@ -1,0 +1,20 @@
+target:
+  catalog: main
+  schema: crm_curated
+  table: s_customers_history
+
+table:
+  description: Histórico SCD2 de clientes.
+  tags:
+    domain: crm
+    history: scd2
+
+columns:
+  customer_id:
+    description: Chave do cliente.
+  email:
+    description: Email do cliente.
+    pii:
+      enabled: true
+      type: email
+      sensitivity: restricted

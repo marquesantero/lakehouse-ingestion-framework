@@ -1,0 +1,17 @@
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_files
+
+ownership:
+  business_owner: sales-ops
+  technical_owner: data-platform
+  support_group: data-platform
+
+operations:
+  criticality: medium
+  expected_frequency: hourly
+  freshness_sla_minutes: 120
+  alert_on_failure: true
+  alert_on_quality_fail: true
+  runbook_url: https://wiki.example.com/runbooks/b_orders_files

@@ -1,0 +1,19 @@
+preset: gold_full_refresh
+
+source: sales_curated.s_orders
+
+target:
+  catalog: main
+  schema: sales_mart
+  table: g_daily_orders
+
+layer: gold
+schema_policy: strict
+
+quality_rules:
+  not_null: [order_date]
+  expressions:
+    - name: non_negative_revenue
+      expression: gross_revenue >= 0
+      severity: abort
+      message: Receita agregada negativa

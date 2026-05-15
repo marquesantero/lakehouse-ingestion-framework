@@ -1,0 +1,14 @@
+target:
+  catalog: main
+  schema: iot_curated
+  table: s_devices
+
+table:
+  description: Estado atual de dispositivos com soft delete.
+  tags:
+    domain: iot
+    pattern: snapshot_soft_delete
+
+columns:
+  device_id:
+    description: Identificador único do dispositivo.

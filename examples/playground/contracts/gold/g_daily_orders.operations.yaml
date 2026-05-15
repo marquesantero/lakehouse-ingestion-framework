@@ -1,0 +1,17 @@
+target:
+  catalog: main
+  schema: sales_mart
+  table: g_daily_orders
+
+ownership:
+  business_owner: sales-ops
+  technical_owner: analytics-engineering
+  support_group: analytics-engineering
+
+operations:
+  criticality: critical
+  expected_frequency: daily
+  freshness_sla_minutes: 360
+  alert_on_failure: true
+  alert_on_quality_fail: true
+  runbook_url: https://wiki.example.com/runbooks/g_daily_orders

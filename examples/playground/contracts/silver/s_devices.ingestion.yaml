@@ -1,0 +1,20 @@
+preset: silver_snapshot_soft_delete
+
+source:
+  type: connector
+  connector: table
+  table: main.raw.devices_snapshot
+  read:
+    source_complete: true
+
+target:
+  catalog: main
+  schema: iot_curated
+  table: s_devices
+
+layer: silver
+merge_keys: [device_id]
+
+quality_rules:
+  not_null: [device_id]
+  unique_key: [device_id]

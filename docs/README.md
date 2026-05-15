@@ -25,6 +25,7 @@ https://marquesantero.github.io/contractforge/
 - [Segurança](seguranca.md): práticas para secrets, explain, lineage, ctrl tables e quarentena.
 - [Anti-patterns](antipadroes.md): configurações perigosas e alternativas recomendadas.
 - [Template de projeto](template_projeto.md): estrutura recomendada com contratos, notebooks e Databricks Asset Bundles.
+- [Playground](../examples/playground/README.md): projeto exemplo com contratos completos e validáveis por CLI.
 
 ## Site
 

@@ -1,0 +1,18 @@
+preset: bronze_autoloader_append
+
+source:
+  type: autoloader
+  format: json
+  path: /Volumes/main/landing/orders
+  schema_location: /Volumes/main/ops/schemas/orders
+  checkpoint_location: /Volumes/main/ops/checkpoints/orders
+
+target_table: b_orders_files
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_files
+
+layer: bronze
+idempotency_key: b_orders_files_{{dt}}
+schema_policy: additive_only

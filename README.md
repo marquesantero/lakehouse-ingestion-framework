@@ -13,6 +13,7 @@ Links principais:
 - **Mapa da documentação:** [docs/README.md](docs/README.md)
 - **Documentação completa:** [docs/oficial.md](docs/oficial.md)
 - **Template de projeto:** [examples/project_template](examples/project_template)
+- **Playground de exemplos:** [examples/playground](examples/playground)
 - **Changelog e releases:** [CHANGELOG.md](CHANGELOG.md)
 
 ## O Que Ele Resolve
@@ -117,6 +118,7 @@ contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/
 contractforge presets list
 contractforge connectors doctor postgres rest_api s3
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
+python examples/playground/scripts/validate_playground.py
 ```
 
 ## Contratos Separados

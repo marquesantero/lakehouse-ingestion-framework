@@ -1,0 +1,21 @@
+preset: silver_scd2_historical
+
+source: bronze.b_customers
+
+target:
+  catalog: main
+  schema: crm_curated
+  table: s_customers_history
+
+layer: silver
+merge_keys: [customer_id]
+dedup_order_expr: updated_at DESC NULLS LAST
+hash_exclude_columns: [updated_at, ingestion_date, ingestion_ts_utc, __run_id]
+
+quality_rules:
+  not_null: [customer_id]
+  expressions:
+    - name: valid_updated_at
+      expression: updated_at IS NOT NULL
+      severity: abort
+      message: updated_at obrigatório para histórico SCD2

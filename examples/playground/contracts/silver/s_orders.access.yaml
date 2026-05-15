@@ -1,0 +1,13 @@
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+access_policy:
+  mode: validate_only
+  on_drift: warn
+  revoke_unmanaged: false
+
+grants:
+  - principal: sales-analysts
+    privileges: [SELECT]

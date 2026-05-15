@@ -1,0 +1,12 @@
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_files
+
+table:
+  description: Arquivos JSON de pedidos ingeridos por Auto Loader.
+  tags:
+    domain: sales
+    source: autoloader
+
+columns: {}

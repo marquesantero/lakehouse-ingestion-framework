@@ -1,0 +1,17 @@
+target:
+  catalog: main
+  schema: iot_curated
+  table: s_devices
+
+ownership:
+  business_owner: iot-ops
+  technical_owner: data-platform
+  support_group: data-platform
+
+operations:
+  criticality: high
+  expected_frequency: daily
+  freshness_sla_minutes: 240
+  alert_on_failure: true
+  alert_on_quality_fail: true
+  runbook_url: https://wiki.example.com/runbooks/s_devices

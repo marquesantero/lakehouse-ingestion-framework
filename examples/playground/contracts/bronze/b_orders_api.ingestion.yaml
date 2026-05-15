@@ -1,0 +1,45 @@
+preset: bronze_file_append
+
+source:
+  type: connector
+  connector: rest_api
+  name: orders_api
+  request:
+    url: https://api.example.com/orders
+    params:
+      status: open
+  auth:
+    type: bearer_token
+    token: "{{ secret:orders_api/token }}"
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  response:
+    records_path: $.data
+  incremental:
+    watermark_param: updated_after
+    watermark_header: X-Watermark
+    initial_value: "1970-01-01T00:00:00Z"
+  limits:
+    max_pages: 100
+    timeout_seconds: 60
+    retry_attempts: 3
+
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_api
+
+layer: bronze
+mode: scd0_append
+watermark_columns: [updated_at]
+schema_policy: additive_only
+
+quality_rules:
+  not_null: [id]
+  expressions:
+    - name: valid_updated_at
+      expression: updated_at IS NOT NULL
+      severity: warn
+      message: updated_at ausente no payload da API

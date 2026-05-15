@@ -61,6 +61,7 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 
 - `docs/quickstart.md`: menor fluxo funcional para validar instalação, ingestão e ctrl tables.
 - `docs/templates.md`: templates de contratos para cenários comuns.
+- `examples/playground/`: contratos completos e validáveis por CLI para cenários comuns.
 - `docs/compatibilidade_conectores.md`: matriz de conectores, dependências externas e suporte por runtime.
 - `docs/operacao.md`: retenção das ctrl tables, limpeza operacional e VACUUM.
 - `docs/performance.md`: recomendações por modo, JDBC, REST, cache e Delta layout.

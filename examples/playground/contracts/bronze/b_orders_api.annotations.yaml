@@ -1,0 +1,16 @@
+target:
+  catalog: main
+  schema: bronze
+  table: b_orders_api
+
+table:
+  description: Pedidos recebidos da API externa em formato bronze.
+  tags:
+    domain: sales
+    source: rest_api
+
+columns:
+  id:
+    description: Identificador do pedido na API.
+  updated_at:
+    description: Timestamp de atualização usado como watermark.
