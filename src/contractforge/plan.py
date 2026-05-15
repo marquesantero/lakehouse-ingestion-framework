@@ -94,6 +94,7 @@ def _require_ratio(value: Any, field: str) -> float:
 
 
 _CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_SIMPLE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FILE_CONNECTORS = {"csv", "delta", "json", "orc", "parquet", "text"}
 _HTTP_FILE_CONNECTORS = {"http_csv", "http_file", "http_json", "http_text"}
 _HTTP_FILE_FORMAT_BY_CONNECTOR = {"http_csv": "csv", "http_json": "json", "http_text": "text"}
@@ -295,6 +296,20 @@ def _validate_native_connector_contract(spec: "ConnectorSpec") -> None:
             raise ValueError(f"pagination.type={page_type!r} não suportado")
         if page_type == "cursor" and not spec.pagination.get("next_cursor_path"):
             raise ValueError("pagination.next_cursor_path é obrigatório quando pagination.type=cursor")
+        response_mode = str((spec.response or {}).get("mode") or "records").strip().lower()
+        if response_mode not in {"records", "raw"}:
+            raise ValueError("source.response.mode deve ser 'records' ou 'raw'")
+        if response_mode == "raw":
+            raw_column = str((spec.response or {}).get("raw_column") or "raw_response").strip()
+            if not raw_column:
+                raise ValueError("source.response.raw_column não pode ser vazio quando response.mode=raw")
+            if not _SIMPLE_COLUMN_RE.match(raw_column):
+                raise ValueError("source.response.raw_column deve ser um nome de coluna simples")
+            if (spec.response or {}).get("records_path"):
+                raise ValueError("source.response.records_path não deve ser usado quando response.mode=raw")
+        for limit_name in ("max_page_bytes", "max_total_bytes"):
+            if spec.limits.get(limit_name) is not None and int(spec.limits[limit_name]) <= 0:
+                raise ValueError(f"source.limits.{limit_name} deve ser inteiro positivo")
         if spec.incremental.get("watermark_body_field") and "json" not in request:
             raise ValueError("source.incremental.watermark_body_field exige source.request.json")
 

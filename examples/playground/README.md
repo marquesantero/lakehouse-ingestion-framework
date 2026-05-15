@@ -10,9 +10,11 @@ O objetivo é mostrar contratos completos, validar estrutura e servir como base 
 contracts/
   bronze/
     b_orders_api.*              # REST API incremental
+    b_nasa_eonet_events.*       # REST API raw payload + shape.parse_json na silver
     b_orders_files.*            # Auto Loader JSON available_now
   silver/
     s_orders.*                  # JDBC incremental + SCD1
+    s_nasa_eonet_event_observations.* # JSON complexo estruturado por shape
     s_devices.*                 # snapshot_soft_delete
     s_customers_history.*       # SCD2
   gold/
@@ -57,3 +59,5 @@ contractforge templates list
 ## Observação
 
 Os contratos são exemplos de estrutura e governança. Eles não devem ser executados como ingestão real sem ajustar fontes, credenciais, schemas, permissões e paths.
+
+O par `b_nasa_eonet_events`/`s_nasa_eonet_event_observations` demonstra o padrão recomendado para APIs REST com JSON complexo: o conector baixa o payload bruto com `response.mode: raw`, enquanto `shape.parse_json`, `shape.arrays` e `shape.columns` fazem a estruturação declarativa com schema explícito.

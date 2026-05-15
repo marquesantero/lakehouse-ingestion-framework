@@ -172,6 +172,32 @@ mode: scd0_overwrite
 
 Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Aliases: `http_csv`, `http_json` e `http_text`.
 
+Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+    params:
+      status: open
+  response:
+    mode: raw
+    raw_column: raw_response
+  limits:
+    max_page_bytes: 10485760
+    max_total_bytes: 52428800
+
+shape:
+  parse_json:
+    - column: raw_response
+      alias: payload
+      schema: "STRUCT<events: ARRAY<STRUCT<id: STRING, title: STRING>>>"
+```
+
+O conector continua responsável só por baixar e proteger o volume; `shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
+
 ## Contratos Separados
 
 Contratos podem ser mantidos em arquivos separados quando engenharia, governança, operações e segurança têm ciclos de revisão diferentes:
@@ -210,8 +236,8 @@ Release:
 ```bash
 python -m build
 twine check dist/*
-git tag v2.1.0
-git push origin v2.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.

@@ -1,0 +1,17 @@
+annotations:
+  policy: warn
+  table:
+    description: "Bronze raw da resposta NASA EONET v3, uma linha por página REST."
+    aliases: [nasa_eonet_events_raw]
+    tags:
+      domain: natural-events
+      layer: bronze
+      source: nasa-eonet
+      source_connector: rest_api
+      response_mode: raw
+      contains_pii: "false"
+  columns:
+    raw_response:
+      description: "Payload JSON bruto retornado pelo endpoint REST."
+    response_page_number:
+      description: "Número sequencial da página/resposta baixada pelo conector."

@@ -570,10 +570,10 @@ def test_rest_api_connector_paginates_cursor(monkeypatch):
         def createDataFrame(self, rows, schema=None):
             return {"rows": rows, "schema": schema}
 
-    def fake_request(self, url, method, headers, body, timeout):
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
         requested_urls.append(url)
         payload, headers_payload = responses.pop(0)
-        return payload, headers_payload, url, len(str(payload).encode("utf-8"))
+        return payload, headers_payload, url, len(str(payload).encode("utf-8")), str(payload)
 
     monkeypatch.setattr(sources_module, "spark", FakeSpark())
     monkeypatch.setattr(RestApiConnector, "_request", fake_request)
@@ -608,11 +608,11 @@ def test_rest_api_connector_applies_params_and_incremental(monkeypatch):
         def createDataFrame(self, rows, schema=None):
             return {"rows": rows, "schema": schema}
 
-    def fake_request(self, url, method, headers, body, timeout):
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
         requested["url"] = url
         requested["headers"] = headers
         requested["body"] = body
-        return {"data": [{"id": 1}]}, {}, url, 24
+        return {"data": [{"id": 1}]}, {}, url, 24, '{"data":[{"id":1}]}'
 
     monkeypatch.setattr(sources_module, "spark", FakeSpark())
     monkeypatch.setattr(RestApiConnector, "_request", fake_request)
@@ -656,6 +656,124 @@ def test_rest_api_connector_applies_params_and_incremental(monkeypatch):
     assert resolved.metadata["source_metrics"]["records_read"] == 1
 
 
+def test_rest_api_connector_can_return_raw_payload_without_json_parsing(monkeypatch):
+    requested = {}
+
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        requested["parse_json_payload"] = parse_json_payload
+        text = '{"events":[{"id":"E1","geometry":[{"date":"2026-05-15"}]}]}'
+        return None, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        name="events_api",
+        request={"url": "https://api.example.com/events"},
+        response={"mode": "raw", "raw_column": "raw_response"},
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert requested["parse_json_payload"] is False
+    assert resolved.df["rows"] == [
+        {
+            "raw_response": '{"events":[{"id":"E1","geometry":[{"date":"2026-05-15"}]}]}',
+            "response_page_number": 1,
+        }
+    ]
+    assert resolved.metadata["source_metrics"]["response_mode"] == "raw"
+    assert resolved.metadata["source_metrics"]["records_read"] == 1
+    assert resolved.metadata["source_metrics"]["raw_payloads_read"] == 1
+
+
+def test_rest_api_raw_mode_preserves_cursor_pagination(monkeypatch):
+    responses = [
+        ({"next": "abc"}, '{"data":[{"id":1}],"next":"abc"}'),
+        ({"next": None}, '{"data":[{"id":2}],"next":null}'),
+    ]
+    requested_parse_modes = []
+
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        requested_parse_modes.append(parse_json_payload)
+        payload, text = responses.pop(0)
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        request={"url": "https://api.example.com/events"},
+        pagination={"type": "cursor", "cursor_param": "cursor", "next_cursor_path": "$.next"},
+        response={"mode": "raw"},
+        limits={"max_pages": 2},
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert requested_parse_modes == [True, True]
+    assert [row["response_page_number"] for row in resolved.df["rows"]] == [1, 2]
+    assert [row["raw_response"] for row in resolved.df["rows"]] == [
+        '{"data":[{"id":1}],"next":"abc"}',
+        '{"data":[{"id":2}],"next":null}',
+    ]
+    assert resolved.metadata["source_metrics"]["request_count"] == 2
+
+
+def test_rest_api_connector_rejects_payload_over_byte_limits(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        text = '{"data":[]}'
+        return {"data": []}, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        request={"url": "https://api.example.com/events"},
+        response={"mode": "raw"},
+        limits={"max_page_bytes": 3},
+    )
+
+    with pytest.raises(ValueError, match="max_page_bytes"):
+        RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+
+def test_rest_api_raw_mode_contract_validation():
+    with pytest.raises(ValueError, match="records_path"):
+        build_plan_from_kwargs(
+            source={
+                "type": "connector",
+                "connector": "rest_api",
+                "request": {"url": "https://api.example.com/events"},
+                "response": {"mode": "raw", "records_path": "$.data"},
+            },
+            target_table="b_events",
+        )
+
+    with pytest.raises(ValueError, match="response.mode"):
+        build_plan_from_kwargs(
+            source={
+                "type": "connector",
+                "connector": "rest_api",
+                "request": {"url": "https://api.example.com/events"},
+                "response": {"mode": "invalid"},
+            },
+            target_table="b_events",
+        )
+
+
 def test_rest_api_connector_validates_missing_bearer_token():
     spec = ConnectorSpec(
         connector="rest_api",
@@ -672,8 +790,8 @@ def test_rest_api_connector_metadata_never_exposes_auth_or_request_secrets(monke
         def createDataFrame(self, rows, schema=None):
             return {"rows": rows, "schema": schema}
 
-    def fake_request(self, url, method, headers, body, timeout):
-        return {"data": [{"id": 1}]}, {}, url, 24
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        return {"data": [{"id": 1}]}, {}, url, 24, '{"data":[{"id":1}]}'
 
     monkeypatch.setattr(sources_module, "spark", FakeSpark())
     monkeypatch.setattr(RestApiConnector, "_request", fake_request)

@@ -155,3 +155,46 @@ mode: scd0_append
 watermark_columns: updated_at
 ```
 
+## REST API com Payload JSON Complexo
+
+Para JSON aninhado, arrays de structs ou payloads com schema variável, prefira `response.mode: raw`.
+Nesse modo o conector apenas baixa uma linha por página com o JSON bruto em `raw_response`; a estruturação fica no `shape.parse_json`, com schema Spark DDL explícito.
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  name: nasa_eonet_events
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+    params:
+      status: open
+      limit: "50"
+    headers:
+      Accept: application/json
+  response:
+    mode: raw
+    raw_column: raw_response
+  limits:
+    timeout_seconds: 60
+    retry_attempts: 3
+    max_page_bytes: 10485760
+    max_total_bytes: 52428800
+
+shape:
+  parse_json:
+    - column: raw_response
+      alias: payload
+      schema: >
+        STRUCT<
+          events: ARRAY<STRUCT<
+            id: STRING,
+            title: STRING,
+            categories: ARRAY<STRUCT<id: STRING, title: STRING>>,
+            geometry: ARRAY<STRUCT<date: STRING, type: STRING, coordinates: ARRAY<DOUBLE>>>
+          >>
+        >
+```
+
+Use `response.mode: records` quando a API retorna uma lista simples e estável em `records_path`. Use `response.mode: raw` quando a resposta precisa ser tratada por `shape`. Para payloads grandes ou replay recorrente, faça landing em storage e processe com Auto Loader.
+

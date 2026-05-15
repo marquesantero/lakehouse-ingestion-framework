@@ -36,3 +36,10 @@ derby.log
 
 # Claude Code workspace
 .claude/
+
+# Local Databricks/workspace scratch
+.tmp_*/
+.tmp_*.json
+.tmp_*.md
+.tmp_*.py
+docs/planos/
