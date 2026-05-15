@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import lakehouse_ingestion.ingestion as ingestion_module
+import lakehouse_ingestion.streaming as streaming_module
 from lakehouse_ingestion.ingestion import ingest_plan
 from lakehouse_ingestion.plan import SourceSpec, build_plan_from_kwargs
 from lakehouse_ingestion.sources import (
@@ -101,7 +102,7 @@ def test_ingest_plan_dispatches_source_spec_to_stream(monkeypatch):
 
 
 def test_stream_metrics_from_batches_normalizes_result_keys():
-    metrics = ingestion_module._stream_metrics_from_batches(
+    metrics = streaming_module._stream_metrics_from_batches(
         [
             {"rows_read": 2, "rows_written": 2, "rows_quarantined": 1},
             {
@@ -134,7 +135,7 @@ def test_stream_metrics_prefers_child_when_local_result_is_incomplete():
         "total_rows_quarantined": 0,
     }
 
-    assert ingestion_module._prefer_child_stream_metrics(local, child) is True
+    assert streaming_module._prefer_child_stream_metrics(local, child) is True
 
 
 def test_ingest_stream_plan_uses_child_run_metrics_fallback(monkeypatch):
@@ -184,24 +185,24 @@ def test_ingest_stream_plan_uses_child_run_metrics_fallback(monkeypatch):
         "total_rows_quarantined": 0,
     }
     monkeypatch.setattr(
-        ingestion_module,
+        streaming_module,
         "runtime_info",
         lambda: {"runtime_type": "unit", "spark_version": "test", "python_version": "test"},
     )
     monkeypatch.setattr(
-        ingestion_module,
+        streaming_module,
         "ensure_ctrl_tables",
         lambda catalog, ctrl_schema: {"runs": "runs", "streams": "streams"},
     )
-    monkeypatch.setattr(ingestion_module, "find_idempotent_stream", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ingestion_module, "log_stream_start", lambda *args, **kwargs: None)
+    monkeypatch.setattr(streaming_module, "find_idempotent_stream", lambda *args, **kwargs: None)
+    monkeypatch.setattr(streaming_module, "log_stream_start", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        ingestion_module,
+        streaming_module,
         "log_stream_finish",
         lambda tables, stream_run_id, payload: finish_payloads.append(payload),
     )
-    monkeypatch.setattr(ingestion_module, "stream_child_run_metrics", lambda *args: child_metrics)
-    monkeypatch.setattr(ingestion_module, "get_source_resolver", lambda source_type: Resolver())
+    monkeypatch.setattr(streaming_module, "stream_child_run_metrics", lambda *args: child_metrics)
+    monkeypatch.setattr(streaming_module, "get_source_resolver", lambda source_type: Resolver())
 
     result = ingestion_module.ingest_stream_plan(plan)
 
