@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 1.16.0 - 2026-05-14
+
+- Adiciona templates built-in de contratos para cenários REST, Auto Loader, JDBC/SCD1, snapshot soft delete, SCD2 e gold KPI.
+- Adiciona CLI `contractforge templates list|show|write` para descobrir e gerar bundles YAML split.
+- Expõe `list_contract_templates()`, `get_contract_template()`, `contract_template_details()` e `contract_template_files()` na API pública.
+- Adiciona documentação de templates para acelerar onboarding e padronização de novos projetos.
+
 ## 1.15.0 - 2026-05-14
 
 - Adiciona `contractforge maintenance ctrl-retention` para gerar ou aplicar limpeza das ctrl tables históricas.

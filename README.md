@@ -112,6 +112,8 @@ quality_rules:
 contractforge init --output contracts/silver/s_orders --source raw.orders --target-table s_orders --layer silver --target-schema sales_curated --mode scd1_upsert --merge-keys order_id --split
 contractforge validate-bundle contracts/silver/s_orders
 contractforge validate-project contracts
+contractforge templates list
+contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/s_orders
 contractforge presets list
 contractforge connectors doctor postgres rest_api s3
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
@@ -137,6 +139,7 @@ Comece pelo [guia rápido](docs/quickstart.md). Para navegação completa por te
 Guias operacionais úteis:
 
 - [Operação e manutenção](docs/operacao.md)
+- [Templates de contratos](docs/templates.md)
 - [Compatibilidade de conectores](docs/compatibilidade_conectores.md)
 - [Segurança e secrets](docs/seguranca.md)
 - [Anti-patterns](docs/antipadroes.md)
@@ -154,8 +157,8 @@ Release:
 ```bash
 python -m build
 twine check dist/*
-git tag v1.15.0
-git push origin v1.15.0
+git tag v1.16.0
+git push origin v1.16.0
 ```
 
 O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.

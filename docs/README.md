@@ -9,6 +9,7 @@ https://marquesantero.github.io/contractforge/
 - [Quickstart](quickstart.md): fluxo mínimo para validar instalação, executar uma ingestão e consultar ctrl tables.
 - [Documentação oficial](oficial.md): referência completa de uso, contratos, modos, conectores, shape, governança e observabilidade.
 - [Guia de uso](guia_de_uso.md): passo a passo operacional para pacote, notebooks, YAMLs e Databricks Workflows.
+- [Templates de contratos](templates.md): cenários prontos para REST, JDBC, Auto Loader, SCD, snapshot e gold.
 
 ## Referência Técnica
 
