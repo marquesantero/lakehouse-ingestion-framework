@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://marquesantero.github.io/contractforge/
+    about: Read the published ContractForge documentation.
+  - name: Security policy
+    url: https://github.com/marquesantero/contractforge/security/policy
+    about: Report vulnerabilities privately when available.
