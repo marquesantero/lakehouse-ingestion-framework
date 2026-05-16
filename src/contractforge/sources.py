@@ -438,11 +438,24 @@ def _format_incremental_template(template: str, watermark_value: str) -> str:
 def _spark_options(options: Mapping[str, Any]) -> Dict[str, str]:
     normalized: Dict[str, str] = {}
     for key, value in options.items():
+        if str(key) == "schema":
+            continue
         if isinstance(value, bool):
             normalized[str(key)] = "true" if value else "false"
         else:
             normalized[str(key)] = str(value)
     return normalized
+
+
+def _optional_source_schema(spec: ConnectorSpec) -> str:
+    """Retorna schema Spark DDL declarado para fontes de arquivo."""
+    raw = spec.read.get("schema") or spec.options.get("schema")
+    if raw is None:
+        return ""
+    schema = str(raw).strip()
+    if not schema:
+        raise ValueError("source.read.schema não pode ser vazio")
+    return schema
 
 
 def _bool_option(value: Any, *, default: bool = False) -> bool:
@@ -814,13 +827,18 @@ class FileConnector:
         if not path:
             raise ValueError(f"source.path é obrigatório para connector={spec.connector}")
         options = resolve_secrets(spec.options)
+        schema = _optional_source_schema(spec)
         capabilities = self.capabilities(spec)
-        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
+        reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
+        if schema:
+            reader = reader.schema(schema)
+        df = reader.load(str(path))
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(schema),
         }
         return SourceResolution(
             df,
@@ -871,12 +889,17 @@ class ObjectStorageConnector(FileConnector):
                 ) from exc
             raise
         capabilities = self.capabilities(spec)
-        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
+        schema = _optional_source_schema(spec)
+        reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
+        if schema:
+            reader = reader.schema(schema)
+        df = reader.load(str(path))
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(schema),
             **storage_metrics,
         }
         resolved = SourceResolution(

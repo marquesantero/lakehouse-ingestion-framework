@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.0 - 2026-05-16
+
+- Adiciona `source.read.schema` para declarar schema Spark DDL em conectores de arquivo e object storage.
+- Evita inferência de schema em leituras com muitos arquivos pequenos quando o contrato já conhece o schema esperado.
+- Registra `source_metrics.schema_declared` para observabilidade do conector.
+
 ## 2.5.2 - 2026-05-16
 
 - Corrige `shape.columns` para projetar todos os paths a partir do schema original do DataFrame.

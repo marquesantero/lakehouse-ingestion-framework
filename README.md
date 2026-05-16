@@ -192,11 +192,14 @@ source:
     inferSchema: false
   read:
     source_complete: true
+    schema: "order_id STRING, customer_id STRING, order_ts_utc TIMESTAMP, amount DOUBLE"
 ```
 
 Em job cluster/classic/local, também é possível declarar SAS com `account_url`, `container` e `auth.sas_token`; nesse caso a ContractForge monta `wasbs://...` e configura `fs.azure.sas...` no Spark. Em Databricks serverless/Spark Connect, essa configuração pode ser bloqueada; nesse caso a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para liberar o destino. O conector `azure_blob` não faz fallback REST implícito, porque isso muda semântica, custo, limites de memória e comportamento de rede. Para arquivos HTTP(S) explícitos de volume controlado, use `http_file`.
 
 Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
+
+Quando o schema é conhecido, use `source.read.schema` com DDL Spark. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
 
 Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
 

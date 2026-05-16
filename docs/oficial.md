@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.5.2 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -172,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.5.2-py3-none-any.whl
+# → dist/contractforge-2.6.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.5.2-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.5.2-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -797,6 +797,7 @@ source:
     inferSchema: false
   read:
     source_complete: true
+    schema: "order_id STRING, customer_id STRING, order_ts_utc TIMESTAMP, amount DOUBLE"
 ```
 
 Para `azure_blob`, também é possível declarar SAS diretamente no contrato usando secret placeholder em job cluster/classic/local. Nesse caso, a ContractForge resolve o secret, configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` e monta o path `wasbs://...` automaticamente. O secret pode conter o SAS com ou sem `?` inicial. Esse caminho é apropriado para runtimes onde configuração Hadoop/Spark é permitida.
@@ -804,6 +805,8 @@ Para `azure_blob`, também é possível declarar SAS diretamente no contrato usa
 Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
 
 Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl` e `ndjson` são formatos lógicos da ContractForge e usam o reader Spark `json`. A leitura de `xml` depende de suporte do runtime Spark; Excel não é formato Spark nativo e deve usar um conector específico/runtime externo.
+
+Quando o schema é conhecido, declare `source.read.schema` como DDL Spark. Isso evita inferência em leituras grandes ou com muitos arquivos pequenos e aparece em `source_metrics_json.schema_declared=true`.
 
 ### 5C.2B HTTP File
 

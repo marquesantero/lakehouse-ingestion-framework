@@ -203,7 +203,7 @@ def test_connector_metadata_redacts_sensitive_identifiers_and_paths(monkeypatch)
 
 
 def test_file_connector_uses_spark_reader(monkeypatch):
-    calls = {"format": None, "options": {}, "load": None}
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
 
     class Reader:
         def format(self, value):
@@ -212,6 +212,10 @@ def test_file_connector_uses_spark_reader(monkeypatch):
 
         def options(self, **kwargs):
             calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
             return self
 
         def load(self, path):
@@ -232,7 +236,54 @@ def test_file_connector_uses_spark_reader(monkeypatch):
     assert resolved.df == "df"
     assert resolved.label == "json:/landing/orders"
     assert resolved.connector == "json"
-    assert calls == {"format": "json", "options": {"multiline": "true"}, "load": "/landing/orders"}
+    assert calls == {"format": "json", "options": {"multiline": "true"}, "schema": None, "load": "/landing/orders"}
+
+
+def test_file_connector_applies_declared_schema_from_read(monkeypatch):
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "options": {"header": True, "schema": "should_not_be_forwarded STRING"},
+            "read": {"schema": "order_id STRING, amount DOUBLE", "source_complete": True},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls == {
+        "format": "csv",
+        "options": {"header": "true"},
+        "schema": "order_id STRING, amount DOUBLE",
+        "load": "/landing/orders",
+    }
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
 
 
 def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch):

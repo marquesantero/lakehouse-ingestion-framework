@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `2.5.2`
+**Versão do pacote:** `2.6.0`
 **Pacote Python:** `contractforge`
 **Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -1451,7 +1451,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-2.5.2-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.6.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
