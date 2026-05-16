@@ -146,4 +146,4 @@ __all__ = [
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "2.5.1"
+__version__ = "2.5.2"

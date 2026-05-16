@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.5.2 - 2026-05-16
+
+- Corrige `shape.columns` para projetar todos os paths a partir do schema original do DataFrame.
+- Evita falha quando um alias sobrescreve o nome de um struct pai antes de extrair campos irmãos, por exemplo `amount._VALUE -> amount` e `amount._currency -> currency`.
+- Adiciona teste de regressão para projeção de campos aninhados irmãos com alias conflitante com o parent struct.
+
 ## 2.5.1 - 2026-05-16
 
 - Corrige conectores incrementais para extrair o valor de watermarks tipados antes de montar predicates, parâmetros, headers ou bodies.
