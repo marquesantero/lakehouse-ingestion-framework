@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.1 - 2026-05-16
+
+- Corrige a materialização do conector `rest_api` para payloads JSON reais com structs, arrays e campos opcionais heterogêneos.
+- Em runtimes Spark clássicos, `response.mode: records` passa a materializar registros via JSON lines e `spark.read.json`, por RDD quando disponível ou por `source.read.staging_path` configurado, evitando falhas de inferência do `createDataFrame` em arrays complexos.
+- Adiciona `source.read.schema` e `source.read.json_options` para controlar explicitamente o Spark JSON reader usado na materialização de registros REST/HTTP JSON, evitando inferência frágil em payloads heterogêneos ou com objetos dinâmicos.
+- Registra `source_metrics.dataframe_materialization` para auditoria do caminho usado pelo conector REST.
+
 ## 2.6.0 - 2026-05-16
 
 - Adiciona `source.read.schema` para declarar schema Spark DDL em conectores de arquivo e object storage.

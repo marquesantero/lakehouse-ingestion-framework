@@ -160,8 +160,29 @@ watermark_columns: updated_at
 
 ## REST API com Payload JSON Complexo
 
-Para JSON aninhado, arrays de structs ou payloads com schema variável, prefira `response.mode: raw`.
-Nesse modo o conector apenas baixa uma linha por página com o JSON bruto em `raw_response`; a estruturação fica no `shape.parse_json`, com schema Spark DDL explícito.
+Para JSON aninhado, arrays de structs ou payloads com schema variável, `response.mode: records` consegue materializar registros reais com mais robustez em Spark clássico usando JSON lines + `spark.read.json`, por RDD quando disponível ou por `source.read.staging_path` configurado. O caminho usado fica em `source_metrics.dataframe_materialization`.
+
+Quando a API retorna objetos dinâmicos ou JSON heterogêneo demais para inferência segura, declare `source.read.schema`. O conector aplica esse DDL no Spark JSON reader antes de ler os registros materializados. Isso é a forma recomendada para APIs públicas grandes, em vez de depender de inferência automática.
+
+Se o runtime não expõe `sparkContext`, declare um staging acessível ao driver Python e ao Spark reader:
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://api.example.com/items
+  response:
+    records_path: $.data
+  read:
+    staging_path: /Volumes/main/ops/tmp/contractforge_rest_api
+    schema: "id STRING, payload STRUCT<status:STRING, amount:DOUBLE>"
+    json_options:
+      rescuedDataColumn: _rescued_data
+      readerCaseSensitive: true
+```
+
+Prefira `response.mode: raw` quando a resposta precisa ser tratada como documento completo por página, quando você quer controlar o schema explicitamente, ou quando o payload é grande demais para materialização direta em memória. Nesse modo o conector apenas baixa uma linha por página com o JSON bruto em `raw_response`; a estruturação fica no `shape.parse_json`, com schema Spark DDL explícito.
 
 ```yaml
 source:
@@ -199,5 +220,5 @@ shape:
         >
 ```
 
-Use `response.mode: records` quando a API retorna uma lista simples e estável em `records_path`. Use `response.mode: raw` quando a resposta precisa ser tratada por `shape`. Para payloads grandes ou replay recorrente, faça landing em storage e processe com Auto Loader.
+Use `response.mode: records` quando a API retorna uma lista em `records_path` e cada item representa uma linha de negócio. Use `response.mode: raw` quando a resposta precisa ser tratada por `shape` como documento completo. Para payloads grandes ou replay recorrente, faça landing em storage e processe com Auto Loader.
 
