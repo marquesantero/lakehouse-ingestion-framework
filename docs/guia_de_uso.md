@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-2.4.3-py3-none-any.whl
+# gera: dist/contractforge-2.5.0-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.5.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.5.0-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import contractforge
-print(contractforge.__version__)  # 2.4.3
+print(contractforge.__version__)  # 2.5.0
 from contractforge import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from contractforge import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.5.0-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==2.4.3
+%pip install --index-url https://<seu_pypi_privado> contractforge==2.5.0
 ```
 
 Em seguida:
@@ -1407,7 +1407,7 @@ spark_module._cached_session = sess
 
 **P: Quais permissões UC o cluster precisa?**
 - `USE CATALOG` no catálogo alvo.
-- `USE SCHEMA` + `CREATE TABLE` em `<catalog>.<layer>` (bronze/silver/gold).
+- `USE SCHEMA` + `CREATE TABLE` no schema físico de destino: `<catalog>.<target_schema>` quando informado, ou `<catalog>.<layer>` como fallback.
 - `USE SCHEMA` + `CREATE TABLE` em `<catalog>.<ctrl_schema>` (default: `ops`).
 - `MODIFY` nas tabelas existentes do alvo.
 - `READ` nas fontes.

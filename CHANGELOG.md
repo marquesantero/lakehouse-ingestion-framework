@@ -6,6 +6,14 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.5.0 - 2026-05-16
+
+- Torna `layer` uma classificação lógica customizável, sem limitar o contrato a `bronze`, `silver` e `gold`.
+- Mantém `target_schema` como schema físico explícito; quando omitido, `layer` segue como fallback do schema físico.
+- Atualiza JSON Schema, CLI `contractforge init`, testes e documentação para aceitar layers como `stage`, `raw`, `trusted` e `curated`.
+- Mantém a restrição operacional de Bronze apenas para o valor literal `layer: bronze`.
+- Adiciona retry no registro de `ctrl_ingestion_metadata`, reduzindo falhas por concorrência no setup das control tables.
+
 ## 2.4.3 - 2026-05-15
 
 - Adiciona suporte declarativo a Azure Blob com SAS no conector `azure_blob`.

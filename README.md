@@ -18,8 +18,8 @@ Links principais:
 
 ## O Que Ele Resolve
 
-- Padroniza ingestões Bronze/Silver/Gold com contratos YAML ou chamadas Python.
-- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente`.
+- Padroniza ingestões por classificação lógica (`bronze`, `silver`, `gold`, `stage`, `raw`, `curated` etc.) com contratos YAML ou chamadas Python.
+- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente` sem obrigar schema por camada.
 - Suporta modos oficiais de escrita: append, overwrite, SCD1, hash-diff, SCD2 e snapshot com soft delete.
 - Aplica quality gates, quarentena, schema policy, watermarks, idempotência, locks e retry.
 - Registra observabilidade em ctrl tables: runs, erros, qualidade, quarentena, lineage, streaming, schema changes, annotations, operations e access.
@@ -106,6 +106,8 @@ quality_rules:
   not_null: [order_id]
   unique_key: [order_id]
 ```
+
+`layer` é metadata operacional e pode ser customizado. O schema físico é `target.schema` ou `target_schema`; se omitido, a lib usa `layer` como fallback.
 
 ## Shape Declarativo
 

@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `2.4.3`
+**Versão do pacote:** `2.5.0`
 **Pacote Python:** `contractforge`
 **Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -316,10 +316,10 @@ Helpers puros (sem Spark), todos com escape correto:
 
 ### 4.3 `config.py` — Configuração e tipos
 
-**Tipos exportados** (todos `Literal` para narrowing estático):
+**Tipos exportados principais**:
 
 ```python
-Layer = Literal["bronze", "silver", "gold"]
+Layer = str  # classificação lógica livre; Bronze/Silver/Gold são convenções
 WriteMode = Literal["scd0_append", "scd0_overwrite", "scd1_upsert",
                     "scd1_hash_diff", "scd2_historical", "snapshot_soft_delete"]
 MergeStrategy = Literal["delta", "delta_by_partition", "replace_partitions"]
@@ -328,7 +328,7 @@ QualityFailAction = Literal["fail", "warn", "quarantine"]
 Source = Union[str, DataFrame]
 ```
 
-**`VALID_WRITE_MODES`**: set usado pela validação runtime (Literal só faz tipagem estática).
+**`VALID_WRITE_MODES`**: set usado pela validação runtime. `layer` não usa enum fechado; é validado apenas como identificador lógico não vazio com letras, números, `_` ou `-`.
 
 **`CONTROL_COLUMNS`**: conjunto de colunas que o framework adiciona/manipula. Importante: o cálculo de hash em `schema.py` exclui essas colunas para que mudanças neles não invalidem o `row_hash`.
 
@@ -374,7 +374,7 @@ Frozen dataclass com 40+ campos. Agrupados por finalidade:
 
 **Identificação** — `source` (str, DataFrame, `SourceSpec` ou `ConnectorSpec`), `target_table`, `catalog`, `layer`, `target_schema`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
 
-`layer` é a camada lógica Medallion usada por presets, restrições e observabilidade. `target_schema` é o schema físico do target; quando omitido, o framework usa `layer` para manter o padrão `{catalog}.{layer}.{target_table}`.
+`layer` é a classificação lógica usada por presets, restrições e observabilidade. Bronze/Silver/Gold são convenções, mas valores como `stage`, `raw`, `trusted` e `curated` são válidos. `target_schema` é o schema físico do target; quando omitido, o framework usa `layer` para manter o padrão `{catalog}.{layer}.{target_table}`.
 
 **Metadados de contrato** — `description`, `owner`, `domain`, `tags`, `sla`, `runtime_parameters`. Não mudam a escrita; são propagados para retorno e `ctrl_ingestion_runs`.
 
@@ -419,7 +419,7 @@ Pontos importantes:
 - **Lista de parâmetros conhecida** (`_KNOWN_PARAMS`): qualquer kwarg fora dela ergue `ValueError("Parâmetros não reconhecidos em ingest(): [...]")`. Isso evita erros silenciosos por typos (ex.: `merg_keys=` em vez de `merge_keys=`).
 - **Listas via `as_list`**: aceita string com `|`, lista, iterável, ou `None`. Padrão de usabilidade vindo do uso em notebooks Databricks (parâmetros vêm como string).
 - **Custom keys**: dict de `nome_da_chave -> lista_de_colunas`; cada lista também passa por `as_list`.
-- **Enums validados estritamente** via `_validate_enum` contra `VALID_LAYERS`, `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. Typos em `layer`, `merge_strategy`, `schema_policy`, `on_quality_fail` ou `explain_format` viram `ValueError` com a lista de valores aceitos. `mode` continua passando por `validate_write_mode`.
+- **Enums validados estritamente** via `_validate_enum` contra `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. `layer` é livre, mas precisa ser um identificador lógico válido; `mode` continua passando por `validate_write_mode`.
 - **`quality_rules`** passa por `normalize_quality_rules`, então aceita dict.
 - **`column_mapping`** renomeia colunas source -> target antes da validação do plano; colisões, destinos duplicados e nomes técnicos reservados são bloqueados.
 - **`delta_properties`** aplica TBLPROPERTIES na criação da tabela Delta.
@@ -1451,7 +1451,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-2.4.3-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.5.0-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

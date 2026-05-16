@@ -107,6 +107,19 @@ def test_build_plan_accepts_target_schema_override():
     assert target_full_table_name(plan) == "main.crm_curated.orders"
 
 
+def test_build_plan_accepts_custom_logical_layer_with_physical_schema():
+    plan = build_plan_from_kwargs(
+        source="raw_orders",
+        target_table="orders",
+        catalog="main",
+        layer="stage",
+        target_schema="staging_area",
+    )
+    assert plan.layer == "stage"
+    assert target_schema_name(plan) == "staging_area"
+    assert target_full_table_name(plan) == "main.staging_area.orders"
+
+
 def test_build_plan_accepts_target_block_alias():
     plan = build_plan_from_kwargs(
         source="raw_orders",
@@ -532,7 +545,7 @@ def test_ingest_rejects_unknown_kwargs(monkeypatch):
 @pytest.mark.parametrize(
     "kwargs, match",
     [
-        ({"layer": "platinum"}, "layer"),
+        ({"layer": "bad layer"}, "layer"),
         ({"merge_strategy": "delta_full"}, "merge_strategy"),
         ({"schema_policy": "loose"}, "schema_policy"),
         ({"on_quality_fail": "ignore"}, "on_quality_fail"),

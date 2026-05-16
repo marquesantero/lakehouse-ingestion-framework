@@ -1,8 +1,8 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.4.3 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.5.0 | **Licença:** MIT | **Python:** >= 3.10
 
-Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
+Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
 ---
 
@@ -69,9 +69,9 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 - `docs/antipadroes.md`: configurações perigosas e alternativas recomendadas.
 - `docs/template_projeto.md` e `examples/project_template/`: estrutura inicial para um repositório de dados com DAB.
 
-### 1.3 Arquitetura Medallion
+### 1.3 Arquitetura Medallion e layers custom
 
-O framework adota o modelo de camadas:
+O framework vem com convenções para o modelo de camadas Medallion, mas `layer` é uma classificação lógica livre. Use `bronze`, `silver` e `gold` quando fizer sentido; use `stage`, `raw`, `trusted`, `curated`, `sandbox` ou outro nome quando sua organização pedir uma taxonomia diferente.
 
 | Camada | Valor `layer` | Modos típicos | Propósito |
 |--------|---------------|---------------|-----------|
@@ -79,7 +79,7 @@ O framework adota o modelo de camadas:
 | **Silver** | `"silver"` | `scd1_upsert`, `scd1_hash_diff`, `scd2_historical`, `snapshot_soft_delete` | Padronização, qualidade, consolidação, histórico |
 | **Gold** | `"gold"` | `scd0_overwrite`, `scd1_upsert` | Consumo, agregações, modelos semânticos |
 
-> **Restrição:** Bronze rejeita `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete` — a camada bronze deve ser orientada a captura, não a modelagem histórica.
+> **Restrição:** apenas o valor literal `layer: bronze` rejeita `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete`, porque bronze deve ser orientada a captura. Layers custom não herdam essa restrição automaticamente.
 
 ### 1.4 Fluxo de Execução
 
@@ -129,6 +129,16 @@ ingest(
 # → main.crm_curated.c_cliente
 ```
 
+Se o fluxo tiver uma etapa lógica `stage`, declare isso sem forçar o schema físico:
+
+```yaml
+source: raw.orders
+layer: stage                 # classificação lógica para presets/observabilidade
+target_schema: staging_area  # schema físico no catálogo
+target_table: stg_orders
+mode: scd0_overwrite
+```
+
 Em YAML, o mesmo contrato pode usar campos planos ou o bloco `target`:
 
 ```yaml
@@ -162,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.4.3-py3-none-any.whl
+# → dist/contractforge-2.5.0-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.5.0-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.5.0-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -376,7 +386,7 @@ O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). To
 | `source` | `str \| DataFrame \| SourceSpec \| ConnectorSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark, Autoloader `available_now` ou conector declarativo |
 | `target_table` | `str` | (obrigatório) | Nome da tabela alvo **sem** catálogo/schema. Ex.: `"c_cliente"` |
 | `catalog` | `str` | `"main"` | Catálogo Unity Catalog onde alvo e ctrl tables residem |
-| `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion para presets, restrições e observabilidade |
+| `layer` | `str` | `"bronze"` | Classificação lógica para presets, restrições e observabilidade. Bronze/Silver/Gold são convenções, não enum fechado |
 | `target_schema` | `str \| None` | `None` | Schema físico do target. Quando omitido, usa `layer` |
 | `mode` | `WriteMode` | `"scd0_append"` | Estratégia de escrita (ver §6) |
 | `source_system` | `str` | `"default"` | Identificador da origem, gravado como metadado técnico |
@@ -516,7 +526,7 @@ target_table: c_cliente                  # str: nome da tabela alvo (sem catalog
 
 # --- Identificação do ambiente ---
 catalog: main                            # default: "main"
-layer: silver                            # camada lógica: bronze | silver | gold
+layer: silver                            # camada lógica: bronze/silver/gold ou custom, ex.: stage/raw/curated
 target_schema: crm_curated               # opcional; default = layer
 mode: scd1_upsert                        # modo de escrita (ver §6)
 source_system: crm                       # default: "default"

@@ -75,19 +75,22 @@ def _add_columns_if_missing(table: str, columns: Dict[str, str]) -> None:
 
 
 def _record_ctrl_metadata(tables: Dict[str, str]) -> None:
-    spark.sql(f"""
-        MERGE INTO {qt(tables['metadata'])} t
-        USING (
-            SELECT
-                'contractforge' AS component,
-                {sql_lit(FRAMEWORK_VERSION)} AS framework_version,
-                {sql_int(CTRL_SCHEMA_VERSION)} AS ctrl_schema_version,
-                current_timestamp() AS updated_at_utc
-        ) s
-        ON t.component = s.component
-        WHEN MATCHED THEN UPDATE SET *
-        WHEN NOT MATCHED THEN INSERT *
-    """)
+    def write_metadata() -> None:
+        spark.sql(f"""
+            MERGE INTO {qt(tables['metadata'])} t
+            USING (
+                SELECT
+                    'contractforge' AS component,
+                    {sql_lit(FRAMEWORK_VERSION)} AS framework_version,
+                    {sql_int(CTRL_SCHEMA_VERSION)} AS ctrl_schema_version,
+                    current_timestamp() AS updated_at_utc
+            ) s
+            ON t.component = s.component
+            WHEN MATCHED THEN UPDATE SET *
+            WHEN NOT MATCHED THEN INSERT *
+        """)
+
+    with_retry(write_metadata)
 
 
 def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:

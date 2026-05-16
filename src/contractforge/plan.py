@@ -20,7 +20,6 @@ from .config import (
     VALID_FILE_CONNECTOR_FORMATS,
     VALID_HTTP_FILE_FORMATS,
     VALID_IDEMPOTENCY_POLICIES,
-    VALID_LAYERS,
     VALID_MERGE_STRATEGIES,
     VALID_OBJECT_STORAGE_PROVIDERS,
     VALID_QUALITY_FAIL_ACTIONS,
@@ -94,6 +93,7 @@ def _require_ratio(value: Any, field: str) -> float:
 
 
 _CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_LAYER_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _SIMPLE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FILE_CONNECTORS = {"csv", "delta", "json", "orc", "parquet", "text"}
 _HTTP_FILE_CONNECTORS = {"http_csv", "http_file", "http_json", "http_text"}
@@ -114,6 +114,19 @@ def _validate_connector_name(value: Any, field: str = "source.connector") -> str
             "começando por letra."
         )
     return connector
+
+
+def _normalize_layer(value: Any, default: str = "bronze") -> str:
+    """Normaliza a camada lógica sem restringir a Medallion bronze/silver/gold."""
+    raw = default if value is None or value == "" else str(value).strip()
+    if not raw:
+        raise ValueError("layer é obrigatório e não pode ser vazio")
+    if not _LAYER_NAME_RE.match(raw):
+        raise ValueError(
+            "layer deve começar por letra e conter apenas letras, números, '_' ou '-'. "
+            "Use target_schema para controlar o schema físico do destino."
+        )
+    return raw
 
 
 def _normalize_named_list(value: Any, field: str) -> List[str]:
@@ -806,7 +819,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
     if "target_table" not in kwargs:
         raise ValueError("target_table é obrigatório ou use target.table")
 
-    layer = _validate_enum(kwargs.get("layer", "bronze"), VALID_LAYERS, "layer", default="bronze")
+    layer = _normalize_layer(kwargs.get("layer", "bronze"))
     merge_strategy = _validate_enum(
         kwargs.get("merge_strategy", "delta"), VALID_MERGE_STRATEGIES, "merge_strategy", default="delta"
     )
