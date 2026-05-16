@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.5.1 - 2026-05-16
+
+- Corrige conectores incrementais para extrair o valor de watermarks tipados antes de montar predicates, parâmetros, headers ou bodies.
+- Corrige falha real no JDBC incremental em segunda execução, onde o JSON completo do watermark era usado como literal SQL.
+- Adiciona validação clara para watermark composto em `source.incremental` quando não há coluna incremental única.
+
 ## 2.5.0 - 2026-05-16
 
 - Torna `layer` uma classificação lógica customizável, sem limitar o contrato a `bronze`, `silver` e `gold`.
