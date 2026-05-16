@@ -10,7 +10,7 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
-FRAMEWORK_VERSION = "2.5.1"
+FRAMEWORK_VERSION = "2.5.2"
 CTRL_SCHEMA_VERSION = 11
 
 #: Classificação lógica do contrato. Bronze/Silver/Gold são convenções, não limite.
