@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.6.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.1 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -172,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.6.0-py3-none-any.whl
+# → dist/contractforge-2.6.1-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.6.0-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.1-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.0-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.1-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -790,7 +790,7 @@ Em Databricks serverless, prefira External Location/Volume:
 source:
   type: connector
   connector: azure_blob
-  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/csv/orders.csv
   format: csv
   options:
     header: true
@@ -972,9 +972,33 @@ layer: bronze
 mode: scd0_append
 ```
 
-Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Esse modo é adequado para JSON plano e estável.
+Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Em Spark clássico, essa materialização usa JSON lines + `spark.read.json`, por RDD quando disponível ou por staging configurado, o que é mais robusto para payloads REST reais com structs, arrays e campos opcionais heterogêneos. O caminho usado fica registrado em `source_metrics.dataframe_materialization`.
 
-Para APIs com JSON complexo, arrays de structs, campos opcionais heterogêneos ou schema que precisa ser controlado por contrato, use `response.mode: raw`. Nesse modo o conector não transforma os registros: ele grava uma linha por página com o payload bruto em uma coluna string. O tratamento fica no `shape`.
+Para APIs com JSON muito heterogêneo, objetos dinâmicos ou campos que podem gerar conflito na inferência do Spark, declare `source.read.schema`. O schema é repassado ao Spark JSON reader e transforma a API em um contrato explícito de leitura. Isso evita correções específicas por fonte e mantém o tratamento de dados no contrato.
+
+Quando o runtime não expõe `sparkContext` e bloqueia inferência direta por `createDataFrame`, declare um staging de JSON local acessível ao driver Python e ao Spark reader:
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://api.example.com/items
+  response:
+    records_path: $.data
+  read:
+    staging_path: /Volumes/main/ops/tmp/contractforge_rest_api
+    schema: "id STRING, payload STRUCT<status:STRING, amount:DOUBLE>"
+    json_options:
+      rescuedDataColumn: _rescued_data
+      readerCaseSensitive: true
+```
+
+Também é possível definir `CONTRACTFORGE_SOURCE_JSON_STAGING_DIR` no ambiente. O staging deve ser um caminho de filesystem que o Python consegue escrever e o Spark consegue ler, como `/Volumes/...`, `/Workspace/...` quando permitido pelo runtime, ou `file:/...`. URIs remotas como `abfss://...` não são aceitas nesse campo porque a escrita é feita pelo driver Python.
+
+Use `source.read.schema` para schemas explícitos e `source.read.json_options` para repassar opções ao Spark JSON reader usado nessa materialização. Isso é útil para recursos do runtime como coluna de resgate, tratamento de case-sensitivity, permissividade de parser e formatos de data/hora.
+
+Use `response.mode: raw` quando a resposta precisa ser tratada como documento completo por página, quando você quer controlar o schema explicitamente com `shape.parse_json`, ou quando o volume/payload é grande demais para materialização direta em memória. Nesse modo o conector não transforma os registros: ele grava uma linha por página com o payload bruto em uma coluna string. O tratamento fica no `shape`.
 
 ```yaml
 source:

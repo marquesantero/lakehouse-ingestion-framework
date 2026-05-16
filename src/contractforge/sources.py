@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Protocol, Tuple
 
@@ -1221,7 +1222,13 @@ class HttpFileConnector:
             encoding = response_headers.get_content_charset() if hasattr(response_headers, "get_content_charset") else None
         text = raw.decode(encoding or "utf-8-sig")
         records = self._parse_records(text, fmt, spec)
-        df = _records_to_dataframe(spark, records)
+        df, _ = _records_to_dataframe(
+            spark,
+            records,
+            staging_path=spec.read.get("staging_path"),
+            json_options=spec.read.get("json_options"),
+            schema=_optional_source_schema(spec),
+        )
 
         capabilities = self.capabilities(spec)
         metadata = _connector_metadata(spec, capabilities)
@@ -1233,6 +1240,7 @@ class HttpFileConnector:
             "bytes_read": bytes_read,
             "retry_attempts": retry_attempts,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(_optional_source_schema(spec)),
         }
         return SourceResolution(
             df,
@@ -1545,7 +1553,13 @@ class RestApiConnector:
             if page_type not in {"cursor", "link_header"} or not next_url:
                 break
 
-        df = _records_to_dataframe(spark, raw_rows if response_mode == "raw" else all_records)
+        df, materialization_strategy = _records_to_dataframe(
+            spark,
+            raw_rows if response_mode == "raw" else all_records,
+            staging_path=spec.read.get("staging_path"),
+            json_options=spec.read.get("json_options"),
+            schema=_optional_source_schema(spec),
+        )
         capabilities = self.capabilities(spec)
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
@@ -1564,6 +1578,8 @@ class RestApiConnector:
             "rate_limit_per_minute": rate_limit_per_minute,
             "retry_attempts": retry_attempts,
             "source_complete": capabilities.source_complete,
+            "dataframe_materialization": materialization_strategy,
+            "schema_declared": bool(_optional_source_schema(spec)),
         }
         return SourceResolution(
             df,
@@ -1615,11 +1631,87 @@ def _with_query_param(url: str, key: str, value: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query)))
 
 
-def _records_to_dataframe(session: SparkSession, records: list[Any]) -> DataFrame:
+def _records_to_dataframe(
+    session: SparkSession,
+    records: list[Any],
+    *,
+    staging_path: Optional[str] = None,
+    json_options: Optional[Mapping[str, Any]] = None,
+    schema: Optional[str] = None,
+) -> tuple[DataFrame, str]:
     if not records:
-        return session.createDataFrame([], "value string").limit(0)
+        return session.createDataFrame([], schema or "value string").limit(0), "empty"
     normalized = [record if isinstance(record, Mapping) else {"value": record} for record in records]
-    return session.createDataFrame(normalized)
+    if hasattr(session, "sparkContext") and hasattr(session, "read"):
+        json_lines = [json.dumps(record, default=str, ensure_ascii=False) for record in normalized]
+        return (
+            _json_reader(session, json_options, schema=schema).json(session.sparkContext.parallelize(json_lines)),
+            "spark_read_json_lines",
+        )
+    staging_dir = _json_staging_dir(staging_path)
+    if staging_dir and hasattr(session, "read"):
+        json_path = _write_json_lines_file(normalized, staging_dir)
+        return _json_reader(session, json_options, schema=schema).json(json_path), "spark_read_json_staging_file"
+    try:
+        return session.createDataFrame(normalized, schema=schema), "create_dataframe"
+    except Exception as exc:
+        if hasattr(session, "read"):
+            raise ValueError(
+                "Não foi possível materializar registros JSON complexos com createDataFrame. "
+                "Declare source.read.staging_path ou a variável CONTRACTFORGE_SOURCE_JSON_STAGING_DIR "
+                "com um diretório acessível tanto ao driver Python quanto ao Spark reader, ou use "
+                "source.response.mode=raw com shape.parse_json para controlar o schema explicitamente."
+            ) from exc
+        safe_records = [_json_safe_record(record) for record in normalized]
+        return session.createDataFrame(safe_records), "create_dataframe_json_safe_fallback"
+
+
+def _json_safe_record(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_record(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return json.dumps(value, default=str, ensure_ascii=False)
+    return value
+
+
+def _json_reader(session: SparkSession, options: Optional[Mapping[str, Any]], *, schema: Optional[str] = None) -> Any:
+    reader = session.read
+    if schema:
+        reader = reader.schema(schema)
+    if options is not None and not isinstance(options, Mapping):
+        raise ValueError("source.read.json_options deve ser objeto")
+    if not options:
+        return reader
+    for key, value in options.items():
+        option_key = str(key).strip()
+        if not option_key:
+            raise ValueError("source.read.json_options não pode conter chave vazia")
+        reader = reader.option(option_key, str(value).lower() if isinstance(value, bool) else str(value))
+    return reader
+
+
+def _write_json_lines_file(records: list[Mapping[str, Any]], staging_dir: str) -> str:
+    use_file_uri = staging_dir.startswith("file:")
+    local_dir = staging_dir[5:] if use_file_uri else staging_dir
+    os.makedirs(local_dir, exist_ok=True)
+    path = os.path.join(local_dir, f"{uuid.uuid4().hex}.jsonl")
+    with open(path, "w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, default=str, ensure_ascii=False))
+            handle.write("\n")
+    return f"file:{path}" if use_file_uri else path
+
+
+def _json_staging_dir(staging_path: Any) -> Optional[str]:
+    raw = str(staging_path or os.environ.get("CONTRACTFORGE_SOURCE_JSON_STAGING_DIR") or "").strip()
+    if not raw:
+        return None
+    if "://" in raw and not raw.startswith("file:"):
+        raise ValueError(
+            "source.read.staging_path para materialização JSON deve ser um caminho de filesystem local "
+            "acessível ao driver Python e ao Spark reader, por exemplo /Volumes/... ou file:/..."
+        )
+    return raw
 
 
 def _spark_file_format(fmt: str) -> str:

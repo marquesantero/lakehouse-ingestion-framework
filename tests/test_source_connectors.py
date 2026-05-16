@@ -351,7 +351,7 @@ def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
             "type": "connector",
             "connector": "azure_blob",
             "format": fmt,
-            "path": f"wasbs://container@account.blob.core.windows.net/blob_teste/generated/{fmt}/sample",
+            "path": f"wasbs://container@account.blob.core.windows.net/datasets/{fmt}/sample",
         },
         target_table="b_data",
     )
@@ -360,7 +360,7 @@ def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
 
     assert resolved.df == "df"
     assert calls["format"] == fmt
-    assert calls["load"].endswith(f"generated/{fmt}/sample")
+    assert calls["load"].endswith(f"datasets/{fmt}/sample")
 
 
 @pytest.mark.parametrize("fmt", ["jsonl", "ndjson"])
@@ -426,9 +426,9 @@ def test_azure_blob_connector_builds_wasbs_path_and_configures_sas(monkeypatch):
             "type": "connector",
             "connector": "azure_blob",
             "format": "csv",
-            "account_url": "https://generalcafe.blob.core.windows.net/",
-            "container": "databricksdata",
-            "path": "blob_teste/generated/csv/partitioned/sales",
+            "account_url": "https://exampleacct.blob.core.windows.net/",
+            "container": "landing",
+            "path": "datasets/csv/partitioned/sales",
             "auth": {"sas_token": "{{ secret:scope/blob-sas }}"},
             "options": {"header": True},
         },
@@ -441,14 +441,14 @@ def test_azure_blob_connector_builds_wasbs_path_and_configures_sas(monkeypatch):
     assert calls["format"] == "csv"
     assert calls["options"] == {"header": "true"}
     assert calls["load"] == (
-        "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/csv/partitioned/sales"
+        "wasbs://landing@exampleacct.blob.core.windows.net/datasets/csv/partitioned/sales"
     )
     assert calls["conf"] == {
-        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+        "fs.azure.sas.landing.exampleacct.blob.core.windows.net": "sv=1&sig=secret"
     }
     assert resolved.metadata["source_provider"] == "azure_blob"
     assert resolved.metadata["source_metrics"]["azure_auth_configured"] is True
-    assert resolved.metadata["source_metrics"]["azure_container"] == "databricksdata"
+    assert resolved.metadata["source_metrics"]["azure_container"] == "landing"
     _assert_text_not_present(resolved.metadata, "secret")
 
 
@@ -478,16 +478,16 @@ def test_azure_blob_connector_configures_sas_for_declared_wasbs_path(monkeypatch
     spec = ConnectorSpec(
         connector="azure_blob",
         format="json",
-        path="wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl",
+        path="wasbs://landing@exampleacct.blob.core.windows.net/datasets/json/jsonl",
         auth={"sas_token": "sv=1&sig=secret"},
     )
 
     resolved = resolve_batch_source(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
     assert resolved.df == "df"
-    assert calls["load"] == "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl"
+    assert calls["load"] == "wasbs://landing@exampleacct.blob.core.windows.net/datasets/json/jsonl"
     assert calls["conf"] == {
-        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+        "fs.azure.sas.landing.exampleacct.blob.core.windows.net": "sv=1&sig=secret"
     }
 
 
@@ -499,9 +499,9 @@ def test_azure_blob_connector_reports_blocked_spark_config_with_serverless_guida
     spec = ConnectorSpec(
         connector="azure_blob",
         format="csv",
-        account_url="https://generalcafe.blob.core.windows.net/",
-        container="databricksdata",
-        path="blob_teste/generated/csv/large/orders_250k.csv",
+        account_url="https://exampleacct.blob.core.windows.net/",
+        container="landing",
+        path="datasets/csv/large/orders_large.csv",
         auth={"sas_token": "sv=1&sig=secret"},
     )
 
@@ -956,6 +956,189 @@ def test_rest_api_connector_applies_params_and_incremental(monkeypatch):
     assert resolved.metadata["source_metrics"]["watermark_value"] == "2026-05-01T00:00:00Z"
     assert resolved.metadata["source_metrics"]["request_count"] == 1
     assert resolved.metadata["source_metrics"]["records_read"] == 1
+
+
+def test_rest_api_connector_materializes_complex_records_as_json_lines(monkeypatch):
+    captured = {}
+
+    class FakeContext:
+        def parallelize(self, rows):
+            captured["json_lines"] = rows
+            return rows
+
+    class FakeReader:
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, rows):
+            return {"json_lines": rows}
+
+    class FakeSpark:
+        sparkContext = FakeContext()
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("rest_api records should use spark.read.json when available")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {
+            "data": [
+                {
+                    "id": "R1",
+                    "display_name": "Record",
+                    "authorships": [{"author": {"id": "A1"}}, {"author": {"id": "A2"}, "raw": ["x"]}],
+                    "open_access": {"is_oa": True},
+                }
+            ]
+        }
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        name="records_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+        read={"json_options": {"readerCaseSensitive": True}},
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_lines": captured["json_lines"]}
+    assert '"authorships"' in captured["json_lines"][0]
+    assert captured["options"] == {"readerCaseSensitive": "true"}
+    assert resolved.metadata["source_metrics"]["dataframe_materialization"] == "spark_read_json_lines"
+
+
+def test_rest_api_connector_uses_configured_staging_when_spark_context_is_unavailable(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeReader:
+        def schema(self, value):
+            captured["schema"] = value
+            return self
+
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, path):
+            captured["path"] = path
+            return {"json_path": path}
+
+    class FakeSpark:
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("rest_api records should use spark.read.json before createDataFrame fallback")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {
+            "data": [
+                {
+                    "id": "R1",
+                    "quality_score": {"value": 99.1, "is_in_top_percentile": True},
+                }
+            ]
+        }
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        name="records_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+        read={
+            "staging_path": str(tmp_path),
+            "schema": "id STRING, quality_score STRUCT<value:DOUBLE,is_in_top_percentile:BOOLEAN>",
+            "json_options": {"rescuedDataColumn": "_rescued_data"},
+        },
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_path": captured["path"]}
+    assert str(captured["path"]).endswith(".jsonl")
+    assert captured["schema"] == "id STRING, quality_score STRUCT<value:DOUBLE,is_in_top_percentile:BOOLEAN>"
+    assert captured["options"] == {"rescuedDataColumn": "_rescued_data"}
+    assert resolved.metadata["source_metrics"]["dataframe_materialization"] == "spark_read_json_staging_file"
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_http_file_connector_applies_declared_schema_to_parsed_records(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeReader:
+        def schema(self, value):
+            captured["schema"] = value
+            return self
+
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, path):
+            captured["path"] = path
+            return {"json_path": path}
+
+    class FakeSpark:
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("http_file parsed records should use spark.read.json when staging is declared")
+
+    def fake_request_with_retry(self, url, headers, timeout, retry_attempts, backoff):
+        return b"id,amount\nA1,10.5\n", {}, url, 18
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request_with_retry", fake_request_with_retry)
+    spec = ConnectorSpec(
+        connector="http_file",
+        name="orders_csv",
+        format="csv",
+        request={"url": "https://api.example.com/orders.csv"},
+        read={"staging_path": str(tmp_path), "schema": "id STRING, amount DOUBLE"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_path": captured["path"]}
+    assert captured["schema"] == "id STRING, amount DOUBLE"
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_rest_api_connector_requires_staging_for_complex_records_without_spark_context(monkeypatch):
+    class FakeSpark:
+        class FakeReader:
+            def json(self, path):
+                return {"json_path": path}
+
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise TypeError("cannot infer nested field")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {"data": [{"id": "R1", "nested": {"value": 1}}]}
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+    )
+
+    with pytest.raises(ValueError, match="source.read.staging_path"):
+        RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_rest_api_connector_can_return_raw_payload_without_json_parsing(monkeypatch):

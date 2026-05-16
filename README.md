@@ -185,7 +185,7 @@ Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia 
 source:
   type: connector
   connector: azure_blob
-  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/csv/orders.csv
   format: csv
   options:
     header: true
