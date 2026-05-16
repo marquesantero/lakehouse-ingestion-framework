@@ -386,10 +386,47 @@ def _watermark_previous(plan: IngestionPlan) -> Optional[str]:
     return None if value is None else str(value)
 
 
+def _incremental_watermark_column(spec: ConnectorSpec, plan: IngestionPlan) -> Optional[str]:
+    column = spec.incremental.get("watermark_column") if spec.incremental else None
+    if column not in {None, ""}:
+        return str(column)
+    if len(plan.watermark_columns) == 1:
+        return plan.watermark_columns[0]
+    return None
+
+
+def _extract_incremental_watermark_value(
+    raw: str,
+    spec: ConnectorSpec,
+    plan: IngestionPlan,
+) -> str:
+    text = raw.strip()
+    if not text.startswith("{"):
+        return raw
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(parsed, dict):
+        return raw
+
+    column = _incremental_watermark_column(spec, plan)
+    if not column:
+        raise ValueError(
+            "source.incremental com watermark tipado exige watermark_column "
+            "quando o plano usa watermark composto"
+        )
+    item = parsed.get(column)
+    if not isinstance(item, Mapping) or "value" not in item:
+        raise ValueError(f"Watermark anterior não contém valor para source.incremental.watermark_column={column!r}")
+    value = item.get("value")
+    return "" if value is None else str(value)
+
+
 def _incremental_watermark_value(spec: ConnectorSpec, plan: IngestionPlan) -> Optional[str]:
     previous = _watermark_previous(plan)
     if previous not in {None, ""}:
-        return previous
+        return _extract_incremental_watermark_value(previous, spec, plan)
     initial = spec.incremental.get("initial_value") if spec.incremental else None
     return None if initial in {None, ""} else str(initial)
 

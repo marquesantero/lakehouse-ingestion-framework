@@ -593,6 +593,73 @@ def test_jdbc_connector_applies_incremental_predicate(monkeypatch):
     }
 
 
+def test_jdbc_connector_extracts_typed_watermark_for_incremental_predicate(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="jdbc",
+        options={"url": "jdbc:test", "dbtable": "public.orders"},
+        incremental={"watermark_column": "updated_at"},
+    )
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        watermark_columns=["updated_at"],
+        runtime_parameters={
+            "_contractforge_watermark_previous": (
+                '{"updated_at": {"type": "timestamp", "value": "2026-05-16 12:00:00"}}'
+            )
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, plan)
+
+    assert resolved.df == "df"
+    assert captured["dbtable"] == (
+        "(SELECT * FROM public.orders WHERE updated_at > '2026-05-16 12:00:00') cf_src"
+    )
+    assert resolved.metadata["source_metrics"]["incremental_applied"] is True
+    assert resolved.metadata["source_metrics"]["watermark_value"] == "2026-05-16 12:00:00"
+
+
+def test_jdbc_connector_rejects_typed_composite_watermark_without_incremental_column():
+    spec = ConnectorSpec(
+        connector="jdbc",
+        options={"url": "jdbc:test", "dbtable": "public.orders"},
+        incremental={"predicate": "updated_at > '{watermark}'"},
+    )
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        watermark_columns=["updated_at", "sequence_id"],
+        runtime_parameters={
+            "_contractforge_watermark_previous": (
+                '{"updated_at": {"type": "timestamp", "value": "2026-05-16 12:00:00"}, '
+                '"sequence_id": {"type": "bigint", "value": "10"}}'
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="watermark composto"):
+        JdbcConnector().resolve_batch(spec, plan)
+
+
 def test_named_jdbc_connector_uses_jdbc_reader(monkeypatch):
     captured = {}
 
