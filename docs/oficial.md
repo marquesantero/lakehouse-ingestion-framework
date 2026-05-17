@@ -912,6 +912,8 @@ Aliases `postgres`, `postgresql`, `sqlserver`, `mysql` e `oracle` usam o mesmo e
 
 Para Amazon RDS/Aurora com IAM database authentication, o conector pode gerar o token IAM no driver Python usando `auth.type: rds_iam`. A lib não depende de `boto3` nem AWS CLI para isso; ela assina o token SigV4 a partir das credenciais declaradas ou das variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
 
+O guia operacional completo está em [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md). Ele cobre driver JDBC, cluster `SINGLE_USER` versus artifact allowlist, `GRANT rds_iam`, policy `rds-db:connect`, secrets e troubleshooting.
+
 ```yaml
 source:
   type: connector
@@ -932,12 +934,16 @@ source:
 
 Conectividade continua sendo responsabilidade do runtime. Para RDS/Aurora, use uma das opções suportadas pela plataforma: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional com security group restrito, ou Aurora Express Internet Access Gateway quando esse modo estiver habilitado e acessível a partir do compute.
 
+Validação real já realizada em Databricks classic single-node com Aurora PostgreSQL 17.7 e ContractForge 2.6.5: `auth.type=rds_iam`, Spark JDBC, particionamento JDBC, quality rules e `scd1_hash_diff` terminaram com `SUCCESS`.
+
 Regras:
 
 - `source.options.url` é obrigatório.
 - Informe `source.options.dbtable` ou `source.options.query`.
 - Particionamento JDBC exige os quatro campos juntos: `partition_column`, `lower_bound`, `upper_bound`, `num_partitions`.
 - Use `source.read.source_complete=true` somente quando a query/tabela representar o estado completo necessário ao modo de escrita.
+- Em `ingest()` programático, informe `catalog` explicitamente. `target_schema` qualificado não muda `plan.catalog`.
+- `PAM authentication failed` em RDS/Aurora geralmente indica problema de IAM/database auth, não problema de rede.
 
 ### 5C.3B Snowflake e BigQuery
 

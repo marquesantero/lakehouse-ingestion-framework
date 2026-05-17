@@ -728,6 +728,8 @@ source:
 
 Para Amazon RDS/Aurora com IAM authentication, use `auth.type: rds_iam`. A ContractForge gera o token IAM no driver Python sem depender de `boto3` ou AWS CLI. A rede ainda precisa estar acessível via mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway:
 
+Guia completo com usuário PostgreSQL, `GRANT rds_iam`, IAM policy `rds-db:connect`, secrets e troubleshooting: [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md).
+
 ```yaml
 source:
   type: connector
@@ -745,6 +747,12 @@ source:
     session_token: "{{ secret:contractforge-aws/aws_session_token }}"
     sslmode: require
 ```
+
+Notas operacionais:
+
+- Para PostgreSQL, instale o driver `org.postgresql:postgresql:42.7.4` no cluster.
+- Em cluster Unity Catalog `standard`/shared, Maven externo pode exigir artifact allowlist; para validações controladas, cluster `SINGLE_USER` evita esse bloqueio.
+- `PAM authentication failed` é erro de autenticação do RDS/Aurora, não de rede. Verifique `rds_iam`, `rds-db:connect`, região, usuário e expiração de token.
 
 ---
 
