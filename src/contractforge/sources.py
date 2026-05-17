@@ -888,6 +888,13 @@ class ObjectStorageConnector(FileConnector):
                     "Policy/NCC para permitir o destino. Use SAS direto apenas em job cluster/classic/local "
                     "onde Hadoop config fs.azure.sas.* é permitido."
                 ) from exc
+            if provider == "s3" and self._is_spark_config_blocked(exc):
+                raise RuntimeError(
+                    "Databricks serverless/Spark Connect bloqueou a configuração de credenciais S3 no Spark "
+                    f"para connector=s3 e format={fmt!r}. Em serverless, use Unity Catalog External "
+                    "Location/Volume. Use source.auth com credenciais S3 apenas em job cluster/classic/local "
+                    "onde Hadoop config fs.s3a.* é permitido."
+                ) from exc
             raise
         capabilities = self.capabilities(spec)
         schema = _optional_source_schema(spec)
@@ -929,7 +936,61 @@ class ObjectStorageConnector(FileConnector):
             path = self._resolve_azure_blob_path(spec, path)
             metrics["azure_auth_configured"] = bool((spec.auth or {}).get("sas_token") or (spec.auth or {}).get("token"))
             metrics["azure_container"] = spec.container or self._azure_container_from_uri(path)
+        if provider == "s3":
+            options, metrics = self._configure_s3_auth_and_options(spec, options, metrics)
         return path, options, metrics
+
+    def _configure_s3_auth_and_options(
+        self,
+        spec: ConnectorSpec,
+        options: Mapping[str, Any],
+        metrics: dict[str, Any],
+    ) -> tuple[Mapping[str, Any], dict[str, Any]]:
+        auth = resolve_secrets(spec.auth or {})
+        access_key = auth.get("access_key_id") or auth.get("access_key") or auth.get("aws_access_key_id")
+        secret_key = auth.get("secret_access_key") or auth.get("secret_key") or auth.get("aws_secret_access_key")
+        session_token = auth.get("session_token") or auth.get("token") or auth.get("aws_session_token")
+
+        if bool(access_key) != bool(secret_key):
+            raise ValueError(
+                "source.auth para connector=s3 requer access_key_id e secret_access_key juntos"
+            )
+
+        spark_options, reader_options = self._split_s3_spark_options(options)
+        for key, value in spark_options.items():
+            spark.conf.set(str(key), str(value))
+
+        if access_key and secret_key:
+            spark.conf.set("fs.s3a.access.key", str(access_key))
+            spark.conf.set("fs.s3a.secret.key", str(secret_key))
+            if session_token:
+                spark.conf.set("fs.s3a.session.token", str(session_token))
+                spark.conf.set(
+                    "fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider",
+                )
+            else:
+                spark.conf.set(
+                    "fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+                )
+
+        metrics["s3_auth_configured"] = bool(access_key and secret_key)
+        metrics["s3_temporary_credentials"] = bool(session_token)
+        metrics["s3_conf_options_configured"] = len(spark_options)
+        return reader_options, metrics
+
+    @staticmethod
+    def _split_s3_spark_options(options: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        spark_options: dict[str, Any] = {}
+        reader_options: dict[str, Any] = {}
+        for key, value in options.items():
+            key_text = str(key)
+            if key_text.startswith("fs.s3a.") or key_text.startswith("spark.hadoop.fs.s3a."):
+                spark_options[key_text] = value
+            else:
+                reader_options[key] = value
+        return spark_options, reader_options
 
     def _resolve_azure_blob_path(self, spec: ConnectorSpec, path: str) -> str:
         auth = resolve_secrets(spec.auth or {})
