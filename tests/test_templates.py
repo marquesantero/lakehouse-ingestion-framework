@@ -16,8 +16,15 @@ def test_builtin_templates_cover_core_scenarios():
 
     assert {
         "bronze_rest_api_incremental",
+        "bronze_http_file_csv_snapshot",
         "bronze_autoloader_json",
+        "bronze_autoloader_available_now_json",
+        "bronze_object_storage_nested_json_shape",
+        "bronze_object_storage_small_files",
         "silver_jdbc_scd1_upsert",
+        "silver_jdbc_rds_iam_hash_diff",
+        "silver_raw_json_payload_shape",
+        "silver_parallel_arrays_shape",
         "silver_snapshot_soft_delete",
         "silver_scd2_history",
         "gold_full_refresh_kpi",
@@ -85,3 +92,49 @@ def test_cli_templates_write_refuses_overwrite_without_force(tmp_path, capsys):
     capsys.readouterr()
     assert main(["templates", "write", "bronze_rest_api_incremental", "--output", str(base)]) == 1
     assert "ja existe" in capsys.readouterr().err
+
+
+def test_templates_wizard_recommends_validated_real_patterns(capsys):
+    assert (
+        main(
+            [
+                "templates",
+                "wizard",
+                "--layer",
+                "bronze",
+                "--source",
+                "http_file",
+                "--pattern",
+                "csv",
+                "--limit",
+                "1",
+                "--indent",
+                "0",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["recommendations"][0]["name"] == "bronze_http_file_csv_snapshot"
+
+    assert (
+        main(
+            [
+                "templates",
+                "wizard",
+                "--layer",
+                "silver",
+                "--source",
+                "jdbc",
+                "--pattern",
+                "rds_iam",
+                "--limit",
+                "1",
+                "--indent",
+                "0",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["recommendations"][0]["name"] == "silver_jdbc_rds_iam_hash_diff"

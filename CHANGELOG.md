@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.12.0 - 2026-05-17
+
+- Adiciona templates oficiais derivados de ingestões reais validadas: HTTP CSV, object storage com JSON aninhado, small files, Auto Loader `available_now`, RDS/Aurora IAM hash diff, JSON payload string e arrays paralelos.
+- Atualiza o `templates wizard` indiretamente via metadados para recomendar padrões reais por `source`, `mode` e `pattern`.
+- Documenta os novos templates e reforça o uso de `transform.shape` e `transform.deduplicate` nos bundles gerados.
+
 ## 2.11.0 - 2026-05-17
 
 - Adiciona `contractforge.cost` com `CostModel`, `build_operational_cost_query`, `operational_cost_dataframe` e `analyze_operational_cost`.

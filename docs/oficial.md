@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.11.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.12.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -1327,7 +1327,10 @@ contractforge presets show silver_scd1_upsert
 contractforge templates list
 contractforge templates wizard --layer silver --source jdbc --mode scd1_upsert
 contractforge templates wizard --layer bronze --source s3 --output contracts/bronze/b_orders_files
+contractforge templates wizard --layer bronze --source http_file --pattern csv
+contractforge templates wizard --layer silver --source jdbc --pattern rds_iam
 contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/s_orders
+contractforge templates write bronze_object_storage_nested_json_shape --output contracts/bronze/b_events
 contractforge connectors list
 contractforge connectors show rest_api postgres s3 bigquery
 contractforge connectors doctor rest_api postgres s3 bigquery

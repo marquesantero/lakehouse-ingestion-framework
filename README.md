@@ -208,7 +208,10 @@ contractforge validate-project contracts
 contractforge templates list
 contractforge templates wizard --layer silver --source jdbc --mode scd1_upsert
 contractforge templates wizard --layer bronze --source s3 --output contracts/bronze/b_orders_files
+contractforge templates wizard --layer bronze --source http_file --pattern csv
+contractforge templates wizard --layer silver --source jdbc --pattern rds_iam
 contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/s_orders
+contractforge templates write bronze_object_storage_nested_json_shape --output contracts/bronze/b_events
 contractforge presets list
 contractforge connectors doctor postgres rest_api http_file s3
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
