@@ -4,60 +4,82 @@
 
 # ContractForge
 
-ContractForge é um framework **contract-first** para ingestão governada em Delta Lake e Databricks. Em vez de espalhar lógica de ingestão, schema, qualidade, observabilidade e governança em notebooks ad-hoc, você descreve a intenção em contratos versionáveis e a biblioteca executa o padrão operacional.
+**Contract-first ingestion, governance and observability for Databricks and Delta Lake.**
 
-Links principais:
+ContractForge turns recurring ingestion patterns into versioned contracts. Instead of spreading read logic, schema evolution, quality gates, write modes, catalog annotations, access rules and operational metadata across ad-hoc notebooks, you declare the intent in YAML or Python and let the framework execute the standard operating pattern.
 
-- **Documentação web:** https://marquesantero.github.io/contractforge/
-- **Guia rápido:** [docs/quickstart.md](docs/quickstart.md)
-- **Mapa da documentação:** [docs/README.md](docs/README.md)
-- **Documentação completa:** [docs/oficial.md](docs/oficial.md)
-- **Template de projeto:** [examples/project_template](examples/project_template)
-- **Playground de exemplos:** [examples/playground](examples/playground)
-- **Changelog e releases:** [CHANGELOG.md](CHANGELOG.md)
-- **Contribuição:** [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Segurança:** [SECURITY.md](SECURITY.md)
+It is designed for teams that want the governance discipline of declarative pipelines without losing the control of regular Spark/Delta jobs.
 
-## O Que Ele Resolve
+## Start Here
 
-- Padroniza ingestões por classificação lógica (`bronze`, `silver`, `gold`, `stage`, `raw`, `curated` etc.) com contratos YAML ou chamadas Python.
-- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente` sem obrigar schema por camada.
-- Suporta modos oficiais de escrita: append, overwrite, SCD1, hash-diff, SCD2 e snapshot com soft delete.
-- Aplica quality gates, quarentena, schema policy, watermarks, idempotência, locks e retry.
-- Registra observabilidade em ctrl tables: runs, erros, qualidade, quarentena, lineage, streaming, schema changes, annotations, operations e access.
-- Integra governança declarativa com `*.annotations.yaml`, `*.operations.yaml` e `*.access.yaml`.
-- Resolve fontes declarativas via conectores: tabelas, SQL, arquivos, HTTP files, object storage, JDBC, REST API, Auto Loader `available_now`, Snowflake e BigQuery.
-- Protege MERGE contra `merge_keys` duplicadas na source e redige secrets também em tracebacks/erros persistidos.
+- **Web documentation:** https://marquesantero.github.io/contractforge/
+- **Quick start:** [docs/quickstart.md](docs/quickstart.md)
+- **Documentation map:** [docs/README.md](docs/README.md)
+- **Complete reference:** [docs/oficial.md](docs/oficial.md)
+- **Project template:** [examples/project_template](examples/project_template)
+- **Example playground:** [examples/playground](examples/playground)
+- **Templates:** [docs/templates.md](docs/templates.md)
+- **Connector compatibility:** [docs/compatibilidade_conectores.md](docs/compatibilidade_conectores.md)
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 
-## Posicionamento
+## Why ContractForge
 
-ContractForge não tenta substituir Delta Live Tables/Lakeflow. O objetivo é oferecer controle fino, contratos revisáveis por tabela e portabilidade para jobs, notebooks, Databricks Asset Bundles e runtimes Spark/Delta compatíveis.
+Modern lakehouse ingestion usually starts simple and then accumulates hidden operational rules: retries, watermarks, schema drift, SCD semantics, quarantines, lineage, secrets, access grants and dashboard evidence. ContractForge keeps those rules explicit and reviewable.
 
-Em Databricks, ele complementa Unity Catalog aplicando comments/tags e gerando evidências operacionais em tabelas Delta de controle.
+Core capabilities:
 
-## Instalação
+- Declarative ingestion through YAML contracts or Python calls.
+- Logical layers such as `bronze`, `silver`, `gold`, `stage`, `raw` or any custom classification.
+- Independent physical schema control through `target.schema` / `target_schema`.
+- Official write modes: append, overwrite, SCD1 upsert, hash-diff append, SCD2 history and snapshot soft delete.
+- Built-in quality gates, quarantine, schema policies, typed watermarks, idempotency, locks and retry.
+- Control tables for runs, state, quality, quarantine, errors, locks, lineage, explain plans, schema changes, streams, annotations, operations and access.
+- Declarative governance through split contracts: `*.ingestion.yaml`, `*.annotations.yaml`, `*.operations.yaml` and `*.access.yaml`.
+- Source connectors for tables, SQL, files, HTTP files, object storage, JDBC, REST APIs, Auto Loader `available_now`, Snowflake and BigQuery.
+- Runtime-aware behavior for Databricks classic clusters, serverless/Spark Connect and local Spark/Delta.
+- Secret redaction in source metadata, lineage, tracebacks and persisted error records.
 
-O pacote distribuído e o namespace Python se chamam `contractforge`.
+## Positioning
+
+ContractForge does not try to replace Delta Live Tables/Lakeflow as a managed orchestration product. It complements Databricks jobs, notebooks and Databricks Asset Bundles with table-level contracts, predictable write semantics and auditable control tables.
+
+Use ContractForge when you need:
+
+- Fine-grained control per table.
+- Declarative contracts that can be reviewed in pull requests.
+- Portable Spark/Delta execution patterns.
+- Governance evidence in Delta tables.
+- A bridge between notebooks, jobs, templates and enterprise data governance.
+
+## Installation
+
+The PyPI package and Python namespace are both named `contractforge`.
 
 ```bash
 pip install contractforge
 ```
 
-Para desenvolvimento local a partir do repositório:
+For local development:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Para executar Spark/Delta fora do Databricks:
+For standalone Spark/Delta outside Databricks:
 
 ```bash
 pip install ".[spark]"
 ```
 
-No Databricks, o wheel não declara `pyspark` nem `delta-spark` como dependências obrigatórias, porque o runtime já fornece Spark e Delta.
+For optional AWS credential provider support, for example RDS IAM default credential chain:
 
-## Exemplo Python
+```bash
+pip install "contractforge[aws]"
+```
+
+On Databricks, the wheel does not require `pyspark` or `delta-spark` because those are provided by the runtime.
+
+## Quick Example: Python
 
 ```python
 from contractforge import ingest
@@ -81,7 +103,7 @@ result = ingest(
 )
 ```
 
-## Exemplo YAML
+## Quick Example: YAML Contract
 
 ```yaml
 preset: silver_scd1_upsert
@@ -103,8 +125,8 @@ target:
   table: s_orders
 
 layer: silver
-merge_keys: order_id
-watermark_columns: updated_at
+merge_keys: [order_id]
+watermark_columns: [updated_at]
 schema_policy: additive_only
 
 quality_rules:
@@ -112,15 +134,38 @@ quality_rules:
   unique_key: [order_id]
 ```
 
-`layer` é metadata operacional e pode ser customizado. O schema físico é `target.schema` ou `target_schema`; se omitido, a lib usa `layer` como fallback.
+`layer` is operational metadata. The physical destination is controlled by `target.schema` or `target_schema`; if omitted, ContractForge uses `layer` as the fallback schema.
 
-Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python com credenciais explícitas, variáveis `AWS_*` ou `credential_provider: default_chain` (`contractforge[aws]`). A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway. Veja o guia completo em [docs/rds_iam_jdbc.md](docs/rds_iam_jdbc.md).
+## Contract Bundles
 
-## Transformações Declarativas
+For real projects, keep responsibilities separated:
 
-`transform` é o namespace canônico para mudanças físicas antes de quality/write. Use `transform.shape` para normalizar JSON, structs e arrays, e `transform.deduplicate` para reduzir múltiplas versões por chave antes de MERGE. O campo histórico `shape` continua aceito como atalho, mas novos contratos devem usar `transform.shape`.
+```text
+contracts/gold/gd_orders.ingestion.yaml
+contracts/gold/gd_orders.annotations.yaml
+contracts/gold/gd_orders.operations.yaml
+contracts/gold/gd_orders.access.yaml
+```
 
-Quando `transform.shape.columns` é declarado, ele funciona como projeção: só os aliases declarados seguem como colunas de negócio, evitando carregar campos brutos ou colunas técnicas de camadas anteriores. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
+Each file has a different review owner:
+
+- `ingestion`: source, target, write mode, schema policy, quality, watermark and transforms.
+- `annotations`: table/column descriptions, aliases, tags and PII metadata.
+- `operations`: business owner, technical owner, support group, criticality, SLA and runbook.
+- `access`: grants, row filters and column masks.
+
+Validate a bundle before running it:
+
+```bash
+contractforge validate-bundle contracts/gold/gd_orders
+contractforge governance-preview contracts/gold/gd_orders
+```
+
+## Declarative Transforms
+
+Use `transform` for physical transformations before quality checks and writes.
+
+`transform.shape` normalizes JSON, structs and arrays without embedding PySpark in every notebook:
 
 ```yaml
 transform:
@@ -141,11 +186,11 @@ transform:
         alias: temperature_2m
         cast: DOUBLE
       forecast_date:
-        expression: "TO_DATE(hour.time)"
         alias: forecast_date
+        expression: "TO_DATE(hour.time)"
 ```
 
-Deduplicação declarativa evita MERGE ambíguo quando a fonte traz múltiplas versões da mesma chave:
+`transform.deduplicate` resolves repeated source rows before MERGE:
 
 ```yaml
 transform:
@@ -154,120 +199,35 @@ transform:
     order_by: "updated_at DESC NULLS LAST, ingestion_sequence DESC"
 ```
 
-## Backfill e Catchup por Janelas
+## Source Connectors
 
-Use `execution.window` para quebrar uma carga histórica em sub-runs rastreáveis. Cada janela aplica um filtro `[start, end)` na coluna declarada e aparece em `ctrl_ingestion_runs` com `parent_run_id` comum.
+Contracts can resolve sources without custom notebook code.
 
-```yaml
-execution:
-  window:
-    column: updated_at
-    start: "2026-05-01T00:00:00"
-    end: "2026-05-08T00:00:00"
-    every: "1 day"
-    stop_on_failure: true
-```
+| Source | Typical use |
+| --- | --- |
+| `table`, `delta_table`, `view`, `sql` | Existing lakehouse objects |
+| `csv`, `json`, `parquet`, `avro`, `orc`, `delta`, `text`, `xml` | Spark file readers |
+| `http_file`, `http_csv`, `http_json`, `http_text` | Public or authenticated HTTP(S) files materialized by the driver |
+| `s3`, `azure_blob`, `object_storage`, `blob` | Object storage through Spark filesystem access |
+| `jdbc`, `postgres`, `mysql`, `sqlserver`, `oracle` | JDBC sources with optional auth blocks |
+| `rest_api` | Paginated APIs with secrets, limits and incremental parameters |
+| `autoloader` | Databricks Auto Loader `available_now` |
+| `snowflake`, `bigquery` | External Spark connectors installed on the runtime |
 
-Para catchup operacional, `execution.catchup` pode usar o watermark salvo como início quando `start` for omitido:
-
-```yaml
-watermark_columns: updated_at
-execution:
-  catchup:
-    enabled: true
-    column: updated_at
-    end: "2026-05-17T00:00:00"
-    every: "1 day"
-```
-
-Se usar `idempotency_key`, a lib adiciona automaticamente o sufixo `:window:<label>` em cada sub-run. Para backfill histórico anterior ao watermark atual, use um contrato separado sem `watermark_columns` ou uma target/stage própria; catchup é para avançar janelas incrementais.
-
-## Análise Operacional de Custo
-
-O comando `maintenance cost-report` calcula eficiência e custo estimado a partir de `ctrl_ingestion_runs`, sem misturar isso com faturamento real do provedor. Informe a taxa lógica do cluster/job quando quiser estimar custo; sem taxa, o relatório ainda mostra throughput e duração por etapa.
+Inspect connector details locally:
 
 ```bash
-contractforge maintenance cost-report \
-  --catalog main \
-  --ctrl-schema ops \
-  --lookback-days 30 \
-  --group-by contract_domain \
-  --group-by criticality \
-  --dbu-per-hour 2.5 \
-  --currency-per-dbu 0.55
+contractforge connectors show rest_api http_file postgres s3 autoloader
+contractforge connectors doctor rest_api http_file postgres s3 autoloader
 ```
 
-Campos principais: `rows_written_per_second`, `avg_duration_seconds`, `read_seconds`, `quality_seconds`, `write_seconds`, `estimated_compute_cost` e `estimated_cost_per_million_rows`.
+## Object Storage Guidance
 
-## CLI
+On Databricks serverless/Spark Connect, prefer Unity Catalog External Locations or Volumes for Azure Blob, ADLS and S3. Credentials and network access are then governed by Unity Catalog.
 
-```bash
-contractforge init --output contracts/silver/s_orders --source raw.orders --target-table s_orders --layer silver --target-schema sales_curated --mode scd1_upsert --merge-keys order_id --split
-contractforge validate-bundle contracts/silver/s_orders
-contractforge validate-project contracts
-contractforge templates list
-contractforge templates wizard --layer silver --source jdbc --mode scd1_upsert
-contractforge templates wizard --layer bronze --source s3 --output contracts/bronze/b_orders_files
-contractforge templates wizard --layer bronze --source http_file --pattern csv
-contractforge templates wizard --layer silver --source jdbc --pattern rds_iam
-contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/s_orders
-contractforge templates write bronze_object_storage_nested_json_shape --output contracts/bronze/b_events
-contractforge presets list
-contractforge connectors doctor postgres rest_api http_file s3
-contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
-contractforge maintenance cost-report --catalog main --ctrl-schema ops --lookback-days 30 --group-by target_table
-python examples/playground/scripts/validate_playground.py
-```
+On classic/job clusters or local Spark, ContractForge can configure some credentials declaratively, such as Azure Blob SAS or S3A static/temporary credentials.
 
-## HTTP File
-
-Para arquivos públicos ou autenticados via HTTP(S), use `http_file` em vez de depender de `spark.read` direto em `https://`. Isso evita limitações de filesystem do Spark/serverless e mantém o arquivo como fonte declarativa.
-
-```yaml
-source:
-  type: connector
-  connector: http_file
-  path: https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-states.csv
-  format: csv
-  options:
-    header: true
-  read:
-    source_complete: true
-
-target:
-  catalog: workspace
-  schema: cf_examples_bronze
-  table: b_covid_brazil_states
-
-layer: bronze
-mode: scd0_overwrite
-```
-
-Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Aliases: `http_csv`, `http_json` e `http_text`.
-
-## Azure Blob
-
-Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia o path governado diretamente. Esse é o caminho mais previsível para Azure Blob/ADLS, porque credencial e rede ficam sob governança do Unity Catalog.
-
-```yaml
-source:
-  type: connector
-  connector: azure_blob
-  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/csv/orders.csv
-  format: csv
-  options:
-    header: true
-    inferSchema: false
-  read:
-    source_complete: true
-    schema: "order_id STRING, customer_id STRING, order_ts_utc TIMESTAMP, amount DOUBLE"
-```
-
-Em job cluster/classic/local, também é possível declarar SAS com `account_url`, `container` e `auth.sas_token`; nesse caso a ContractForge monta `wasbs://...` e configura `fs.azure.sas...` no Spark. Em Databricks serverless/Spark Connect, essa configuração pode ser bloqueada; nesse caso a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para liberar o destino. O conector `azure_blob` não faz fallback REST implícito, porque isso muda semântica, custo, limites de memória e comportamento de rede. Para arquivos HTTP(S) explícitos de volume controlado, use `http_file`.
-
-## S3
-
-Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia `s3://...` governado diretamente. Em classic/job cluster/local, a ContractForge também pode configurar S3A a partir de `source.auth`:
+S3 example:
 
 ```yaml
 source:
@@ -278,7 +238,7 @@ source:
   auth:
     access_key_id: "{{ secret:aws/aws_access_key_id }}"
     secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
-    session_token: "{{ secret:aws/aws_session_token }}" # opcional
+    session_token: "{{ secret:aws/aws_session_token }}" # optional
   options:
     header: true
     fs.s3a.endpoint: s3.us-east-1.amazonaws.com
@@ -287,42 +247,35 @@ source:
     schema: "order_id STRING, customer_id STRING, amount DOUBLE"
 ```
 
-Com `session_token`, a lib usa `TemporaryAWSCredentialsProvider`; sem ele, usa `SimpleAWSCredentialsProvider`. Se o runtime bloquear `spark.conf.set` para `fs.s3a.*`, a execução falha com orientação para usar External Location/Volume.
+For known schemas, declare `source.read.schema` using Spark DDL. `source.schema` is accepted as a short alias and normalized to `source.read.schema`.
 
-Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
+For many files, prefer Spark-native `pathGlobFilter` when possible. Use `source.read.file_regex` only when true regex filtering is needed, because recursive object storage listings can be expensive.
 
-Quando o schema é conhecido, use `source.read.schema` com DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; se ambos forem declarados com valores diferentes, o contrato falha antes da leitura. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
+## HTTP Files and REST APIs
 
-Para diretórios com muitos arquivos, prefira `pathGlobFilter` quando o padrão simples do Spark resolver. Quando precisar de regex real, use `source.read.file_regex`; a lib lista arquivos pelo filesystem do Spark/Hadoop, aplica a regex e passa apenas os arquivos compatíveis ao reader:
+Use `http_file` when the source is a file exposed over HTTP(S) and Spark cannot read the URL directly as a filesystem path.
 
 ```yaml
 source:
   type: connector
-  connector: s3
-  path: s3a://company-landing/orders/
+  connector: http_file
+  path: https://example.com/public/orders.csv
   format: csv
   options:
     header: true
-    recursiveFileLookup: true
   read:
+    source_complete: true
     schema: "order_id STRING, order_date DATE, amount DOUBLE"
-    file_regex: "^year=2026/month=05/.*/orders_\\d+\\.csv$"
-    file_regex_scope: relative_path # ou filename
-    file_regex_max_listed: 50000
 ```
 
-`file_regex` é uma opção avançada: listagens recursivas em object storage podem custar caro. Se nenhum arquivo casar, a execução falha com erro claro.
-
-Para APIs REST com JSON complexo, use `response.mode: raw` e deixe `transform.shape` estruturar o payload com schema explícito:
+For large or complex REST JSON responses, keep the connector responsible for download and use `transform.shape` for parsing:
 
 ```yaml
 source:
   type: connector
   connector: rest_api
   request:
-    url: https://eonet.gsfc.nasa.gov/api/v3/events
-    params:
-      status: open
+    url: https://api.example.com/events
   response:
     mode: raw
     raw_column: raw_response
@@ -338,36 +291,122 @@ transform:
         schema: "STRUCT<events: ARRAY<STRUCT<id: STRING, title: STRING>>>"
 ```
 
-O conector continua responsável só por baixar e proteger o volume; `transform.shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
+## JDBC and RDS IAM
 
-Quando a API já retorna uma lista de registros, `response.records_path` suporta navegação simples (`$`, `$.data.items`, `$[1]`, `$.data[0].items`) em `rest_api` e `http_file` JSON. Não é JSONPath completo; para payloads complexos, prefira `response.mode: raw` + `transform.shape`.
+JDBC connectors support `auth.type: basic` and Amazon RDS/Aurora IAM database authentication through `auth.type: rds_iam`.
 
-## Contratos Separados
-
-Contratos podem ser mantidos em arquivos separados quando engenharia, governança, operações e segurança têm ciclos de revisão diferentes:
-
-```text
-contracts/gold/gd_orders.ingestion.yaml
-contracts/gold/gd_orders.annotations.yaml
-contracts/gold/gd_orders.operations.yaml
-contracts/gold/gd_orders.access.yaml
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://orders.cluster-xyz.us-east-1.rds.amazonaws.com:5432/app
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: "{{ secret:aws-rds/db_user }}"
+    region: us-east-1
+    credential_provider: default_chain
+  read:
+    fetchsize: 10000
+    partition_column: id
+    lower_bound: 1
+    upper_bound: 10000000
+    num_partitions: 8
 ```
 
-O arquivo `*.ingestion.yaml` define a execução. `annotations` documenta tabela/colunas, tags, aliases e PII. `operations` registra dono, criticidade, SLA, grupos e runbook. `access` declara grants, row filters e column masks.
+Network connectivity is still the runtime responsibility: same VPC, peering, Transit Gateway, PrivateLink/NLB, public endpoint rules or equivalent setup. See [RDS/Aurora JDBC with IAM Auth](docs/rds_iam_jdbc.md).
 
-## Documentação
+## Backfill and Catchup Windows
 
-Comece pelo [guia rápido](docs/quickstart.md). Para navegação completa por tema, use [docs/README.md](docs/README.md). A documentação web publicada em GitHub Pages fica em https://marquesantero.github.io/contractforge/.
+Use `execution.window` to split historical loads into traceable child runs. Each window applies a `[start, end)` filter and writes child rows to `ctrl_ingestion_runs` with a shared `parent_run_id`.
 
-Guias operacionais úteis:
+```yaml
+execution:
+  window:
+    column: updated_at
+    start: "2026-05-01T00:00:00"
+    end: "2026-05-08T00:00:00"
+    every: "1 day"
+    stop_on_failure: true
+```
 
-- [Operação e manutenção](docs/operacao.md)
-- [Templates de contratos](docs/templates.md)
-- [Compatibilidade de conectores](docs/compatibilidade_conectores.md)
-- [Segurança e secrets](docs/seguranca.md)
-- [Anti-patterns](docs/antipadroes.md)
+Use `execution.catchup` to generate windows from the saved watermark when `start` is omitted:
 
-## Desenvolvimento
+```yaml
+watermark_columns: [updated_at]
+execution:
+  catchup:
+    enabled: true
+    column: updated_at
+    end: "2026-05-17T00:00:00"
+    every: "1 day"
+```
+
+## Templates
+
+Templates generate complete starter bundles. They are based on patterns validated with real ingestion examples.
+
+```bash
+contractforge templates list
+contractforge templates wizard --layer bronze --source http_file --pattern csv
+contractforge templates wizard --layer silver --source jdbc --pattern rds_iam
+contractforge templates write silver_jdbc_rds_iam_hash_diff --output contracts/silver/s_orders_hash_diff
+```
+
+Examples include:
+
+- `bronze_http_file_csv_snapshot`
+- `bronze_object_storage_nested_json_shape`
+- `bronze_object_storage_small_files`
+- `bronze_autoloader_available_now_json`
+- `silver_jdbc_rds_iam_hash_diff`
+- `silver_raw_json_payload_shape`
+- `silver_parallel_arrays_shape`
+- `gold_full_refresh_kpi`
+
+See [Templates](docs/templates.md) for the full catalog.
+
+## Operational Tooling
+
+Control table retention:
+
+```bash
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180 --vacuum --apply
+```
+
+Estimated operational cost and throughput:
+
+```bash
+contractforge maintenance cost-report \
+  --catalog main \
+  --ctrl-schema ops \
+  --lookback-days 30 \
+  --group-by contract_domain \
+  --group-by criticality \
+  --dbu-per-hour 2.5 \
+  --currency-per-dbu 0.55
+```
+
+The cost report is an operational estimate from `ctrl_ingestion_runs.duration_seconds`; it is not cloud billing data.
+
+## CLI Overview
+
+```bash
+contractforge init --output contracts/silver/s_orders --source raw.orders --target-table s_orders --layer silver --target-schema sales_curated --mode scd1_upsert --merge-keys order_id --split
+contractforge validate contracts/silver/s_orders.ingestion.yaml
+contractforge validate-bundle contracts/silver/s_orders
+contractforge validate-project contracts
+contractforge governance-preview contracts/silver/s_orders
+contractforge governance-check contracts/silver/s_orders
+contractforge templates list
+contractforge presets list
+contractforge connectors doctor postgres rest_api http_file s3
+```
+
+## Development
 
 ```bash
 pip install -e ".[dev]"
@@ -375,9 +414,9 @@ pytest
 python scripts/check_release.py
 ```
 
-Antes de abrir PR, leia [CONTRIBUTING.md](CONTRIBUTING.md). A branch `main` é protegida e exige PR, revisão, resolução de conversas e os checks `build`, `test (3.10)` e `test (3.11)`.
+Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md). The `main` branch is protected and expects PR review, resolved conversations and passing checks for `build`, `test (3.10)` and `test (3.11)`.
 
-Release:
+Release checklist:
 
 ```bash
 python -m build
@@ -386,8 +425,6 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-O workflow `Release` valida metadados, confere se a tag bate com a versão do pacote, gera wheel/source distribution e anexa os artefatos à GitHub Release.
+## License
 
-## Licença
-
-MIT. Consulte [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
