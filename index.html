@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="ContractForge — Framework batch declarativo para ingestão de dados em Delta Lake no Databricks. Contratos por tabela, arquitetura Medallion, quality gates, SCD, watermarks, OpenLineage.">
-<title>ContractForge v2.4.3 — Documentação</title>
+<title>ContractForge v2.6.1 — Documentação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -31,7 +31,7 @@
       <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
       <div>
         <h1>ContractForge<br>Docs</h1>
-        <span class="version">v2.4.3 · MIT · Python ≥3.10</span>
+        <span class="version">v2.6.1 · MIT · Python ≥3.10</span>
       </div>
     </div>
   </div>
@@ -120,7 +120,7 @@
     <span class="badge spark">PySpark ≥3.4</span>
     <span class="badge delta">Delta Lake ≥3.0</span>
     <span class="badge mit">MIT</span>
-    <span class="badge" style="color:#79c0ff">v2.4.3</span>
+    <span class="badge" style="color:#79c0ff">v2.6.1</span>
     <span class="badge" style="color:#e3b341">presets</span>
     <span class="badge" style="color:#56d364">shape</span>
   </div>
@@ -222,11 +222,11 @@ flowchart TB
 pip install build && python -m build
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.1-py3-none-any.whl \
   dbfs:/Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/
 
 # Notebook Databricks:
-%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-2.4.3-py3-none-any.whl
+%pip install /Volumes/&lt;catalog&gt;/&lt;schema&gt;/libs/contractforge-2.6.1-py3-none-any.whl
 dbutils.library.restartPython()</code></pre>
 
 <h3>Desenvolvimento Local</h3>
@@ -773,7 +773,7 @@ schema_policy: strict</code></pre></div>
 <!-- ============ CONNECTORS ============ -->
 <section id="connectors-guide">
 <h2>Conectores Declarativos</h2>
-<p><strong>Atualizado em v2.4.3.</strong> O campo <code>source</code> aceita <code>ConnectorSpec</code> para descrever fontes reais sem criar wrappers em notebooks. Em Databricks serverless, Azure Blob/ADLS deve preferir Unity Catalog External Location/Volume.</p>
+<p><strong>Atualizado em v2.6.1.</strong> O campo <code>source</code> aceita <code>ConnectorSpec</code> para descrever fontes reais sem criar wrappers em notebooks. Em Databricks serverless, object storage deve preferir Unity Catalog External Location/Volume.</p>
 
 <div class="table-wrap"><table>
 <tr><th>Família</th><th>Conectores</th><th>Uso principal</th></tr>
@@ -790,12 +790,12 @@ schema_policy: strict</code></pre></div>
 <tr><th>Conector</th><th>Campos obrigatórios</th><th>Campos comuns</th><th>Observações</th></tr>
 <tr><td><code>table</code>, <code>delta_table</code>, <code>view</code></td><td><code>table</code></td><td><code>read.source_complete</code></td><td>Usado para table-to-table, snapshots completos e reprocessamentos controlados.</td></tr>
 <tr><td><code>sql</code></td><td><code>query</code></td><td><code>name</code>, <code>read.source_complete</code></td><td>Permite uma query declarativa como origem; use com cuidado para manter rastreabilidade.</td></tr>
-<tr><td><code>parquet</code>, <code>delta</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code>, <code>csv</code>, <code>orc</code>, <code>text</code>, <code>avro</code>, <code>xml</code></td><td><code>path</code></td><td><code>format</code>, <code>options</code>, <code>read.source_complete</code></td><td>Usa <code>spark.read.format(...).load(path)</code>; <code>jsonl</code>/<code>ndjson</code> usam reader Spark <code>json</code>; <code>xml</code> depende do suporte do runtime.</td></tr>
+<tr><td><code>parquet</code>, <code>delta</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code>, <code>csv</code>, <code>orc</code>, <code>text</code>, <code>avro</code>, <code>xml</code></td><td><code>path</code></td><td><code>format</code>, <code>options</code>, <code>read.schema</code>, <code>read.source_complete</code></td><td>Usa <code>spark.read.format(...).load(path)</code>; <code>jsonl</code>/<code>ndjson</code> usam reader Spark <code>json</code>; <code>xml</code> depende do suporte do runtime. Use <code>read.schema</code> para evitar inferência em diretórios grandes.</td></tr>
 <tr><td><code>http_file</code>, <code>http_csv</code>, <code>http_json</code>, <code>http_text</code></td><td><code>path</code> ou <code>request.url</code></td><td><code>format</code>, <code>options</code>, <code>request.headers</code>, <code>limits</code></td><td>Para arquivos HTTP(S) explícitos de volume controlado. Não é fallback automático de object storage.</td></tr>
-<tr><td><code>object_storage</code>, <code>blob</code>, <code>s3</code>, <code>adls</code>, <code>azure_blob</code>, <code>gcs</code></td><td><code>format</code>, <code>path</code></td><td><code>provider</code>, <code>options</code>, <code>auth.sas_token</code>, <code>read.source_complete</code></td><td>Aliases diretos definem o provider automaticamente. Em serverless, prefira External Location/Volume; SAS direto é voltado a classic/job cluster/local.</td></tr>
+<tr><td><code>object_storage</code>, <code>blob</code>, <code>s3</code>, <code>adls</code>, <code>azure_blob</code>, <code>gcs</code></td><td><code>format</code>, <code>path</code></td><td><code>provider</code>, <code>options</code>, <code>read.schema</code>, <code>auth.sas_token</code>, <code>read.source_complete</code></td><td>Aliases diretos definem o provider automaticamente. Em serverless, prefira External Location/Volume; credenciais diretas são voltadas a classic/job cluster/local.</td></tr>
 <tr><td><code>jdbc</code>, <code>postgres</code>, <code>postgresql</code>, <code>sqlserver</code>, <code>mysql</code>, <code>oracle</code></td><td><code>options.url</code> + <code>options.dbtable</code> ou <code>options.query</code></td><td><code>read.partition_column</code>, <code>fetchsize</code>, <code>incremental</code></td><td>Suporta particionamento, secrets e pushdown incremental por watermark/predicate.</td></tr>
 <tr><td><code>snowflake</code>, <code>bigquery</code></td><td><code>table</code>, <code>query</code> ou opções equivalentes</td><td><code>options</code>, <code>read.source_complete</code></td><td>Usa Spark connector instalado no runtime: <code>format("snowflake")</code> ou <code>format("bigquery")</code>.</td></tr>
-<tr><td><code>rest_api</code></td><td><code>request.url</code></td><td><code>auth</code>, <code>pagination</code>, <code>response.records_path</code>, <code>limits</code>, <code>incremental</code></td><td>Batch JSON paginado; indicado para APIs administrativas e volumes controlados.</td></tr>
+<tr><td><code>rest_api</code></td><td><code>request.url</code></td><td><code>auth</code>, <code>pagination</code>, <code>response.records_path</code>, <code>response.mode</code>, <code>read.schema</code>, <code>read.json_options</code>, <code>limits</code>, <code>incremental</code></td><td>Batch JSON paginado; <code>records</code> materializa linhas de negócio e <code>raw</code> entrega uma linha por payload para <code>shape.parse_json</code>.</td></tr>
 <tr><td><code>autoloader</code></td><td><code>path</code>, <code>format</code>, <code>read.schema_location</code>, <code>read.checkpoint_location</code></td><td><code>read.include_existing_files</code>, <code>schema_hints</code>, <code>max_files_per_trigger</code></td><td>Executa streaming finito com <code>available_now</code>; cada batch vira run filho.</td></tr>
 </table></div>
 
@@ -851,6 +851,46 @@ target_table: b_orders_api
 catalog: main
 layer: bronze
 mode: scd0_append</code></pre>
+
+<h4>REST raw + shape.parse_json</h4>
+<p>Quando a resposta é um documento JSON complexo, use <code>response.mode: raw</code>. O conector baixa o payload bruto e o <code>shape</code> faz parsing, flatten e explode com schema explícito.</p>
+
+<pre><code>source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+    params:
+      status: open
+      limit: "50"
+  response:
+    mode: raw
+    raw_column: raw_response
+  read:
+    schema: "raw_response STRING, response_page_number INT"
+  limits:
+    max_page_bytes: 10485760
+    max_total_bytes: 52428800
+
+shape:
+  parse_json:
+    - column: raw_response
+      alias: payload
+      schema: "STRUCT&lt;events: ARRAY&lt;STRUCT&lt;id: STRING, title: STRING&gt;&gt;&gt;"
+  arrays:
+    - path: payload.events
+      mode: explode_outer
+      alias: event
+  columns:
+    response_page_number:
+      alias: response_page_number
+      cast: INT
+    event.id:
+      alias: event_id
+    event.title:
+      alias: event_title</code></pre>
+
+<div class="alert info"><strong>Validação real:</strong> NASA EONET em AWS/Azure classic single-node validou <code>rest_api</code> com <code>response.mode=raw</code>, <code>source.read.schema</code>, <code>shape.parse_json</code>, arrays e annotations/operations. O run validado gravou 1 payload bruto no bronze e 50 eventos estruturados na silver.</div>
 
 <h4>REST: autenticação suportada</h4>
 <div class="table-wrap"><table>
@@ -956,6 +996,23 @@ mode: scd0_append</code></pre>
 
 <pre><code>source:
   type: connector
+  connector: s3
+  path: s3://company-landing/customers/
+  format: csv
+  options:
+    header: true
+  read:
+    schema: "customer_id STRING, email STRING, signup_date DATE, credit_limit DOUBLE"
+    source_complete: true
+
+target_table: b_customers_s3
+catalog: workspace
+target_schema: cf_aws_bronze
+layer: bronze
+mode: scd0_overwrite</code></pre>
+
+<pre><code>source:
+  type: connector
   connector: object_storage
   provider: gcs
   format: json
@@ -967,6 +1024,8 @@ target_table: b_events_gcs
 catalog: main
 layer: bronze
 mode: scd0_append</code></pre>
+
+<div class="alert warn"><strong>AWS Databricks serverless:</strong> o Spark precisa enxergar credenciais do bucket. Se a leitura falhar com <code>AnonymousAWSCredentials</code> ou <code>403 Forbidden</code>, configure Unity Catalog Storage Credential + External Location para o prefixo S3 e conceda <code>READ FILES</code>. A ContractForge apenas delega a leitura ao Spark reader.</div>
 
 <h3>Azure Blob / ADLS em Databricks Serverless</h3>
 <p>Em serverless/Spark Connect, use Unity Catalog External Location ou Volume. A ContractForge lê o path governado pelo Spark reader e não precisa receber SAS no contrato.</p>
@@ -1038,6 +1097,22 @@ layer: bronze
 mode: scd0_append</code></pre>
 
 <div class="alert warn"><strong>Snapshot completo:</strong> use <code>source.read.source_complete=true</code> apenas quando a origem contém o estado completo necessário para o modo. <code>snapshot_soft_delete</code> e <code>replace_partitions</code> dependem dessa garantia para evitar deleções ou substituições incorretas.</div>
+
+<h3>O que mudou recentemente</h3>
+<div class="grid">
+  <div class="card">
+    <h4>v2.6.1 · REST JSON robusto</h4>
+    <p><code>rest_api</code> materializa payloads JSON reais via JSON lines/Spark reader quando possível, reduzindo falhas de inferência em arrays, structs e campos opcionais.</p>
+  </div>
+  <div class="card">
+    <h4>v2.6.0 · Schema declarado</h4>
+    <p><code>source.read.schema</code> permite declarar Spark DDL em arquivos e object storage, evitando inferência custosa em diretórios grandes ou muitos arquivos pequenos.</p>
+  </div>
+  <div class="card">
+    <h4>v2.5.x · Shape e layers</h4>
+    <p><code>shape.columns</code> ficou mais seguro para campos irmãos aninhados, e <code>layer</code> virou classificação lógica customizável, separada do <code>target_schema</code> físico.</p>
+  </div>
+</div>
 
 <div class="alert info"><strong>Observabilidade:</strong> <code>ctrl_ingestion_runs</code> registra conector, provider, formato, path, opções redigidas, request/auth/pagination/incremental/limits, capabilities e <code>source_metrics_json</code>. Em REST, as métricas incluem requests, páginas, registros, bytes, paginação, retry/rate limit e watermark aplicado. Em JDBC, incluem estratégia de leitura, incrementalidade, watermark, particionamento e fetchsize. Em Snowflake/BigQuery, incluem o formato Spark externo usado e se a origem foi declarada como completa. Secrets no formato <code>{{ secret:scope/key }}</code> são resolvidos via Databricks Secrets ou variável <code>CONTRACTFORGE_SECRET_SCOPE_KEY</code>.</div>
 <div class="alert info"><strong>Incremental:</strong> <code>source.incremental</code> empurra o watermark anterior para REST (<code>watermark_param</code>, <code>watermark_header</code>, <code>watermark_body_field</code>) ou JDBC (<code>watermark_column</code>/<code>predicate</code>). O controle oficial continua em <code>watermark_columns</code>.</div>
@@ -1961,4 +2036,3 @@ ORDER BY change_ts_utc DESC;</code></pre>
 <script src="js/main.js"></script>
 </body>
 </html>
-
