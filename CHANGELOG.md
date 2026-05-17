@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.11.0 - 2026-05-17
+
+- Adiciona `contractforge.cost` com `CostModel`, `build_operational_cost_query`, `operational_cost_dataframe` e `analyze_operational_cost`.
+- Adiciona `contractforge maintenance cost-report` para estimar custo/eficiência operacional a partir de `ctrl_ingestion_runs`.
+- Documenta throughput, duração por etapa e custo estimado por milhão de linhas, deixando explícito que não é faturamento real do provedor.
+
 ## 2.10.0 - 2026-05-17
 
 - Adiciona `execution.window` para executar backfills em sub-runs temporais com `parent_run_id`, filtro `[start, end)` e métricas agregadas no retorno pai.

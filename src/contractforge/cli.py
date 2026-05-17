@@ -10,6 +10,7 @@ from typing import Any, Iterable, List
 from .config import VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
 from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
+from .cost import CostModel, analyze_operational_cost
 from .maintenance import apply_ctrl_retention
 from .plan import build_plan_from_kwargs, target_full_table_name
 from .presets import apply_preset, list_presets, preset_details
@@ -566,6 +567,30 @@ def _maintenance_ctrl_retention(args: argparse.Namespace) -> int:
         return 1
 
 
+def _maintenance_cost_report(args: argparse.Namespace) -> int:
+    try:
+        model = CostModel(
+            dbu_per_hour=args.dbu_per_hour,
+            currency_per_dbu=args.currency_per_dbu,
+            currency=args.currency,
+        )
+        result = analyze_operational_cost(
+            args.catalog,
+            args.ctrl_schema,
+            lookback_days=args.lookback_days,
+            group_by=args.group_by or None,
+            cost_model=model,
+            include_failed=not args.success_only,
+            limit=args.limit,
+            query_only=args.query_only,
+        )
+        print(json.dumps(result, indent=args.indent, sort_keys=True, default=str))
+        return 0
+    except Exception as exc:
+        print(f"ERRO maintenance cost-report: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="contractforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -760,6 +785,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     retention_parser.add_argument("--indent", type=int, default=2)
 
+    cost_parser = maintenance_sub.add_parser(
+        "cost-report",
+        help="Analisa custo estimado e eficiencia operacional a partir das ctrl tables",
+    )
+    cost_parser.add_argument("--catalog", default="main")
+    cost_parser.add_argument("--ctrl-schema", default="ops")
+    cost_parser.add_argument("--lookback-days", type=int, default=30)
+    cost_parser.add_argument(
+        "--group-by",
+        action="append",
+        help=(
+            "Campo de agrupamento; pode repetir. Campos: target_table, layer, mode, status, "
+            "contract_domain, contract_owner, criticality, runtime_type, source_connector, source_provider."
+        ),
+    )
+    cost_parser.add_argument("--dbu-per-hour", type=float)
+    cost_parser.add_argument("--currency-per-dbu", type=float)
+    cost_parser.add_argument("--currency", default="USD")
+    cost_parser.add_argument("--success-only", action="store_true", help="Considera apenas runs SUCCESS")
+    cost_parser.add_argument("--limit", type=int, default=100)
+    cost_parser.add_argument("--query-only", action="store_true", help="Nao executa Spark; imprime apenas a query")
+    cost_parser.add_argument("--indent", type=int, default=2)
+
     args = parser.parse_args(argv)
     if args.command == "validate":
         return _validate(args.paths, expand_presets=args.expand_presets)
@@ -808,6 +856,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "maintenance":
         if args.maintenance_command == "ctrl-retention":
             return _maintenance_ctrl_retention(args)
+        if args.maintenance_command == "cost-report":
+            return _maintenance_cost_report(args)
     parser.error(f"Comando não suportado: {args.command}")
     return 2
 

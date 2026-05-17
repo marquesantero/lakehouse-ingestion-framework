@@ -3,6 +3,7 @@ import logging
 from ._uc_capabilities import UCCapabilities, get_uc_capabilities
 from .contract_bundle import ContractBundle, governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
+from .cost import CostModel, analyze_operational_cost, build_operational_cost_query, operational_cost_dataframe
 from .governance import (
     AccessContract,
     AccessGrant,
@@ -85,6 +86,7 @@ __all__ = [
     "AccessGrant",
     "ConnectorCapabilities",
     "ConnectorSpec",
+    "CostModel",
     "contract_template_details",
     "contract_template_files",
     "DeduplicateConfig",
@@ -126,12 +128,15 @@ __all__ = [
     "apply_annotations_bundle",
     "apply_ctrl_retention",
     "apply_governance_bundle",
+    "analyze_operational_cost",
+    "build_operational_cost_query",
     "build_ctrl_retention_plan",
     "ingest",
     "ingest_bundle",
     "ingest_plan",
     "ingest_stream_plan",
     "load_contract_bundle",
+    "operational_cost_dataframe",
     "apply_preset",
     "apply_shape",
     "get_preset",
@@ -160,4 +165,4 @@ __all__ = [
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "2.10.0"
+__version__ = "2.11.0"

@@ -182,6 +182,23 @@ execution:
 
 Se usar `idempotency_key`, a lib adiciona automaticamente o sufixo `:window:<label>` em cada sub-run. Para backfill histórico anterior ao watermark atual, use um contrato separado sem `watermark_columns` ou uma target/stage própria; catchup é para avançar janelas incrementais.
 
+## Análise Operacional de Custo
+
+O comando `maintenance cost-report` calcula eficiência e custo estimado a partir de `ctrl_ingestion_runs`, sem misturar isso com faturamento real do provedor. Informe a taxa lógica do cluster/job quando quiser estimar custo; sem taxa, o relatório ainda mostra throughput e duração por etapa.
+
+```bash
+contractforge maintenance cost-report \
+  --catalog main \
+  --ctrl-schema ops \
+  --lookback-days 30 \
+  --group-by contract_domain \
+  --group-by criticality \
+  --dbu-per-hour 2.5 \
+  --currency-per-dbu 0.55
+```
+
+Campos principais: `rows_written_per_second`, `avg_duration_seconds`, `read_seconds`, `quality_seconds`, `write_seconds`, `estimated_compute_cost` e `estimated_cost_per_million_rows`.
+
 ## CLI
 
 ```bash
@@ -195,6 +212,7 @@ contractforge templates write silver_jdbc_scd1_upsert --output contracts/silver/
 contractforge presets list
 contractforge connectors doctor postgres rest_api http_file s3
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 180
+contractforge maintenance cost-report --catalog main --ctrl-schema ops --lookback-days 30 --group-by target_table
 python examples/playground/scripts/validate_playground.py
 ```
 
