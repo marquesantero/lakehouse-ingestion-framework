@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.10.0 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.11.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -24,6 +24,7 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 10. [Estratégias de Merge (scd1_upsert)](#10-estratégias-de-merge-scd1_upsert)
 11. [Locks, Idempotência, Retry e Concorrência](#11-locks-idempotência-retry-e-concorrência)
 12. [Observabilidade — Tabelas de Controle](#12-observabilidade--tabelas-de-controle)
+12B. [Análise Operacional de Custo](#12b-análise-operacional-de-custo)
 13. [OpenLineage e Explain Mode](#13-openlineage-e-explain-mode)
 14. [Linhagem Operacional (parent/master)](#14-linhagem-operacional-parentmaster)
 15. [Metadados de Contrato](#15-metadados-de-contrato)
@@ -2781,6 +2782,71 @@ ORDER BY access_ts_utc DESC;
 
 ---
 
+## 12B. Análise Operacional de Custo
+
+O ContractForge inclui um analisador de custo **estimado** baseado nas tabelas de controle. Ele não consulta fatura de cloud, não lê billing tables e não tenta inferir DBU real. A lógica é propositalmente explícita: você informa a taxa operacional que quer usar e a lib calcula eficiência e custo aproximado a partir de `ctrl_ingestion_runs.duration_seconds`.
+
+### 12B.1 CLI
+
+```bash
+contractforge maintenance cost-report \
+  --catalog main \
+  --ctrl-schema ops \
+  --lookback-days 30 \
+  --group-by contract_domain \
+  --group-by criticality \
+  --dbu-per-hour 2.5 \
+  --currency-per-dbu 0.55 \
+  --currency USD
+```
+
+Campos retornados:
+
+- `rows_written_per_second` e `rows_read_per_second` para throughput.
+- `avg_duration_seconds` para tempo médio por run.
+- `read_seconds`, `prepare_seconds`, `quality_seconds`, `write_seconds` e `governance_seconds` para custo por etapa.
+- `estimated_compute_cost` e `estimated_cost_per_million_rows` quando `dbu_per_hour` e `currency_per_dbu` forem informados.
+- `cost_source="estimated_from_ctrl_runs"` para deixar claro que não é faturamento real.
+
+Para gerar apenas a query, sem executar Spark:
+
+```bash
+contractforge maintenance cost-report \
+  --catalog main \
+  --ctrl-schema ops \
+  --group-by target_table \
+  --query-only
+```
+
+### 12B.2 API Python
+
+```python
+from contractforge import CostModel, analyze_operational_cost, operational_cost_dataframe
+
+report = analyze_operational_cost(
+    "main",
+    "ops",
+    lookback_days=30,
+    group_by=["contract_domain", "criticality"],
+    cost_model=CostModel(dbu_per_hour=2.5, currency_per_dbu=0.55, currency="USD"),
+)
+
+df = operational_cost_dataframe(
+    "main",
+    "ops",
+    group_by=["target_table", "mode"],
+)
+display(df)
+```
+
+### 12B.3 Campos de agrupamento
+
+Campos aceitos em `group_by`: `target_table`, `layer`, `mode`, `status`, `contract_domain`, `contract_owner`, `criticality`, `runtime_type`, `source_connector` e `source_provider`.
+
+Use `--success-only` para remover falhas do denominador quando a pergunta for eficiência de runs bem-sucedidos. Mantenha o default incluindo falhas quando a pergunta for custo operacional total.
+
+---
+
 ## 13. OpenLineage e Explain Mode
 
 ### 13.1 OpenLineage
@@ -3661,6 +3727,9 @@ Use o comando de manutenção. Sem `--apply`, ele apenas mostra o plano:
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90
 contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 90 --vacuum --apply
 ```
+
+**P: O analisador de custo mostra o valor real faturado?**
+Não. `maintenance cost-report` calcula uma estimativa operacional usando duração dos runs e a taxa informada (`dbu_per_hour * currency_per_dbu`). Para custo fiscal/contábil, cruze o resultado com billing/system tables do provedor.
 
 **P: Posso usar `select_columns` para renomear colunas?**
 Não. `select_columns` apenas seleciona colunas existentes. Para renomear, transforme o DataFrame antes de passar para `ingest()`.
