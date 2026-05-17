@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.6.5 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.10.0 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -20,6 +20,7 @@ Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou Py
 7. [Quality Gates — Guia Completo](#7-quality-gates--guia-completo)
 8. [Schema Policy — Evolução de Schema](#8-schema-policy--evolução-de-schema)
 9. [Watermarks — Carga Incremental](#9-watermarks--carga-incremental)
+9B. [Backfill e Catchup por Janelas](#9b-backfill-e-catchup-por-janelas)
 10. [Estratégias de Merge (scd1_upsert)](#10-estratégias-de-merge-scd1_upsert)
 11. [Locks, Idempotência, Retry e Concorrência](#11-locks-idempotência-retry-e-concorrência)
 12. [Observabilidade — Tabelas de Controle](#12-observabilidade--tabelas-de-controle)
@@ -2398,6 +2399,86 @@ Quando `ctrl_ingestion_state` não tem watermark (primeira execução ou perda d
 | Watermark não avança | Falha na execução, coluna com NULLs, ou sem dados novos | Verifique `ctrl_ingestion_state.watermark_value` e logs de erro |
 | Dados duplicados | Coluna de watermark não é monótona | Use `dedup_order_expr` ou `unique_key` nos quality gates |
 | "Watermark não contém as colunas esperadas" | Mudou `watermark_columns` entre execuções | Limpe a state table ou use uma nova `target_table` |
+
+---
+
+## 9B. Backfill e Catchup por Janelas
+
+`execution.window` quebra uma ingestão em sub-runs temporais. O plano pai coordena a execução e cada janela chama `ingest_plan` com:
+
+- `parent_run_id` comum para rastreabilidade em `ctrl_ingestion_runs`
+- filtro automático `[start, end)` na coluna declarada
+- `runtime_parameters` com `_contractforge_window_label`, `_contractforge_window_column`, `_contractforge_window_start` e `_contractforge_window_end`
+- `idempotency_key` com sufixo `:window:<label>`, quando uma chave base é declarada
+
+### 9B.1 Backfill com janelas geradas
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:erp/postgres_url }}"
+    dbtable: public.orders
+
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+layer: silver
+mode: scd1_upsert
+merge_keys: order_id
+idempotency_key: "orders-backfill-2026-05"
+idempotency_policy: skip_if_success
+
+execution:
+  window:
+    column: updated_at
+    start: "2026-05-01T00:00:00"
+    end: "2026-05-08T00:00:00"
+    every: "1 day"
+    stop_on_failure: true
+```
+
+O filtro aplicado em cada janela segue a semântica half-open:
+
+```sql
+CAST(updated_at AS TIMESTAMP) >= CAST('<start>' AS TIMESTAMP)
+AND CAST(updated_at AS TIMESTAMP) < CAST('<end>' AS TIMESTAMP)
+```
+
+### 9B.2 Backfill com janelas explícitas
+
+```yaml
+execution:
+  window:
+    column: business_date
+    stop_on_failure: false
+    windows:
+      - label: d1
+        start: "2026-05-01"
+        end: "2026-05-02"
+      - label: d2
+        start: "2026-05-02"
+        end: "2026-05-03"
+```
+
+### 9B.3 Catchup a partir do watermark
+
+`execution.catchup` gera janelas usando o watermark salvo como início quando `start` é omitido. Ele exige `watermark_columns` e `execution.catchup.column` deve estar nessa lista.
+
+```yaml
+watermark_columns: updated_at
+execution:
+  catchup:
+    enabled: true
+    column: updated_at
+    end: "2026-05-17T00:00:00"
+    every: "1 day"
+```
+
+Use catchup para avançar lacunas incrementais. Para reprocessar histórico anterior ao watermark atual, use `execution.window` em contrato separado sem watermark ou em uma target/stage dedicada, evitando que o watermark incremental atual interfira no backfill.
 
 ---
 

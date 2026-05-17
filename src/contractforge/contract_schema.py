@@ -213,6 +213,60 @@ def yaml_schema() -> Dict[str, Any]:
             },
         },
     }
+    execution_window_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["column"],
+        "properties": {
+            "column": {"type": "string"},
+            "windows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["start", "end"],
+                    "properties": {
+                        "start": {"type": "string"},
+                        "end": {"type": "string"},
+                        "label": {"type": ["string", "null"]},
+                    },
+                },
+            },
+            "start": {"type": "string"},
+            "end": {"type": "string"},
+            "every": {
+                "type": "string",
+                "description": "Duração simples: '1 hour', '1 day' ou '1 week'.",
+            },
+            "stop_on_failure": {"type": "boolean"},
+        },
+    }
+    execution_catchup_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "enabled": {"type": "boolean"},
+            "column": {"type": "string"},
+            "start": {
+                "type": ["string", "null"],
+                "description": "Opcional. Se omitido, usa o watermark salvo em ctrl_ingestion_state.",
+            },
+            "end": {"type": "string"},
+            "every": {
+                "type": "string",
+                "description": "Duração simples: '1 hour', '1 day' ou '1 week'.",
+            },
+            "stop_on_failure": {"type": "boolean"},
+        },
+    }
+    execution_schema = {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "properties": {
+            "window": execution_window_schema,
+            "catchup": execution_catchup_schema,
+        },
+    }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://github.com/marquesantero/contractforge/schema.json",
@@ -429,6 +483,7 @@ def yaml_schema() -> Dict[str, Any]:
             "openlineage_producer": {"type": "string"},
             "use_cache": {"type": "boolean"},
             "lock_enabled": {"type": "boolean"},
+            "execution": execution_schema,
             "idempotency_key": {"type": ["string", "null"]},
             "idempotency_policy": {"enum": sorted(VALID_IDEMPOTENCY_POLICIES)},
             "retry_attempts": {"type": "integer", "minimum": 1},

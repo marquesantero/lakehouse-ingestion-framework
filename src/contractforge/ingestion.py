@@ -28,6 +28,10 @@ from .lineage import capture_explain, write_explain_plan, write_openlineage_even
 from .plan import (  # noqa: F401
     ConnectorSpec,
     DeduplicateConfig,
+    ExecutionCatchupConfig,
+    ExecutionConfig,
+    ExecutionWindow,
+    ExecutionWindowConfig,
     IngestionPlan,
     QualityExpression,
     QualityRules,
@@ -884,6 +888,10 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         Dict com status, run_id, contagens, watermarks, mudanças de schema,
         métricas Delta, evento OpenLineage e mensagem de erro (se houver).
     """
+    if plan.execution:
+        from .execution import ingest_execution_plan
+
+        return ingest_execution_plan(plan)
     if isinstance(plan.source, ConnectorSpec) and plan.source.connector == "autoloader":
         return ingest_stream_plan(replace(plan, source=_autoloader_connector_to_source_spec(plan.source)))
     if isinstance(plan.source, SourceSpec):

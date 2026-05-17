@@ -154,6 +154,34 @@ transform:
     order_by: "updated_at DESC NULLS LAST, ingestion_sequence DESC"
 ```
 
+## Backfill e Catchup por Janelas
+
+Use `execution.window` para quebrar uma carga histórica em sub-runs rastreáveis. Cada janela aplica um filtro `[start, end)` na coluna declarada e aparece em `ctrl_ingestion_runs` com `parent_run_id` comum.
+
+```yaml
+execution:
+  window:
+    column: updated_at
+    start: "2026-05-01T00:00:00"
+    end: "2026-05-08T00:00:00"
+    every: "1 day"
+    stop_on_failure: true
+```
+
+Para catchup operacional, `execution.catchup` pode usar o watermark salvo como início quando `start` for omitido:
+
+```yaml
+watermark_columns: updated_at
+execution:
+  catchup:
+    enabled: true
+    column: updated_at
+    end: "2026-05-17T00:00:00"
+    every: "1 day"
+```
+
+Se usar `idempotency_key`, a lib adiciona automaticamente o sufixo `:window:<label>` em cada sub-run. Para backfill histórico anterior ao watermark atual, use um contrato separado sem `watermark_columns` ou uma target/stage própria; catchup é para avançar janelas incrementais.
+
 ## CLI
 
 ```bash

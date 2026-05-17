@@ -508,6 +508,47 @@ class TransformConfig:
 
 
 @dataclass(frozen=True)
+class ExecutionWindow:
+    """Janela temporal explícita para execução/backfill/catchup."""
+
+    start: str
+    end: str
+    label: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ExecutionWindowConfig:
+    """Configuração declarativa para quebrar uma ingestão em sub-runs por janela."""
+
+    column: str
+    windows: List[ExecutionWindow] = field(default_factory=list)
+    start: Optional[str] = None
+    end: Optional[str] = None
+    every: Optional[str] = None
+    stop_on_failure: bool = True
+
+
+@dataclass(frozen=True)
+class ExecutionCatchupConfig:
+    """Configuração declarativa para gerar janelas a partir do watermark/state."""
+
+    enabled: bool = False
+    column: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    every: Optional[str] = None
+    stop_on_failure: bool = True
+
+
+@dataclass(frozen=True)
+class ExecutionConfig:
+    """Namespace para orquestração declarativa de janelas."""
+
+    window: Optional[ExecutionWindowConfig] = None
+    catchup: Optional[ExecutionCatchupConfig] = None
+
+
+@dataclass(frozen=True)
 class IngestionPlan:
     """Contrato declarativo de ingestão de uma tabela.
 
@@ -577,6 +618,7 @@ class IngestionPlan:
     openlineage_producer: str = "contractforge"
     use_cache: bool = True
     lock_enabled: bool = False
+    execution: Optional[ExecutionConfig] = None
     idempotency_key: Optional[str] = None
     idempotency_policy: IdempotencyPolicy = "always_run"
     retry_attempts: Optional[int] = None
@@ -725,6 +767,105 @@ def _normalize_deduplicate_config(value: Any) -> Optional[DeduplicateConfig]:
     return DeduplicateConfig(keys=keys, order_by=order_by)
 
 
+def _normalize_execution_window_item(item: Any, field: str) -> ExecutionWindow:
+    if isinstance(item, ExecutionWindow):
+        return item
+    raw = _require_mapping(item, field)
+    unexpected = set(raw) - {"start", "end", "label"}
+    if unexpected:
+        raise ValueError(f"{field} possui campos não reconhecidos: {sorted(unexpected)}")
+    start = str(raw.get("start") or "").strip()
+    end = str(raw.get("end") or "").strip()
+    label = str(raw.get("label")).strip() if raw.get("label") is not None else None
+    if not start or not end:
+        raise ValueError(f"{field} requer start e end")
+    if label == "":
+        raise ValueError(f"{field}.label não pode ser vazio")
+    return ExecutionWindow(start=start, end=end, label=label)
+
+
+def _normalize_execution_window_config(value: Any) -> Optional[ExecutionWindowConfig]:
+    if value is None:
+        return None
+    if isinstance(value, ExecutionWindowConfig):
+        return value
+    raw = _require_mapping(value, "execution.window")
+    unexpected = set(raw) - {"column", "windows", "start", "end", "every", "stop_on_failure"}
+    if unexpected:
+        raise ValueError(f"execution.window possui campos não reconhecidos: {sorted(unexpected)}")
+    column = str(raw.get("column") or "").strip()
+    if not column:
+        raise ValueError("execution.window.column é obrigatório")
+    raw_windows = raw.get("windows")
+    windows: List[ExecutionWindow] = []
+    if raw_windows is not None:
+        if isinstance(raw_windows, Mapping) or isinstance(raw_windows, str):
+            raise ValueError("execution.window.windows deve ser uma lista")
+        windows = [
+            _normalize_execution_window_item(item, f"execution.window.windows[{idx}]")
+            for idx, item in enumerate(raw_windows)
+        ]
+    start = str(raw.get("start") or "").strip() or None
+    end = str(raw.get("end") or "").strip() or None
+    every = str(raw.get("every") or "").strip() or None
+    if windows and any([start, end, every]):
+        raise ValueError("execution.window use windows explícitas ou start/end/every, não ambos")
+    if not windows and not (start and end and every):
+        raise ValueError("execution.window requer windows ou start/end/every")
+    return ExecutionWindowConfig(
+        column=column,
+        windows=windows,
+        start=start,
+        end=end,
+        every=every,
+        stop_on_failure=bool(raw.get("stop_on_failure", True)),
+    )
+
+
+def _normalize_execution_catchup_config(value: Any) -> Optional[ExecutionCatchupConfig]:
+    if value is None:
+        return None
+    if isinstance(value, ExecutionCatchupConfig):
+        return value
+    raw = _require_mapping(value, "execution.catchup")
+    unexpected = set(raw) - {"enabled", "column", "start", "end", "every", "stop_on_failure"}
+    if unexpected:
+        raise ValueError(f"execution.catchup possui campos não reconhecidos: {sorted(unexpected)}")
+    enabled = bool(raw.get("enabled", True))
+    column = str(raw.get("column") or "").strip() or None
+    start = str(raw.get("start") or "").strip() or None
+    end = str(raw.get("end") or "").strip() or None
+    every = str(raw.get("every") or "").strip() or None
+    if enabled and not (column and end and every):
+        raise ValueError("execution.catchup habilitado requer column, end e every")
+    return ExecutionCatchupConfig(
+        enabled=enabled,
+        column=column,
+        start=start,
+        end=end,
+        every=every,
+        stop_on_failure=bool(raw.get("stop_on_failure", True)),
+    )
+
+
+def _normalize_execution_config(value: Any) -> Optional[ExecutionConfig]:
+    if value is None:
+        return None
+    if isinstance(value, ExecutionConfig):
+        return value
+    raw = _require_mapping(value, "execution")
+    unexpected = set(raw) - {"window", "catchup"}
+    if unexpected:
+        raise ValueError(f"execution possui campos não reconhecidos: {sorted(unexpected)}")
+    window = _normalize_execution_window_config(raw.get("window"))
+    catchup = _normalize_execution_catchup_config(raw.get("catchup"))
+    if window and catchup and catchup.enabled:
+        raise ValueError("execution aceita window ou catchup, não ambos")
+    if not window and not catchup:
+        raise ValueError("execution requer window ou catchup")
+    return ExecutionConfig(window=window, catchup=catchup)
+
+
 def _normalize_transform_config(
     transform_value: Any,
     *,
@@ -775,7 +916,7 @@ _KNOWN_PARAMS = {
     "fix_encoding", "encoding", "encoding_columns", "dry_run", "explain_mode",
     "explain_format", "openlineage_enabled", "openlineage_namespace",
     "openlineage_producer", "use_cache", "lock_enabled", "idempotency_key",
-    "idempotency_policy", "retry_attempts", "retry_backoff_seconds", "hooks",
+    "execution", "idempotency_policy", "retry_attempts", "retry_backoff_seconds", "hooks",
     "annotations", "operations", "access", "preset", "presets", "applied_presets",
     "parent_run_id", "run_group_id", "master_job_id", "master_run_id",
 }
@@ -851,6 +992,14 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
         raise ValueError("retry_attempts deve ser inteiro positivo")
     if plan.retry_backoff_seconds is not None and plan.retry_backoff_seconds < 0:
         raise ValueError("retry_backoff_seconds deve ser inteiro não negativo")
+    if plan.execution:
+        if plan.mode == "snapshot_soft_delete":
+            raise ValueError("execution.window/catchup é incompatível com snapshot_soft_delete")
+        if plan.execution.catchup and plan.execution.catchup.enabled and not plan.watermark_columns:
+            raise ValueError("execution.catchup requer watermark_columns para ler estado incremental")
+        if plan.execution.catchup and plan.execution.catchup.enabled:
+            if plan.execution.catchup.column not in plan.watermark_columns:
+                raise ValueError("execution.catchup.column deve estar em watermark_columns")
     if plan.allow_type_widening and plan.schema_policy == "strict":
         raise ValueError("allow_type_widening=True é incompatível com schema_policy=strict")
     if len(set(plan.column_mapping.values())) != len(plan.column_mapping):
@@ -1013,6 +1162,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         openlineage_producer=kwargs.get("openlineage_producer", "contractforge"),
         use_cache=bool(kwargs.get("use_cache", True)),
         lock_enabled=bool(kwargs.get("lock_enabled", False)),
+        execution=_normalize_execution_config(kwargs.get("execution")),
         idempotency_key=kwargs.get("idempotency_key"),
         idempotency_policy=idempotency_policy,  # type: ignore[arg-type]
         retry_attempts=(

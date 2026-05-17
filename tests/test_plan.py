@@ -6,6 +6,8 @@ import pytest
 from contractforge import (
     IngestionPlan,
     DeduplicateConfig,
+    ExecutionConfig,
+    ExecutionWindowConfig,
     QualityExpression,
     QualityRules,
     ShapeConfig,
@@ -25,6 +27,7 @@ from contractforge.plan import (
     validate_plan_shape,
     validate_write_mode,
 )
+from contractforge.execution import build_time_windows
 from contractforge.hooks import IngestionHooks
 from contractforge.ingestion import _validate_static_plan_options
 
@@ -270,6 +273,81 @@ def test_build_plan_accepts_mapping_delta_properties_and_retry_options():
     assert plan.delta_properties == {"delta.enableChangeDataFeed": "true"}
     assert plan.retry_attempts == 5
     assert plan.retry_backoff_seconds == 0
+
+
+def test_build_plan_accepts_execution_window_generated_config():
+    plan = build_plan_from_kwargs(
+        source="raw.orders",
+        target_table="s_orders",
+        mode="scd1_upsert",
+        merge_keys="id",
+        execution={
+            "window": {
+                "column": "updated_at",
+                "start": "2026-05-01T00:00:00",
+                "end": "2026-05-03T00:00:00",
+                "every": "1 day",
+            }
+        },
+    )
+    assert isinstance(plan.execution, ExecutionConfig)
+    assert isinstance(plan.execution.window, ExecutionWindowConfig)
+    assert plan.execution.window.column == "updated_at"
+    assert plan.execution.window.every == "1 day"
+
+
+def test_build_plan_accepts_execution_window_explicit_windows():
+    plan = build_plan_from_kwargs(
+        source="raw.orders",
+        target_table="s_orders",
+        execution={
+            "window": {
+                "column": "business_date",
+                "windows": [
+                    {"start": "2026-05-01", "end": "2026-05-02", "label": "d1"},
+                    {"start": "2026-05-02", "end": "2026-05-03", "label": "d2"},
+                ],
+                "stop_on_failure": False,
+            }
+        },
+    )
+    assert plan.execution is not None
+    assert plan.execution.window is not None
+    assert [window.label for window in plan.execution.window.windows] == ["d1", "d2"]
+    assert plan.execution.window.stop_on_failure is False
+
+
+def test_build_plan_rejects_invalid_execution_window_contract():
+    with pytest.raises(ValueError, match="start/end/every"):
+        build_plan_from_kwargs(
+            source="raw.orders",
+            target_table="s_orders",
+            execution={"window": {"column": "updated_at"}},
+        )
+
+
+def test_build_plan_rejects_catchup_without_watermark():
+    with pytest.raises(ValueError, match="execution.catchup requer watermark_columns"):
+        build_plan_from_kwargs(
+            source="raw.orders",
+            target_table="s_orders",
+            execution={
+                "catchup": {
+                    "enabled": True,
+                    "column": "updated_at",
+                    "end": "2026-05-03T00:00:00",
+                    "every": "1 day",
+                }
+            },
+        )
+
+
+def test_build_time_windows_generates_half_open_intervals():
+    windows = build_time_windows("2026-05-01T00:00:00", "2026-05-03T00:00:00", "1 day")
+    assert [(item.start, item.end) for item in windows] == [
+        ("2026-05-01 00:00:00", "2026-05-02 00:00:00"),
+        ("2026-05-02 00:00:00", "2026-05-03 00:00:00"),
+    ]
 
 
 def test_build_plan_accepts_shape_contract():

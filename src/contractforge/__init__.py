@@ -30,6 +30,10 @@ from .ingestion import (
     QualityExpression,
     ConnectorSpec,
     DeduplicateConfig,
+    ExecutionCatchupConfig,
+    ExecutionConfig,
+    ExecutionWindow,
+    ExecutionWindowConfig,
     IngestionPlan,
     QualityRules,
     SourceSpec,
@@ -84,6 +88,10 @@ __all__ = [
     "contract_template_details",
     "contract_template_files",
     "DeduplicateConfig",
+    "ExecutionCatchupConfig",
+    "ExecutionConfig",
+    "ExecutionWindow",
+    "ExecutionWindowConfig",
     "UCCapabilities",
     "access_drift_report",
     "AnnotationsContract",
@@ -152,4 +160,4 @@ __all__ = [
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"

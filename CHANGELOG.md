@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.10.0 - 2026-05-17
+
+- Adiciona `execution.window` para executar backfills em sub-runs temporais com `parent_run_id`, filtro `[start, end)` e métricas agregadas no retorno pai.
+- Adiciona `execution.catchup` para gerar janelas a partir do watermark salvo quando `start` é omitido.
+- Documenta exemplos YAML de backfill/catchup, idempotência por janela e restrições com watermark histórico.
+
 ## 2.9.0 - 2026-05-17
 
 - Adiciona `contractforge templates wizard` para recomendar templates por `layer`, `source`, `mode` e `pattern`, com opção de gravar o melhor bundle YAML.
