@@ -910,7 +910,7 @@ mode: scd0_append
 
 Aliases `postgres`, `postgresql`, `sqlserver`, `mysql` e `oracle` usam o mesmo executor JDBC, mas deixam o contrato mais explícito e a observabilidade registra o conector real declarado. Os drivers JDBC continuam responsabilidade do runtime.
 
-Para Amazon RDS/Aurora com IAM database authentication, o conector pode gerar o token IAM no driver Python usando `auth.type: rds_iam`. A lib não depende de `boto3` nem AWS CLI para isso; ela assina o token SigV4 a partir das credenciais declaradas ou das variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
+Para Amazon RDS/Aurora com IAM database authentication, o conector pode gerar o token IAM no driver Python usando `auth.type: rds_iam`. A lib não depende de `boto3` nem AWS CLI para isso; ela assina o token SigV4 a partir das credenciais declaradas, das variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`, ou da AWS credential provider chain quando `credential_provider: default_chain` for configurado com `botocore` instalado.
 
 O guia operacional completo está em [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md). Ele cobre driver JDBC, cluster `SINGLE_USER` versus artifact allowlist, `GRANT rds_iam`, policy `rds-db:connect`, secrets e troubleshooting.
 
@@ -932,9 +932,19 @@ source:
     sslmode: require
 ```
 
+Para usar instance profile, web identity ou outro provider suportado por `botocore`, substitua as chaves explícitas por:
+
+```yaml
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    credential_provider: default_chain
+```
+
 Conectividade continua sendo responsabilidade do runtime. Para RDS/Aurora, use uma das opções suportadas pela plataforma: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional com security group restrito, ou Aurora Express Internet Access Gateway quando esse modo estiver habilitado e acessível a partir do compute.
 
-Validação real já realizada em Databricks classic single-node com Aurora PostgreSQL 17.7 e ContractForge 2.6.5: `auth.type=rds_iam`, Spark JDBC, particionamento JDBC, quality rules e `scd1_hash_diff` terminaram com `SUCCESS`.
+Validação real já realizada em Databricks classic single-node com Aurora PostgreSQL 17.7 e ContractForge 2.6.5+: `auth.type=rds_iam`, Spark JDBC, particionamento JDBC, quality rules e `scd1_hash_diff` terminaram com `SUCCESS`.
 
 Regras:
 

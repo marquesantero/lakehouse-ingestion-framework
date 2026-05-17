@@ -113,7 +113,7 @@ quality_rules:
 
 `layer` é metadata operacional e pode ser customizado. O schema físico é `target.schema` ou `target_schema`; se omitido, a lib usa `layer` como fallback.
 
-Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python. A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway. Veja o guia completo em [docs/rds_iam_jdbc.md](docs/rds_iam_jdbc.md).
+Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python com credenciais explícitas, variáveis `AWS_*` ou `credential_provider: default_chain` (`contractforge[aws]`). A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway. Veja o guia completo em [docs/rds_iam_jdbc.md](docs/rds_iam_jdbc.md).
 
 ## Shape Declarativo
 

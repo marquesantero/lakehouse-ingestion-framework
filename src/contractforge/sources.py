@@ -503,6 +503,25 @@ def _infer_aws_region_from_host(host: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def _aws_credentials_from_default_chain() -> tuple[str, str, Optional[str]]:
+    try:
+        import botocore.session  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ValueError(
+            "source.auth.type=rds_iam com credential_provider=default_chain requer botocore "
+            "instalado no driver ou credenciais explícitas em source.auth"
+        ) from exc
+
+    session = botocore.session.get_session()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise ValueError(
+            "source.auth.type=rds_iam não encontrou credenciais AWS na default credential chain"
+        )
+    frozen = credentials.get_frozen_credentials()
+    return frozen.access_key, frozen.secret_key, frozen.token
+
+
 def _rds_iam_auth_token(
     *,
     host: str,
@@ -1298,28 +1317,39 @@ class JdbcConnector:
             region = str(auth.get("region") or _infer_aws_region_from_host(host) or "").strip()
             if not region:
                 raise ValueError("source.auth.type=rds_iam requer auth.region quando a região não puder ser inferida")
-            access_key = (
-                auth.get("access_key_id")
-                or auth.get("access_key")
-                or auth.get("aws_access_key_id")
-                or os.getenv("AWS_ACCESS_KEY_ID")
-            )
-            secret_key = (
-                auth.get("secret_access_key")
-                or auth.get("secret_key")
-                or auth.get("aws_secret_access_key")
-                or os.getenv("AWS_SECRET_ACCESS_KEY")
-            )
-            session_token = (
-                auth.get("session_token")
-                or auth.get("token")
-                or auth.get("aws_session_token")
-                or os.getenv("AWS_SESSION_TOKEN")
-            )
+            credential_provider = str(
+                auth.get("credential_provider")
+                or auth.get("credentials_provider")
+                or auth.get("aws_credential_provider")
+                or ""
+            ).strip().lower()
+            access_key = auth.get("access_key_id") or auth.get("access_key") or auth.get("aws_access_key_id")
+            secret_key = auth.get("secret_access_key") or auth.get("secret_key") or auth.get("aws_secret_access_key")
+            session_token = auth.get("session_token") or auth.get("token") or auth.get("aws_session_token")
+            credential_source = "explicit"
+            if not access_key or not secret_key:
+                env_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+                env_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+                env_session_token = os.getenv("AWS_SESSION_TOKEN")
+                if env_access_key and env_secret_key:
+                    access_key = env_access_key
+                    secret_key = env_secret_key
+                    session_token = session_token or env_session_token
+                    credential_source = "env"
+                elif credential_provider in {"default_chain", "aws_default_chain", "botocore", "boto3"}:
+                    access_key, secret_key, provider_session_token = _aws_credentials_from_default_chain()
+                    session_token = session_token or provider_session_token
+                    credential_source = "default_chain"
+                elif credential_provider:
+                    raise ValueError(
+                        "source.auth.credential_provider para rds_iam deve ser default_chain "
+                        "(aliases aceitos: aws_default_chain, botocore, boto3)"
+                    )
             if not access_key or not secret_key:
                 raise ValueError(
                     "source.auth.type=rds_iam requer access_key_id e secret_access_key "
-                    "ou variáveis AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY disponíveis no driver"
+                    "ou variáveis AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY disponíveis no driver; "
+                    "para usar AWS credential provider chain, configure credential_provider=default_chain"
                 )
             options["user"] = username
             options["password"] = _rds_iam_auth_token(
@@ -1338,6 +1368,7 @@ class JdbcConnector:
                 "jdbc_auth_type": "rds_iam",
                 "jdbc_rds_iam_token_generated": True,
                 "jdbc_rds_region": region,
+                "jdbc_rds_iam_credential_source": credential_source,
                 "jdbc_ssl_enabled": True,
             }
         raise ValueError(

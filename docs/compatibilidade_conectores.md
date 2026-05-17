@@ -126,7 +126,7 @@ watermark_columns: updated_at
 
 ## Exemplo JDBC Amazon RDS/Aurora com IAM Auth
 
-`auth.type: rds_iam` gera o token IAM no driver Python no momento da leitura. O token vale poucos minutos para abrir a conexão, mas a sessão estabelecida continua válida. Use esse caminho quando o runtime já tem credenciais AWS declaradas em secrets ou variáveis de ambiente.
+`auth.type: rds_iam` gera o token IAM no driver Python no momento da leitura. O token vale poucos minutos para abrir a conexão, mas a sessão estabelecida continua válida. Use esse caminho quando o runtime já tem credenciais AWS declaradas em secrets, variáveis de ambiente ou AWS credential provider chain.
 
 O setup completo de usuário PostgreSQL, IAM policy `rds-db:connect`, secrets, driver JDBC e troubleshooting está em [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md).
 
@@ -147,6 +147,18 @@ source:
     session_token: "{{ secret:contractforge-aws/aws_session_token }}"
     sslmode: require
 ```
+
+Para instance profile, web identity ou outro mecanismo da provider chain do `botocore`, omita as chaves explícitas e use:
+
+```yaml
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    credential_provider: default_chain
+```
+
+Esse modo exige `botocore` no driver Python, por exemplo instalando `contractforge[aws]`.
 
 Alternativas de rede recomendadas:
 
