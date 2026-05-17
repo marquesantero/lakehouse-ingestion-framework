@@ -159,9 +159,24 @@ def resolve_write_metrics(
     operation_metrics["logicalMetrics"] = logical
     if operation_metrics.get("operationMetrics"):
         row_metrics = extract_row_metrics(operation_metrics)
-        row_metrics["rows_affected"] = logical["rows_affected"]
+        delta_rows_affected = (
+            row_metrics["rows_inserted"]
+            + row_metrics["rows_updated"]
+            + row_metrics["rows_deleted"]
+        )
+        row_metrics["rows_affected"] = max(logical["rows_affected"], delta_rows_affected)
         return row_metrics, operation_metrics, "mixed"
     return logical, operation_metrics, "logical"
+
+
+def normalize_rows_written(rows_written: int, row_metrics: Dict[str, int]) -> int:
+    """Normaliza ``rows_written`` para a métrica lógica mais completa disponível.
+
+    Alguns runtimes podem devolver métricas Delta confiáveis mesmo quando o
+    writer não conseguiu contar as linhas afetadas. Nesses casos, preservamos
+    ``rows_written`` como contador operacional principal usando ``rows_affected``.
+    """
+    return max(int(rows_written or 0), int(row_metrics.get("rows_affected") or 0))
 
 
 def affected_partition_values(df: DataFrame, partition_col: Optional[str]) -> List[Any]:

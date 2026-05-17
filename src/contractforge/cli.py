@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, List
 
-from .config import VALID_LAYERS, VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
+from .config import VALID_SCHEMA_POLICIES, VALID_WRITE_MODES
 from .contract_bundle import governance_check, governance_preview, load_contract_bundle
 from .contract_schema import yaml_schema
 from .maintenance import apply_ctrl_retention
@@ -553,7 +553,11 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--source", required=True)
     init_parser.add_argument("--target-table", required=True)
     init_parser.add_argument("--catalog", default="main")
-    init_parser.add_argument("--layer", default="bronze", choices=sorted(VALID_LAYERS))
+    init_parser.add_argument(
+        "--layer",
+        default="bronze",
+        help="Classificação lógica do contrato. Exemplos: bronze, silver, gold, stage, raw, curated.",
+    )
     init_parser.add_argument(
         "--target-schema",
         help="Schema físico do target. Quando omitido, usa o valor de --layer.",

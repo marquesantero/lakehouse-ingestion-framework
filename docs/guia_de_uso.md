@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-2.4.3-py3-none-any.whl
+# gera: dist/contractforge-2.6.5-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.5-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import contractforge
-print(contractforge.__version__)  # 2.4.3
+print(contractforge.__version__)  # 2.6.5
 from contractforge import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from contractforge import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==2.4.3
+%pip install --index-url https://<seu_pypi_privado> contractforge==2.6.5
 ```
 
 Em seguida:
@@ -591,6 +591,28 @@ mode: snapshot_soft_delete
 merge_keys: [order_id]
 ```
 
+Em classic/job cluster/local, credenciais S3 podem ser declaradas no contrato e resolvidas por Databricks Secrets:
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  format: csv
+  path: s3a://empresa-landing/orders/
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}" # opcional
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Em serverless, prefira External Location/Volume para S3. Se o runtime bloquear `spark.conf.set` para `fs.s3a.*`, a lib falha com mensagem objetiva em vez de tentar fallback implícito.
+
 ```yaml
 source:
   type: connector
@@ -618,7 +640,7 @@ Em Databricks serverless, use Azure Blob/ADLS por Unity Catalog External Locatio
 source:
   type: connector
   connector: azure_blob
-  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/json/jsonl/iot_events_120k.jsonl
+  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/json/iot_events.jsonl
   format: jsonl
   read:
     source_complete: true
@@ -695,10 +717,52 @@ source:
   options:
     url: "{{ secret:erp/jdbc_url }}"
     dbtable: public.orders
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
   incremental:
     watermark_column: updated_at
     initial_value: "1970-01-01 00:00:00"
 ```
+
+Para Amazon RDS/Aurora com IAM authentication, use `auth.type: rds_iam`. A ContractForge gera o token IAM no driver Python sem depender de `boto3` ou AWS CLI. As credenciais podem vir de `source.auth`, variáveis `AWS_*` ou `credential_provider: default_chain` com `botocore` instalado. A rede ainda precisa estar acessível via mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway:
+
+Guia completo com usuário PostgreSQL, `GRANT rds_iam`, IAM policy `rds-db:connect`, secrets e troubleshooting: [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md).
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    sslmode: require
+```
+
+Com instance profile, web identity ou outra provider chain suportada por `botocore`, use:
+
+```yaml
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    credential_provider: default_chain
+```
+
+Notas operacionais:
+
+- Para PostgreSQL, instale o driver `org.postgresql:postgresql:42.7.4` no cluster.
+- Em cluster Unity Catalog `standard`/shared, Maven externo pode exigir artifact allowlist; para validações controladas, cluster `SINGLE_USER` evita esse bloqueio.
+- `PAM authentication failed` é erro de autenticação do RDS/Aurora, não de rede. Verifique `rds_iam`, `rds-db:connect`, região, usuário e expiração de token.
 
 ---
 
@@ -1407,7 +1471,7 @@ spark_module._cached_session = sess
 
 **P: Quais permissões UC o cluster precisa?**
 - `USE CATALOG` no catálogo alvo.
-- `USE SCHEMA` + `CREATE TABLE` em `<catalog>.<layer>` (bronze/silver/gold).
+- `USE SCHEMA` + `CREATE TABLE` no schema físico de destino: `<catalog>.<target_schema>` quando informado, ou `<catalog>.<layer>` como fallback.
 - `USE SCHEMA` + `CREATE TABLE` em `<catalog>.<ctrl_schema>` (default: `ops`).
 - `MODIFY` nas tabelas existentes do alvo.
 - `READ` nas fontes.
