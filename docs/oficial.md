@@ -830,6 +830,37 @@ Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `c
 
 Quando o schema é conhecido, declare `source.read.schema` como DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; declarar ambos com valores diferentes falha antes da leitura. Isso evita inferência em leituras grandes ou com muitos arquivos pequenos e aparece em `source_metrics_json.schema_declared=true`.
 
+### 5C.2A Filtro Regex de Arquivos
+
+Use `pathGlobFilter` quando o glob simples do Spark for suficiente. Para casos em que o nome ou path relativo precisa de regex real, declare `source.read.file_regex`. A ContractForge lista arquivos pelo filesystem do Spark/Hadoop, filtra no driver e passa ao `spark.read` somente os arquivos compatíveis.
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  options:
+    header: true
+    recursiveFileLookup: true
+  read:
+    schema: "order_id STRING, order_date DATE, amount DOUBLE"
+    file_regex: "^year=2026/month=05/.*/orders_\\d+\\.csv$"
+    file_regex_scope: relative_path
+    file_regex_max_listed: 50000
+```
+
+Campos:
+
+- `file_regex`: expressão regular Python aplicada a cada arquivo listado.
+- `file_regex_scope`: `relative_path` por padrão, ou `filename` para avaliar só o nome do arquivo.
+- `file_regex_max_listed`: limite de segurança para arquivos listados antes de falhar. Default: `10000`.
+- `file_regex_recursive`: controla listagem recursiva. Se omitido, segue `options.recursiveFileLookup`.
+
+Se nenhum arquivo casar, a execução falha antes da leitura. O retorno e `ctrl_ingestion_runs.source_metrics_json` registram `file_regex_applied`, `files_listed`, `files_matched`, `file_regex_scope` e `file_regex_recursive`.
+
+Use com cuidado em object storage: listagens recursivas amplas podem ser caras e lentas. Prefira path mais específico ou `pathGlobFilter` quando possível.
+
 ### 5C.2B HTTP File
 
 Use `http_file` quando a origem é um arquivo publicado por HTTP(S), mas o runtime Spark não consegue ler `https://` diretamente como filesystem. O conector baixa o conteúdo com Python, parseia o formato declarado e cria o DataFrame Spark. É indicado para arquivos públicos ou autenticados de volume controlado; para alto volume recorrente, prefira landing em storage + Auto Loader.

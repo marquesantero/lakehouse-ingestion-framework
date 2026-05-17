@@ -334,6 +334,99 @@ def test_file_connector_accepts_top_level_source_schema_alias(monkeypatch):
     assert resolved.metadata["source_metrics"]["schema_declared"] is True
 
 
+def test_file_connector_applies_file_regex_filter(monkeypatch):
+    calls = {"format": None, "options": {}, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(
+        FileConnector,
+        "_list_files",
+        staticmethod(
+            lambda path, recursive, max_files: [
+                "/landing/orders/2026-05-01/orders_001.csv",
+                "/landing/orders/2026-05-01/_SUCCESS",
+                "/landing/orders/2026-05-02/orders_002.csv",
+            ]
+        ),
+    )
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "options": {"header": True, "recursiveFileLookup": True},
+            "read": {
+                "file_regex": r"orders_\d+\.csv$",
+                "file_regex_scope": "filename",
+                "file_regex_max_listed": 100,
+            },
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["load"] == [
+        "/landing/orders/2026-05-01/orders_001.csv",
+        "/landing/orders/2026-05-02/orders_002.csv",
+    ]
+    assert calls["options"] == {"header": "true", "recursiveFileLookup": "true"}
+    metrics = resolved.metadata["source_metrics"]
+    assert metrics["file_regex_applied"] is True
+    assert metrics["file_regex_scope"] == "filename"
+    assert metrics["file_regex_recursive"] is True
+    assert metrics["files_listed"] == 3
+    assert metrics["files_matched"] == 2
+
+
+def test_file_connector_file_regex_errors_when_no_match(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(
+        FileConnector,
+        "_list_files",
+        staticmethod(lambda path, recursive, max_files: ["/landing/orders/_SUCCESS"]),
+    )
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "read": {"file_regex": r"orders_\d+\.csv$"},
+        },
+        target_table="b_orders",
+    )
+
+    with pytest.raises(ValueError, match="source.read.file_regex não encontrou arquivos"):
+        resolve_batch_source(plan.source, plan)
+
+
 def test_connector_rejects_conflicting_top_level_source_schema_alias():
     with pytest.raises(ValueError, match="source.schema conflita com source.read.schema"):
         build_plan_from_kwargs(

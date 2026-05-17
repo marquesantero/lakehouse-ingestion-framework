@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.8.0 - 2026-05-17
+
+- Adiciona `source.read.file_regex` para filtrar arquivos por regex antes do `spark.read`, sem substituir `pathGlobFilter`.
+- Suporta `source.read.file_regex_scope` com `filename` ou `relative_path`, limite explícito via `source.read.file_regex_max_listed` e recursão controlada por `source.read.file_regex_recursive` ou `recursiveFileLookup`.
+- Registra métricas de listagem e match em `source_metrics_json`, incluindo `files_listed`, `files_matched` e `file_regex_applied`.
+
 ## 2.7.0 - 2026-05-17
 
 - Adiciona `transform` como namespace canônico para transformações físicas pré-quality/write.

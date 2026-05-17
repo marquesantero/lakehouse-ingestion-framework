@@ -595,6 +595,18 @@ def _bool_option(value: Any, *, default: bool = False) -> bool:
     raise ValueError(f"Valor booleano inválido: {value!r}")
 
 
+def _positive_int_option(value: Any, field: str, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except Exception as exc:
+        raise ValueError(f"{field} deve ser inteiro positivo") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field} deve ser inteiro positivo")
+    return parsed
+
+
 def _request_headers(
     spec: ConnectorSpec,
     connector: str,
@@ -953,16 +965,18 @@ class FileConnector:
         options = resolve_secrets(spec.options)
         schema = _optional_source_schema(spec)
         capabilities = self.capabilities(spec)
+        load_path, file_filter_metrics = self._apply_file_regex_filter(str(path), spec, options)
         reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
         if schema:
             reader = reader.schema(schema)
-        df = reader.load(str(path))
+        df = reader.load(load_path)
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
             "schema_declared": bool(schema),
+            **file_filter_metrics,
         }
         return SourceResolution(
             df,
@@ -971,6 +985,94 @@ class FileConnector:
             metadata,
             capabilities,
         )
+
+    @classmethod
+    def _apply_file_regex_filter(
+        cls,
+        path: str,
+        spec: ConnectorSpec,
+        options: Mapping[str, Any],
+    ) -> tuple[str | list[str], dict[str, Any]]:
+        pattern_text = str(spec.read.get("file_regex") or "").strip()
+        if not pattern_text:
+            return path, {"file_regex_applied": False}
+        try:
+            pattern = re.compile(pattern_text)
+        except re.error as exc:
+            raise ValueError(f"source.read.file_regex inválido: {exc}") from exc
+        scope = str(spec.read.get("file_regex_scope") or "relative_path").strip().lower()
+        if scope not in {"filename", "relative_path"}:
+            raise ValueError("source.read.file_regex_scope deve ser 'filename' ou 'relative_path'")
+        max_listed = _positive_int_option(spec.read.get("file_regex_max_listed"), "source.read.file_regex_max_listed", 10000)
+        recursive_raw = spec.read.get("file_regex_recursive")
+        recursive = (
+            _bool_option(recursive_raw, default=False)
+            if recursive_raw is not None
+            else _bool_option(options.get("recursiveFileLookup"), default=False)
+        )
+        listed_files = cls._list_files(path, recursive=recursive, max_files=max_listed)
+        root = path.rstrip("/")
+        matched: list[str] = []
+        for file_path in listed_files:
+            file_text = str(file_path)
+            relative = file_text[len(root):].lstrip("/") if file_text.startswith(root) else os.path.basename(file_text)
+            candidate = os.path.basename(file_text) if scope == "filename" else relative
+            if pattern.search(candidate):
+                matched.append(file_text)
+        if not matched:
+            raise ValueError(
+                "source.read.file_regex não encontrou arquivos compatíveis. "
+                f"pattern={pattern_text!r}, scope={scope}, listed_files={len(listed_files)}"
+            )
+        return matched, {
+            "file_regex_applied": True,
+            "file_regex": pattern_text,
+            "file_regex_scope": scope,
+            "file_regex_recursive": recursive,
+            "file_regex_max_listed": max_listed,
+            "files_listed": len(listed_files),
+            "files_matched": len(matched),
+        }
+
+    @staticmethod
+    def _list_files(path: str, *, recursive: bool, max_files: int) -> list[str]:
+        jvm = getattr(spark, "_jvm", None)
+        jsc = getattr(spark, "_jsc", None)
+        if jvm is None or jsc is None:
+            raise RuntimeError(
+                "source.read.file_regex requer acesso ao Hadoop FileSystem via PySpark clássico. "
+                "Em Spark Connect/serverless, use pathGlobFilter, External Location/Volume com path já filtrado "
+                "ou leia um prefixo menor."
+            )
+        hadoop_conf = jsc.hadoopConfiguration()
+        root = jvm.org.apache.hadoop.fs.Path(path)
+        fs = root.getFileSystem(hadoop_conf)
+        files: list[str] = []
+
+        def visit(current_path: Any) -> None:
+            status = fs.getFileStatus(current_path)
+            if status.isFile():
+                files.append(str(status.getPath().toString()))
+                if len(files) > max_files:
+                    raise ValueError(
+                        f"source.read.file_regex excedeu source.read.file_regex_max_listed={max_files}. "
+                        "Use um path mais específico, pathGlobFilter ou aumente explicitamente o limite."
+                    )
+                return
+            for child in fs.listStatus(current_path):
+                if child.isDirectory():
+                    if recursive:
+                        visit(child.getPath())
+                    continue
+                files.append(str(child.getPath().toString()))
+                if len(files) > max_files:
+                    raise ValueError(
+                        f"source.read.file_regex excedeu source.read.file_regex_max_listed={max_files}. "
+                        "Use um path mais específico, pathGlobFilter ou aumente explicitamente o limite."
+                    )
+
+        visit(root)
+        return files
 
 
 class ObjectStorageConnector(FileConnector):
@@ -1021,16 +1123,18 @@ class ObjectStorageConnector(FileConnector):
             raise
         capabilities = self.capabilities(spec)
         schema = _optional_source_schema(spec)
+        load_path, file_filter_metrics = self._apply_file_regex_filter(str(path), spec, options)
         reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
         if schema:
             reader = reader.schema(schema)
-        df = reader.load(str(path))
+        df = reader.load(load_path)
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
             "schema_declared": bool(schema),
+            **file_filter_metrics,
             **storage_metrics,
         }
         resolved = SourceResolution(

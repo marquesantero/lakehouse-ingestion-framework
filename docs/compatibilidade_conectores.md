@@ -30,6 +30,7 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 - Para arquivo público HTTP(S) pequeno/médio, prefira `http_file` em vez de `spark.read` direto em `https://`, principalmente em serverless.
 - Para APIs REST grandes, descarregue primeiro em landing files e use `autoloader`.
 - Para `snapshot_soft_delete`, declare `source.read.source_complete=true` apenas quando a fonte representar o estado completo.
+- Para filtros de arquivo, prefira `pathGlobFilter` quando o glob simples do Spark resolver. Use `source.read.file_regex` apenas quando precisar de regex real por `filename` ou `relative_path`; a lib lista arquivos pelo filesystem do Spark/Hadoop e aplica limite por `source.read.file_regex_max_listed`.
 - Para JDBC em tabelas grandes, configure `partition_column`, `lower_bound`, `upper_bound`, `num_partitions` e `fetchsize`.
 - Para Amazon RDS/Aurora, conectividade de rede não é resolvida pela lib: use mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB ou endpoint público tradicional. Aurora criado por Express Configuration pode usar Internet Access Gateway com IAM token, mas ainda exige permissão IAM e TCP acessível a partir do runtime.
 - Para Snowflake/BigQuery, valide o conector Spark no runtime antes de usar o contrato em produção.

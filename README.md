@@ -242,6 +242,26 @@ Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `jso
 
 Quando o schema é conhecido, use `source.read.schema` com DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; se ambos forem declarados com valores diferentes, o contrato falha antes da leitura. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
 
+Para diretórios com muitos arquivos, prefira `pathGlobFilter` quando o padrão simples do Spark resolver. Quando precisar de regex real, use `source.read.file_regex`; a lib lista arquivos pelo filesystem do Spark/Hadoop, aplica a regex e passa apenas os arquivos compatíveis ao reader:
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  options:
+    header: true
+    recursiveFileLookup: true
+  read:
+    schema: "order_id STRING, order_date DATE, amount DOUBLE"
+    file_regex: "^year=2026/month=05/.*/orders_\\d+\\.csv$"
+    file_regex_scope: relative_path # ou filename
+    file_regex_max_listed: 50000
+```
+
+`file_regex` é uma opção avançada: listagens recursivas em object storage podem custar caro. Se nenhum arquivo casar, a execução falha com erro claro.
+
 Para APIs REST com JSON complexo, use `response.mode: raw` e deixe `transform.shape` estruturar o payload com schema explícito:
 
 ```yaml
