@@ -726,7 +726,7 @@ source:
     initial_value: "1970-01-01 00:00:00"
 ```
 
-Para Amazon RDS/Aurora com IAM authentication, use `auth.type: rds_iam`. A ContractForge gera o token IAM no driver Python sem depender de `boto3` ou AWS CLI. A rede ainda precisa estar acessível via mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway:
+Para Amazon RDS/Aurora com IAM authentication, use `auth.type: rds_iam`. A ContractForge gera o token IAM no driver Python sem depender de `boto3` ou AWS CLI. As credenciais podem vir de `source.auth`, variáveis `AWS_*` ou `credential_provider: default_chain` com `botocore` instalado. A rede ainda precisa estar acessível via mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway:
 
 Guia completo com usuário PostgreSQL, `GRANT rds_iam`, IAM policy `rds-db:connect`, secrets e troubleshooting: [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md).
 
@@ -746,6 +746,16 @@ source:
     secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
     session_token: "{{ secret:contractforge-aws/aws_session_token }}"
     sslmode: require
+```
+
+Com instance profile, web identity ou outra provider chain suportada por `botocore`, use:
+
+```yaml
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    credential_provider: default_chain
 ```
 
 Notas operacionais:

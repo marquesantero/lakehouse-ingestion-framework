@@ -1003,8 +1003,60 @@ def test_jdbc_connector_generates_rds_iam_auth_token(monkeypatch):
     assert resolved.metadata["source_metrics"]["jdbc_auth_type"] == "rds_iam"
     assert resolved.metadata["source_metrics"]["jdbc_rds_iam_token_generated"] is True
     assert resolved.metadata["source_metrics"]["jdbc_rds_region"] == "us-east-1"
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_credential_source"] == "explicit"
     _assert_text_not_present(resolved.metadata, "SECRET_TEST")
     _assert_text_not_present(resolved.metadata, "SESSION_TEST")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token_with_default_chain(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sources_module,
+        "_aws_credentials_from_default_chain",
+        lambda: ("AKIA_CHAIN", "SECRET_CHAIN", "TOKEN_CHAIN"),
+    )
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={
+            "url": "jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres",
+            "dbtable": "public.orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "postgres",
+            "credential_provider": "default_chain",
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "postgres"
+    assert "Action=connect" in captured["password"]
+    assert "X-Amz-Security-Token=" in captured["password"]
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_credential_source"] == "default_chain"
+    _assert_text_not_present(resolved.metadata, "SECRET_CHAIN")
+    _assert_text_not_present(resolved.metadata, "TOKEN_CHAIN")
 
 
 def test_jdbc_connector_generates_rds_iam_auth_token_with_mysql_default_port(monkeypatch):
@@ -1046,6 +1098,30 @@ def test_jdbc_connector_generates_rds_iam_auth_token_with_mysql_default_port(mon
         "orders.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:3306/?"
     )
     assert "DBUser=app_user" in captured["password"]
+
+
+def test_jdbc_connector_rejects_unknown_rds_iam_credential_provider(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host.us-east-1.rds.amazonaws.com:5432/postgres", "dbtable": "public.orders"},
+        auth={"type": "rds_iam", "username": "postgres", "credential_provider": "metadata_only"},
+    )
+
+    with pytest.raises(ValueError, match="credential_provider"):
+        JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_jdbc_connector_rejects_rds_iam_without_aws_credentials(monkeypatch):

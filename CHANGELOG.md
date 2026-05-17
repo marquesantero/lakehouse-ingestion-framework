@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.6 - 2026-05-17
+
+- Permite `source.auth.credential_provider=default_chain` para JDBC `auth.type=rds_iam`, usando a AWS credential provider chain via `botocore` quando credenciais explícitas/variáveis de ambiente não forem usadas.
+- Registra `jdbc_rds_iam_credential_source` para auditoria segura da origem das credenciais (`explicit`, `env` ou `default_chain`) sem expor secrets.
+- Mantém o caminho existente por secrets/variáveis de ambiente e adiciona erro claro para providers não suportados ou runtime sem `botocore`.
+
 ## 2.6.5 - 2026-05-17
 
 - Adiciona `source.auth` para conectores JDBC, separando credenciais de `source.options`.

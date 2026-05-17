@@ -7,7 +7,7 @@ Validação real executada:
 - Runtime: Azure Databricks classic single-node.
 - Cluster: `SINGLE_USER`, com driver PostgreSQL JDBC instalado.
 - Banco: Amazon Aurora PostgreSQL 17.7.
-- ContractForge: `2.6.5`.
+- ContractForge: `2.6.5` e superior.
 - Resultado: `ingest()` com `connector: postgres`, `auth.type: rds_iam`, particionamento JDBC e `scd1_hash_diff` terminou `SUCCESS`.
 
 ## Quando usar
@@ -30,7 +30,7 @@ source:
 - O driver JDBC do banco precisa estar instalado no cluster.
 - O usuário do banco precisa existir e estar autorizado para IAM auth.
 - A IAM principal usada pela ContractForge precisa ter `rds-db:connect`.
-- As credenciais AWS precisam estar em `source.auth`, Databricks Secrets ou variáveis de ambiente.
+- As credenciais AWS precisam estar em `source.auth`, Databricks Secrets, variáveis de ambiente ou na AWS credential provider chain quando `credential_provider: default_chain` for usado.
 
 ## Driver JDBC no Databricks
 
@@ -103,6 +103,33 @@ databricks secrets put-secret contractforge-aws aws_secret_access_key
 ```
 
 `aws_session_token` é opcional. Só declare quando estiver usando credenciais temporárias válidas. Token STS expirado causa falha de autenticação.
+
+## AWS Credential Provider Chain
+
+Quando o runtime já fornece credenciais AWS por instance profile, profile local, web identity, variável de ambiente gerenciada ou outro mecanismo suportado pelo `botocore`, use `credential_provider: default_chain`.
+
+Esse modo exige `botocore` no driver Python. Instale a extra `contractforge[aws]` ou disponibilize `botocore` no ambiente. A ContractForge continua gerando o token IAM internamente; `boto3` e AWS CLI não são necessários.
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:contractforge-aws/rds_jdbc_url }}"
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: "{{ secret:contractforge-aws/rds_username }}"
+    region: us-east-1
+    credential_provider: default_chain
+```
+
+Prioridade usada pelo conector:
+
+1. Credenciais explícitas em `source.auth`.
+2. Variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
+3. `credential_provider: default_chain`, se configurado.
 
 ## Contrato YAML
 
@@ -193,6 +220,7 @@ O retorno e `ctrl_ingestion_runs.source_metrics_json` registram:
 - `jdbc_auth_type=rds_iam`
 - `jdbc_rds_iam_token_generated=true`
 - `jdbc_rds_region=<region>`
+- `jdbc_rds_iam_credential_source=explicit|env|default_chain`
 - `jdbc_ssl_enabled=true`
 - `partitioned_read=true|false`
 - `fetchsize=<valor>`
@@ -231,5 +259,5 @@ Timeout ou `Connection refused`
 
 ## Limitações Atuais
 
-- A ContractForge não busca credenciais via AWS credential provider chain/instance profile. Hoje usa `source.auth`, Databricks Secrets ou variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
-- Suporte a role-based auth sem access key estática está no backlog.
+- `credential_provider: default_chain` depende de `botocore` instalado e das credenciais estarem realmente disponíveis no driver Python.
+- A conectividade de rede com RDS/Aurora continua fora do escopo da lib.
