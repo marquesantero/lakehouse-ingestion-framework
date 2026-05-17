@@ -1,0 +1,161 @@
+dashboard:
+  title: ContractForge Operations Command Center
+  description: >
+    Dashboard operacional para runs, qualidade, streaming, performance,
+    conectores, SLA e governança registrados nas ctrl tables do ContractForge.
+  data_source:
+    catalog_placeholder: "{{catalog}}"
+    ctrl_schema_placeholder: "{{ctrl_schema}}"
+    lookback_days_placeholder: "{{lookback_days}}"
+
+global_filters:
+  - name: run_date
+    type: date_range
+    default: last_7_days
+  - name: layer
+    type: multi_select
+  - name: status
+    type: multi_select
+  - name: target_table
+    type: search
+  - name: source_connector
+    type: multi_select
+  - name: runtime_type
+    type: multi_select
+  - name: criticality
+    type: multi_select
+
+visual_style:
+  density: executive_first_drilldown_second
+  status_colors:
+    SUCCESS: "#2E7D32"
+    FAILED: "#C62828"
+    SKIPPED: "#757575"
+    DRY_RUN: "#1565C0"
+    WARN: "#F9A825"
+    BREACHED: "#C62828"
+    NO_SUCCESS: "#EF6C00"
+  layout_guidance:
+    - Use KPI cards grandes no topo.
+    - Use trend e matrizes em largura total.
+    - Use tabelas somente para drill-down operacional.
+    - Evite mais de 6 widgets por página.
+
+pages:
+  - id: overview
+    title: Overview
+    purpose: Estado executivo do ambiente.
+    widgets:
+      - query: q01_executive_kpis
+        title: Operational KPIs
+        visualization: counter_cards
+        size: full_width_top
+      - query: q02_status_trend
+        title: Runs by Status and Layer
+        visualization: stacked_bar_or_area
+        size: wide
+      - query: q03_latest_target_health
+        title: Latest Target Health
+        visualization: table_with_conditional_formatting
+        size: wide
+      - query: q04_recent_failures
+        title: Recent Failures
+        visualization: table
+        size: wide
+
+  - id: reliability
+    title: Reliability
+    purpose: Encontrar targets instáveis, SLA vencido e padrões de falha.
+    widgets:
+      - query: q05_target_reliability
+        title: Target Reliability Matrix
+        visualization: heatmap_or_table
+        size: wide
+      - query: q06_sla_freshness
+        title: Freshness SLA
+        visualization: table_with_status_colors
+        size: wide
+      - query: q07_failure_taxonomy
+        title: Failure Taxonomy
+        visualization: horizontal_bar
+        size: half_width
+      - query: q08_error_drilldown
+        title: Error Drilldown
+        visualization: table
+        size: half_width
+
+  - id: performance
+    title: Performance
+    purpose: Mostrar gargalos, duração e throughput por target.
+    widgets:
+      - query: q09_duration_percentiles
+        title: Duration Percentiles by Mode
+        visualization: bar
+        size: half_width
+      - query: q10_stage_duration_breakdown
+        title: Stage Duration Breakdown
+        visualization: stacked_bar
+        size: half_width
+      - query: q11_throughput_by_target
+        title: Rows per Second by Target
+        visualization: scatter_or_table
+        size: wide
+      - query: q12_slowest_runs
+        title: Slowest Runs
+        visualization: table
+        size: wide
+
+  - id: quality
+    title: Quality
+    purpose: Controlar falhas de regra, severidade, quarentena e impacto em dados úteis.
+    widgets:
+      - query: q13_quality_summary
+        title: Quality Summary
+        visualization: stacked_bar
+        size: half_width
+      - query: q14_quality_rules_hotspots
+        title: Rule Hotspots
+        visualization: horizontal_bar
+        size: half_width
+      - query: q15_quarantine_hotspots
+        title: Quarantine Hotspots
+        visualization: bar_or_table
+        size: wide
+      - query: q16_effective_rows
+        title: Effective Rows
+        visualization: stacked_bar
+        size: wide
+
+  - id: streaming
+    title: Streaming
+    purpose: Validar Auto Loader, available_now, microbatches e consistência pai/filhos.
+    widgets:
+      - query: q17_stream_kpis
+        title: Stream KPIs
+        visualization: counter_cards
+        size: full_width_top
+      - query: q18_stream_runs
+        title: Stream Runs
+        visualization: table_with_status_colors
+        size: wide
+      - query: q19_stream_child_reconciliation
+        title: Parent/Child Reconciliation
+        visualization: table
+        size: wide
+
+  - id: connectors_governance
+    title: Connectors & Governance
+    purpose: Medir uso de conectores, runtimes e cobertura de operações/governança.
+    widgets:
+      - query: q20_connector_runtime_matrix
+        title: Connector and Runtime Matrix
+        visualization: grouped_bar_or_heatmap
+        size: wide
+      - query: q21_operations_coverage
+        title: Operations Coverage
+        visualization: table_with_completeness_scores
+        size: wide
+      - query: q22_governance_artifacts
+        title: Governance Artifacts
+        visualization: table
+        size: wide

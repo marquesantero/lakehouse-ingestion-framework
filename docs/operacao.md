@@ -91,6 +91,8 @@ operations:
 
 O ContractForge não envia alertas diretamente. Ele registra dados suficientes em `ctrl_ingestion_runs`, `ctrl_ingestion_errors`, `ctrl_ingestion_quality`, `ctrl_ingestion_streams` e `ctrl_ingestion_operations` para dashboards e ferramentas externas.
 
+Para um dashboard operacional completo no Databricks SQL, use o pacote em [`docs/dashboards`](dashboards/README.md). Ele traz blueprint de páginas, filtros, widgets e queries para visão executiva, confiabilidade, performance, qualidade, streaming, conectores e governança.
+
 ## Tabelas Históricas Limpas
 
 O comando atua sobre:
