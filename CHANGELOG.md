@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.3 - 2026-05-17
+
+- Fortalece `ensure_ctrl_tables` contra inicialização concorrente de múltiplas tasks usando o mesmo `ctrl_schema`.
+- `ctrl_ingestion_metadata` deixa de ser atualizada em toda execução quando a versão atual já está registrada.
+- Se outro worker registrar a mesma `framework_version`/`ctrl_schema_version` durante um conflito Delta concorrente, a execução passa a continuar com warning em vez de falhar antes de tocar dados.
+- Mantém a auditoria de versão em `ctrl_ingestion_metadata` e adiciona testes de regressão para conflitos concorrentes.
+
 ## 2.6.2 - 2026-05-17
 
 - Adiciona suporte declarativo a credenciais S3 via `source.auth` no conector `s3`/`object_storage` com `provider=s3`.

@@ -74,7 +74,32 @@ def _add_columns_if_missing(table: str, columns: Dict[str, str]) -> None:
     spark.sql(f"ALTER TABLE {qt(table)} ADD COLUMNS ({cols_sql})")
 
 
+def _is_retryable_concurrency_error(exc: Exception) -> bool:
+    text = str(exc).upper()
+    return any(token in text for token in ["CONCURRENT", "CONFLICT", "RETRY", "DELTA_CONCURRENT"])
+
+
+def _ctrl_metadata_current(tables: Dict[str, str]) -> bool:
+    try:
+        row = spark.sql(
+            f"""
+            SELECT 1
+            FROM {qt(tables['metadata'])}
+            WHERE component = 'contractforge'
+              AND framework_version = {sql_lit(FRAMEWORK_VERSION)}
+              AND ctrl_schema_version = {sql_int(CTRL_SCHEMA_VERSION)}
+            LIMIT 1
+            """
+        ).first()
+        return row is not None
+    except AnalysisException:
+        return False
+
+
 def _record_ctrl_metadata(tables: Dict[str, str]) -> None:
+    if _ctrl_metadata_current(tables):
+        return
+
     def write_metadata() -> None:
         spark.sql(f"""
             MERGE INTO {qt(tables['metadata'])} t
@@ -90,7 +115,15 @@ def _record_ctrl_metadata(tables: Dict[str, str]) -> None:
             WHEN NOT MATCHED THEN INSERT *
         """)
 
-    with_retry(write_metadata)
+    try:
+        with_retry(write_metadata)
+    except Exception as exc:
+        if not _is_retryable_concurrency_error(exc) or not _ctrl_metadata_current(tables):
+            raise
+        logger.warning(
+            "Conflito concorrente ao registrar ctrl metadata ignorado; "
+            "a versão atual já foi registrada por outra execução."
+        )
 
 
 def ensure_ctrl_tables(catalog: str, schema: str) -> Dict[str, str]:
@@ -1094,10 +1127,7 @@ def with_retry(
             return fn()
         except Exception as exc:
             last_exc = exc
-            text = str(exc).upper()
-            retryable = any(
-                token in text for token in ["CONCURRENT", "CONFLICT", "RETRY", "DELTA_CONCURRENT"]
-            )
+            retryable = _is_retryable_concurrency_error(exc)
             if not retryable or attempt == attempts:
                 raise
             sleep_seconds = backoff_seconds * attempt + random.random()

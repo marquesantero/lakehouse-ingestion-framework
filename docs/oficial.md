@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.6.1 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.3 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -172,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.6.1-py3-none-any.whl
+# → dist/contractforge-2.6.3-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.6.1-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.3-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.1-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.3-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -2424,6 +2424,8 @@ with_retry(lambda: execute_write_mode(...))
 
 **Erros que NÃO disparam retry** (propagam imediatamente): OOM, schema mismatch, permissão, etc.
 
+Durante `ensure_ctrl_tables`, o registro em `ctrl_ingestion_metadata` é tratado de forma idempotente por versão. Se múltiplas tasks iniciarem em paralelo com o mesmo `ctrl_schema` e outra execução já tiver gravado a mesma `framework_version`/`ctrl_schema_version`, conflitos Delta nessa escrita de metadata não interrompem a ingestão.
+
 ### 11.3 Idempotência (`idempotency_key` + `idempotency_policy`)
 
 Permite identificar unicamente um lote lógico e controlar reexecuções:
@@ -2515,7 +2517,7 @@ Eventos OpenLineage em JSON.
 
 ### 12.9 `ctrl_ingestion_metadata`
 
-Uma linha por componente. Registra `framework_version`, `ctrl_schema_version` e `updated_at_utc`.
+Uma linha por componente. Registra `framework_version`, `ctrl_schema_version` e `updated_at_utc`. A tabela é atualizada apenas quando a versão atual ainda não está registrada, evitando conflitos desnecessários em jobs multi-task paralelos.
 
 ### 12.10 `ctrl_ingestion_schema_changes`
 

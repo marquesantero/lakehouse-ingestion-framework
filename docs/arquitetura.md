@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `2.6.1`
+**Versão do pacote:** `2.6.3`
 **Pacote Python:** `contractforge`
 **Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -786,6 +786,8 @@ Backoff linear + jitter. Não é exponencial — para o caso de uso (escritas De
 
 **Não é genérico.** Não retenta `OutOfMemoryError`, falhas de conexão, schema mismatch, etc. — esses devem falhar rápido.
 
+`ensure_ctrl_tables` usa uma proteção adicional para `ctrl_ingestion_metadata`: antes de escrever, consulta se a `framework_version`/`ctrl_schema_version` atual já está registrada. Se outra task gravar a mesma versão durante um conflito concorrente, o conflito é tratado como sucesso idempotente e a ingestão continua. Isso evita falha intermitente em jobs multi-task que inicializam o mesmo `ctrl_schema`.
+
 ### 4.9 `writers.py` — Motores de escrita
 
 Cada modo tem sua função. Todas seguem um padrão:
@@ -1268,12 +1270,14 @@ Para um collector real, faça forwarder lendo `event_json` de execuções recent
 
 ### 9.10 `ctrl_ingestion_metadata`
 
-Uma linha por componente de controle, usada para auditoria de versão.
+Uma linha por componente de controle, usada para auditoria de versão. A tabela registra a versão atual do framework e do schema de controle; ela não é atualizada como heartbeat a cada execução.
 
 | Campo                                                        |
 | ------------------------------------------------------------ |
 | `component`, `framework_version`, `ctrl_schema_version`      |
 | `updated_at_utc`                                             |
+
+Em inicialização concorrente, a gravação é idempotente por versão: se outro worker já registrou a mesma versão, a execução ignora o conflito de commit e segue.
 
 ---
 
@@ -1451,7 +1455,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-2.6.1-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.6.3-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
