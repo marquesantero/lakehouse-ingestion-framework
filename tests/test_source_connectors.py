@@ -795,6 +795,72 @@ def test_http_file_connector_supports_json_records_path(monkeypatch):
     assert resolved.metadata["source_metrics"]["records_read"] == 2
 
 
+def test_http_file_connector_supports_json_records_path_with_array_indexes(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'{"pages":[{"items":[{"id":1}]},{"items":[{"id":2},{"id":3}]}]}', {}, url, 63
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$.pages[1].items"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df["rows"] == [{"id": 2}, {"id": 3}]
+    assert resolved.metadata["source_metrics"]["records_read"] == 2
+
+
+def test_http_file_connector_supports_root_array_index_records_path(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'[[{"id":1}],[{"id":2},{"id":3}]]', {}, url, 33
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$[1]"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df["rows"] == [{"id": 2}, {"id": 3}]
+
+
+def test_http_file_connector_rejects_index_on_non_array_records_path(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'{"data":{"items":[{"id":1}]}}', {}, url, 27
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$.data[0]"},
+    )
+
+    with pytest.raises(ValueError, match="não é array"):
+        HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+
 def test_http_file_requires_declared_format():
     with pytest.raises(ValueError, match="source.format"):
         build_plan_from_kwargs(

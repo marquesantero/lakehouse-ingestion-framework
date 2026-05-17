@@ -216,6 +216,8 @@ watermark_columns: updated_at
 
 Para JSON aninhado, arrays de structs ou payloads com schema variável, `response.mode: records` consegue materializar registros reais com mais robustez em Spark clássico usando JSON lines + `spark.read.json`, por RDD quando disponível ou por `source.read.staging_path` configurado. O caminho usado fica em `source_metrics.dataframe_materialization`.
 
+`response.records_path` suporta navegação JSON simples, não JSONPath completo: use `$` para a raiz, `$.data.items` para campos, `$[1]` para índice de array raiz e `$.data[0].items` para arrays intermediários. Wildcards, filtros e expressões não são suportados.
+
 Quando a API retorna objetos dinâmicos ou JSON heterogêneo demais para inferência segura, declare `source.read.schema`. `source.schema` é aceito como alias curto e é normalizado para `source.read.schema`; conflitos entre os dois falham antes da leitura. O conector aplica esse DDL no Spark JSON reader antes de ler os registros materializados. Isso é a forma recomendada para APIs públicas grandes, em vez de depender de inferência automática.
 
 Se o runtime não expõe `sparkContext`, declare um staging acessível ao driver Python e ao Spark reader:
@@ -227,7 +229,7 @@ source:
   request:
     url: https://api.example.com/items
   response:
-    records_path: $.data
+    records_path: $.data[0].items
   read:
     staging_path: /Volumes/main/ops/tmp/contractforge_rest_api
     schema: "id STRING, payload STRUCT<status:STRING, amount:DOUBLE>"

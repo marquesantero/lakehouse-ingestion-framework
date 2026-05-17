@@ -7,6 +7,7 @@ emitir lineage.
 from __future__ import annotations
 
 import logging
+import re
 import traceback
 from datetime import datetime
 from dataclasses import asdict, dataclass, is_dataclass, replace
@@ -85,12 +86,30 @@ from .writers import (
 
 logger = logging.getLogger("contractforge")
 
+_MEANINGFUL_ERROR_RE = re.compile(
+    r"(?:^|\b|\.)(?:"
+    r"AnalysisException|Delta[A-Za-z]*Exception|IllegalArgumentException|"
+    r"PySparkException|RuntimeError|SecurityException|SQLException|"
+    r"SparkException|StorageException|TimeoutException|TypeError|ValueError|"
+    r"ConnectException|SocketTimeoutException|PSQLException"
+    r")\b"
+)
+_GENERIC_STACK_FRAME_RE = re.compile(
+    r"^(?:at |File \"|Traceback|During handling|The above exception|java\.lang\.Thread\.run\b)"
+)
+
 
 def _short_error_message(error: Optional[str]) -> Optional[str]:
     """Extrai uma mensagem curta do traceback para ``ctrl_ingestion_runs``."""
     if not error:
         return None
     lines = [line.strip() for line in error.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.startswith("Caused by:") or _MEANINGFUL_ERROR_RE.search(line):
+            return safe_truncate(line, 2000)
+    for line in reversed(lines):
+        if not _GENERIC_STACK_FRAME_RE.search(line):
+            return safe_truncate(line, 2000)
     return safe_truncate(lines[-1] if lines else error, 2000)
 
 

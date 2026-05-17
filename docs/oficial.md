@@ -857,7 +857,7 @@ mode: scd0_overwrite
 source_system: covid19br_github
 ```
 
-Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Para JSON, `source.response.records_path` usa o mesmo JSON path simples do `rest_api`:
+Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Para JSON, `source.response.records_path` usa o mesmo JSON path simples do `rest_api`: raiz `$`, campos com `$.data.items` e índices inteiros como `$[1]` ou `$.data[0].items`. Não é JSONPath completo; wildcards, filtros e expressões não são suportados.
 
 ```yaml
 source:
@@ -866,7 +866,7 @@ source:
   path: https://example.com/export.json
   format: json
   response:
-    records_path: $.data
+    records_path: $.data[0].items
 ```
 
 Aliases:
@@ -1034,7 +1034,7 @@ layer: bronze
 mode: scd0_append
 ```
 
-Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Em Spark clássico, essa materialização usa JSON lines + `spark.read.json`, por RDD quando disponível ou por staging configurado, o que é mais robusto para payloads REST reais com structs, arrays e campos opcionais heterogêneos. O caminho usado fica registrado em `source_metrics.dataframe_materialization`.
+Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. `records_path` suporta apenas navegação simples em JSON: `$`, `$.data.items`, `$[0]` e `$.data[0].items`. Em Spark clássico, essa materialização usa JSON lines + `spark.read.json`, por RDD quando disponível ou por staging configurado, o que é mais robusto para payloads REST reais com structs, arrays e campos opcionais heterogêneos. O caminho usado fica registrado em `source_metrics.dataframe_materialization`.
 
 Para APIs com JSON muito heterogêneo, objetos dinâmicos ou campos que podem gerar conflito na inferência do Spark, declare `source.read.schema` ou o alias curto `source.schema`. O schema é repassado ao Spark JSON reader e transforma a API em um contrato explícito de leitura. Isso evita correções específicas por fonte e mantém o tratamento de dados no contrato.
 

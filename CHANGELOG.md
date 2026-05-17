@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.8 - 2026-05-17
+
+- Melhora `error_message` curto de runs com exceções Spark/JVM, priorizando linhas úteis como `StorageException`, `AnalysisException`, `PSQLException`, `ValueError` e `Caused by` em vez de frames genéricos como `java.lang.Thread.run`.
+- Mantém o traceback completo em `ctrl_ingestion_errors`; a mudança afeta apenas o resumo curto em `ctrl_ingestion_runs` e no retorno.
+- Permite índices simples em `response.records_path` dos conectores REST/HTTP JSON, como `$[1]` e `$.data[0].items`, sem transformar o recurso em JSONPath completo.
+
 ## 2.6.7 - 2026-05-17
 
 - Aceita `source.schema` como alias de `source.read.schema` em conectores declarativos, evitando que schemas explícitos sejam ignorados silenciosamente.

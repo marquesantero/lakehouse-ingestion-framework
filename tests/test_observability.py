@@ -18,8 +18,35 @@ def test_short_error_message_uses_last_traceback_line():
     assert _short_error_message(traceback_text) == "ValueError: invalid contract"
 
 
+def test_short_error_message_prefers_storage_exception_over_jvm_frame():
+    traceback_text = (
+        "py4j.protocol.Py4JJavaError: An error occurred\n"
+        "com.azure.storage.common.StorageException: Server failed to authenticate the request\n"
+        "\tat org.apache.spark.sql.execution.command.ExecutedCommandExec.run(commands.scala:87)\n"
+        "\tat java.lang.Thread.run(Thread.java:750)\n"
+    )
+
+    assert (
+        _short_error_message(traceback_text)
+        == "com.azure.storage.common.StorageException: Server failed to authenticate the request"
+    )
+
+
+def test_short_error_message_prefers_caused_by_database_exception():
+    traceback_text = (
+        "org.apache.spark.SparkException: Job aborted due to stage failure\n"
+        "Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for table orders\n"
+        "\tat java.base/java.lang.Thread.run(Thread.java:840)\n"
+    )
+
+    assert (
+        _short_error_message(traceback_text)
+        == "Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for table orders"
+    )
+
+
 def test_framework_and_ctrl_schema_versions_are_current():
-    assert FRAMEWORK_VERSION == "2.6.7"
+    assert FRAMEWORK_VERSION == "2.6.8"
     assert CTRL_SCHEMA_VERSION == 11
 
 

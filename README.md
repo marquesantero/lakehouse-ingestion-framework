@@ -255,6 +255,8 @@ shape:
 
 O conector continua responsável só por baixar e proteger o volume; `shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
 
+Quando a API já retorna uma lista de registros, `response.records_path` suporta navegação simples (`$`, `$.data.items`, `$[1]`, `$.data[0].items`) em `rest_api` e `http_file` JSON. Não é JSONPath completo; para payloads complexos, prefira `response.mode: raw` + `shape`.
+
 ## Contratos Separados
 
 Contratos podem ser mantidos em arquivos separados quando engenharia, governança, operações e segurança têm ciclos de revisão diferentes:

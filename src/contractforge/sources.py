@@ -1403,14 +1403,40 @@ def _json_path(payload: Any, path: Optional[str]) -> Any:
     if not path or path == "$":
         return payload
     raw = path.strip()
-    if not raw.startswith("$."):
-        raise ValueError(f"JSON path simples esperado no formato $.campo.subcampo: {path}")
+    if not raw.startswith("$"):
+        raise ValueError(f"JSON path simples esperado começando com $: {path}")
     current = payload
-    for part in raw[2:].split("."):
-        if isinstance(current, Mapping):
-            current = current.get(part)
-        else:
+    position = 1
+    while position < len(raw):
+        if current is None:
             return None
+        marker = raw[position]
+        if marker == ".":
+            position += 1
+            start = position
+            while position < len(raw) and raw[position] not in ".[":
+                position += 1
+            part = raw[start:position]
+            if not part:
+                raise ValueError(f"JSON path simples inválido: {path}")
+            if not isinstance(current, Mapping):
+                return None
+            current = current.get(part)
+            continue
+        if marker == "[":
+            end = raw.find("]", position)
+            if end < 0:
+                raise ValueError(f"JSON path simples inválido: {path}")
+            index_text = raw[position + 1 : end].strip()
+            if not index_text.isdigit():
+                raise ValueError(f"JSON path simples suporta apenas índices inteiros não negativos: {path}")
+            if not isinstance(current, list):
+                raise ValueError(f"JSON path tentou indexar valor que não é array: {path}")
+            index = int(index_text)
+            current = current[index] if index < len(current) else None
+            position = end + 1
+            continue
+        raise ValueError(f"JSON path simples inválido: {path}")
     return current
 
 
