@@ -286,6 +286,68 @@ def test_file_connector_applies_declared_schema_from_read(monkeypatch):
     assert resolved.metadata["source_metrics"]["schema_declared"] is True
 
 
+def test_file_connector_accepts_top_level_source_schema_alias(monkeypatch):
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "schema": "order_id STRING, amount DOUBLE",
+            "options": {"header": True},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert plan.source.read["schema"] == "order_id STRING, amount DOUBLE"
+    assert calls == {
+        "format": "csv",
+        "options": {"header": "true"},
+        "schema": "order_id STRING, amount DOUBLE",
+        "load": "/landing/orders",
+    }
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_connector_rejects_conflicting_top_level_source_schema_alias():
+    with pytest.raises(ValueError, match="source.schema conflita com source.read.schema"):
+        build_plan_from_kwargs(
+            source={
+                "type": "connector",
+                "connector": "csv",
+                "path": "/landing/orders",
+                "schema": "order_id STRING",
+                "read": {"schema": "event_id STRING"},
+            },
+            target_table="b_orders",
+        )
+
+
 def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch):
     calls = {"format": None, "options": {}, "load": None}
 

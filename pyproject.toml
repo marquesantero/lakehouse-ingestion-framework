@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contractforge"
-version = "2.6.6"
+version = "2.6.7"
 description = "Contract-first framework for governed lakehouse ingestion on Delta Lake and Databricks."
 readme = "README.md"
 requires-python = ">=3.10"

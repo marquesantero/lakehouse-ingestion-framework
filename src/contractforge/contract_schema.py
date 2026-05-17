@@ -80,6 +80,10 @@ def yaml_schema() -> Dict[str, Any]:
             "container": {"type": ["string", "null"]},
             "table": {"type": ["string", "null"]},
             "query": {"type": ["string", "null"]},
+            "schema": {
+                "type": "string",
+                "description": "Alias de source.read.schema para declarar schema Spark DDL em conectores de arquivo/API.",
+            },
             "options": {"type": "object"},
             "read": {"type": "object"},
             "request": {"type": "object"},

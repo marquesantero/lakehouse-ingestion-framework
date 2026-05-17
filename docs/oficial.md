@@ -828,7 +828,7 @@ Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, 
 
 Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl` e `ndjson` são formatos lógicos da ContractForge e usam o reader Spark `json`. A leitura de `xml` depende de suporte do runtime Spark; Excel não é formato Spark nativo e deve usar um conector específico/runtime externo.
 
-Quando o schema é conhecido, declare `source.read.schema` como DDL Spark. Isso evita inferência em leituras grandes ou com muitos arquivos pequenos e aparece em `source_metrics_json.schema_declared=true`.
+Quando o schema é conhecido, declare `source.read.schema` como DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; declarar ambos com valores diferentes falha antes da leitura. Isso evita inferência em leituras grandes ou com muitos arquivos pequenos e aparece em `source_metrics_json.schema_declared=true`.
 
 ### 5C.2B HTTP File
 
@@ -1036,7 +1036,7 @@ mode: scd0_append
 
 Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Em Spark clássico, essa materialização usa JSON lines + `spark.read.json`, por RDD quando disponível ou por staging configurado, o que é mais robusto para payloads REST reais com structs, arrays e campos opcionais heterogêneos. O caminho usado fica registrado em `source_metrics.dataframe_materialization`.
 
-Para APIs com JSON muito heterogêneo, objetos dinâmicos ou campos que podem gerar conflito na inferência do Spark, declare `source.read.schema`. O schema é repassado ao Spark JSON reader e transforma a API em um contrato explícito de leitura. Isso evita correções específicas por fonte e mantém o tratamento de dados no contrato.
+Para APIs com JSON muito heterogêneo, objetos dinâmicos ou campos que podem gerar conflito na inferência do Spark, declare `source.read.schema` ou o alias curto `source.schema`. O schema é repassado ao Spark JSON reader e transforma a API em um contrato explícito de leitura. Isso evita correções específicas por fonte e mantém o tratamento de dados no contrato.
 
 Quando o runtime não expõe `sparkContext` e bloqueia inferência direta por `createDataFrame`, declare um staging de JSON local acessível ao driver Python e ao Spark reader:
 

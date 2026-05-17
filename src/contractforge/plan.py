@@ -186,8 +186,31 @@ def _normalize_options(value: Any, field: str) -> Dict[str, Any]:
     return dict(_require_mapping(value, field))
 
 
+def _normalize_connector_schema_alias(
+    *,
+    raw: Mapping[str, Any],
+    options: Dict[str, Any],
+    read: Dict[str, Any],
+) -> None:
+    if "schema" not in raw:
+        return
+    schema = str(raw.get("schema") or "").strip()
+    if not schema:
+        raise ValueError("source.schema não pode ser vazio")
+    existing_read_schema = str(read.get("schema") or "").strip()
+    existing_options_schema = str(options.get("schema") or "").strip()
+    if existing_read_schema and existing_read_schema != schema:
+        raise ValueError("source.schema conflita com source.read.schema")
+    if existing_options_schema and existing_options_schema != schema:
+        raise ValueError("source.schema conflita com source.options.schema")
+    read["schema"] = schema
+
+
 def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
     connector = _validate_connector_name(raw.get("connector"))
+    options = _normalize_options(raw.get("options"), "source.options")
+    read = _normalize_options(raw.get("read"), "source.read")
+    _normalize_connector_schema_alias(raw=raw, options=options, read=read)
     return ConnectorSpec(
         connector=connector,
         name=(str(raw["name"]).strip() if raw.get("name") is not None else None),
@@ -198,8 +221,8 @@ def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
         container=(str(raw["container"]).strip() if raw.get("container") is not None else None),
         table=(str(raw["table"]).strip() if raw.get("table") is not None else None),
         query=(str(raw["query"]).strip() if raw.get("query") is not None else None),
-        options=_normalize_options(raw.get("options"), "source.options"),
-        read=_normalize_options(raw.get("read"), "source.read"),
+        options=options,
+        read=read,
         request=_normalize_options(raw.get("request"), "source.request"),
         auth=_normalize_options(raw.get("auth"), "source.auth"),
         pagination=_normalize_options(raw.get("pagination"), "source.pagination"),

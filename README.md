@@ -227,7 +227,7 @@ Com `session_token`, a lib usa `TemporaryAWSCredentialsProvider`; sem ele, usa `
 
 Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
 
-Quando o schema é conhecido, use `source.read.schema` com DDL Spark. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
+Quando o schema é conhecido, use `source.read.schema` com DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; se ambos forem declarados com valores diferentes, o contrato falha antes da leitura. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
 
 Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
 

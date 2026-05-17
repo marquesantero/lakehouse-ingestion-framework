@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.7 - 2026-05-17
+
+- Aceita `source.schema` como alias de `source.read.schema` em conectores declarativos, evitando que schemas explícitos sejam ignorados silenciosamente.
+- Rejeita conflitos entre `source.schema`, `source.read.schema` e `source.options.schema` com erro claro antes da leitura.
+- Atualiza JSON Schema do contrato para reconhecer `source.schema`.
+
 ## 2.6.6 - 2026-05-17
 
 - Permite `source.auth.credential_provider=default_chain` para JDBC `auth.type=rds_iam`, usando a AWS credential provider chain via `botocore` quando credenciais explícitas/variáveis de ambiente não forem usadas.
