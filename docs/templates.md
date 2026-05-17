@@ -98,7 +98,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
 
 target:

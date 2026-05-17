@@ -20,8 +20,8 @@ Links principais:
 
 ## O Que Ele Resolve
 
-- Padroniza ingestões Bronze/Silver/Gold com contratos YAML ou chamadas Python.
-- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente`.
+- Padroniza ingestões por classificação lógica (`bronze`, `silver`, `gold`, `stage`, `raw`, `curated` etc.) com contratos YAML ou chamadas Python.
+- Separa `layer` lógico do schema físico com `target_schema`, permitindo organizações como `main.crm_curated.c_cliente` sem obrigar schema por camada.
 - Suporta modos oficiais de escrita: append, overwrite, SCD1, hash-diff, SCD2 e snapshot com soft delete.
 - Aplica quality gates, quarentena, schema policy, watermarks, idempotência, locks e retry.
 - Registra observabilidade em ctrl tables: runs, erros, qualidade, quarentena, lineage, streaming, schema changes, annotations, operations e access.
@@ -91,7 +91,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
 
 target:
@@ -108,6 +110,10 @@ quality_rules:
   not_null: [order_id]
   unique_key: [order_id]
 ```
+
+`layer` é metadata operacional e pode ser customizado. O schema físico é `target.schema` ou `target_schema`; se omitido, a lib usa `layer` como fallback.
+
+Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python com credenciais explícitas, variáveis `AWS_*` ou `credential_provider: default_chain` (`contractforge[aws]`). A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway. Veja o guia completo em [docs/rds_iam_jdbc.md](docs/rds_iam_jdbc.md).
 
 ## Shape Declarativo
 
@@ -183,18 +189,45 @@ Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia 
 source:
   type: connector
   connector: azure_blob
-  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/csv/orders.csv
   format: csv
   options:
     header: true
     inferSchema: false
   read:
     source_complete: true
+    schema: "order_id STRING, customer_id STRING, order_ts_utc TIMESTAMP, amount DOUBLE"
 ```
 
 Em job cluster/classic/local, também é possível declarar SAS com `account_url`, `container` e `auth.sas_token`; nesse caso a ContractForge monta `wasbs://...` e configura `fs.azure.sas...` no Spark. Em Databricks serverless/Spark Connect, essa configuração pode ser bloqueada; nesse caso a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para liberar o destino. O conector `azure_blob` não faz fallback REST implícito, porque isso muda semântica, custo, limites de memória e comportamento de rede. Para arquivos HTTP(S) explícitos de volume controlado, use `http_file`.
 
+## S3
+
+Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia `s3://...` governado diretamente. Em classic/job cluster/local, a ContractForge também pode configurar S3A a partir de `source.auth`:
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}" # opcional
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Com `session_token`, a lib usa `TemporaryAWSCredentialsProvider`; sem ele, usa `SimpleAWSCredentialsProvider`. Se o runtime bloquear `spark.conf.set` para `fs.s3a.*`, a execução falha com orientação para usar External Location/Volume.
+
 Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
+
+Quando o schema é conhecido, use `source.read.schema` com DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; se ambos forem declarados com valores diferentes, o contrato falha antes da leitura. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
 
 Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
 
@@ -221,6 +254,8 @@ shape:
 ```
 
 O conector continua responsável só por baixar e proteger o volume; `shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
+
+Quando a API já retorna uma lista de registros, `response.records_path` suporta navegação simples (`$`, `$.data.items`, `$[1]`, `$.data[0].items`) em `rest_api` e `http_file` JSON. Não é JSONPath completo; para payloads complexos, prefira `response.mode: raw` + `shape`.
 
 ## Contratos Separados
 

@@ -5,7 +5,7 @@ from contractforge.config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
 from contractforge.ingestion import _short_error_message
 from contractforge.lineage import write_openlineage_event
 from contractforge.plan import build_plan_from_kwargs
-from contractforge.writers import logical_row_metrics, resolve_write_metrics
+from contractforge.writers import logical_row_metrics, normalize_rows_written, resolve_write_metrics
 
 
 def test_short_error_message_uses_last_traceback_line():
@@ -18,8 +18,35 @@ def test_short_error_message_uses_last_traceback_line():
     assert _short_error_message(traceback_text) == "ValueError: invalid contract"
 
 
+def test_short_error_message_prefers_storage_exception_over_jvm_frame():
+    traceback_text = (
+        "py4j.protocol.Py4JJavaError: An error occurred\n"
+        "com.azure.storage.common.StorageException: Server failed to authenticate the request\n"
+        "\tat org.apache.spark.sql.execution.command.ExecutedCommandExec.run(commands.scala:87)\n"
+        "\tat java.lang.Thread.run(Thread.java:750)\n"
+    )
+
+    assert (
+        _short_error_message(traceback_text)
+        == "com.azure.storage.common.StorageException: Server failed to authenticate the request"
+    )
+
+
+def test_short_error_message_prefers_caused_by_database_exception():
+    traceback_text = (
+        "org.apache.spark.SparkException: Job aborted due to stage failure\n"
+        "Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for table orders\n"
+        "\tat java.base/java.lang.Thread.run(Thread.java:840)\n"
+    )
+
+    assert (
+        _short_error_message(traceback_text)
+        == "Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for table orders"
+    )
+
+
 def test_framework_and_ctrl_schema_versions_are_current():
-    assert FRAMEWORK_VERSION == "2.4.3"
+    assert FRAMEWORK_VERSION == "2.6.8"
     assert CTRL_SCHEMA_VERSION == 11
 
 
@@ -49,6 +76,34 @@ def test_resolve_write_metrics_preserves_delta_metrics_and_adds_logical_metrics(
     assert row_metrics["rows_updated"] == 3
     assert row_metrics["rows_affected"] == 5
     assert operation_metrics["logicalMetrics"]["rows_affected"] == 5
+
+
+def test_resolve_write_metrics_uses_delta_rows_when_writer_count_is_missing():
+    plan = build_plan_from_kwargs(source="x", target_table="t", mode="scd1_hash_diff")
+    delta_metrics = {
+        "version": 12,
+        "operation": "WRITE",
+        "operationMetrics": {"numOutputRows": "250000"},
+    }
+
+    row_metrics, operation_metrics, metrics_source = resolve_write_metrics(plan, 0, delta_metrics)
+
+    assert metrics_source == "mixed"
+    assert row_metrics["rows_inserted"] == 250000
+    assert row_metrics["rows_affected"] == 250000
+    assert operation_metrics["logicalMetrics"]["rows_affected"] == 0
+    assert normalize_rows_written(0, row_metrics) == 250000
+
+
+def test_resolve_write_metrics_without_delta_metrics_does_not_reuse_stale_counts():
+    plan = build_plan_from_kwargs(source="x", target_table="t", mode="scd1_hash_diff")
+
+    row_metrics, operation_metrics, metrics_source = resolve_write_metrics(plan, 0, {})
+
+    assert metrics_source == "logical"
+    assert row_metrics["rows_inserted"] == 0
+    assert row_metrics["rows_affected"] == 0
+    assert operation_metrics["logicalMetrics"]["rows_affected"] == 0
 
 
 def test_openlineage_event_redacts_sensitive_operation_metrics(monkeypatch):

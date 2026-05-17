@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pyspark.sql import Row
-from pyspark.sql.types import ArrayType, LongType, StringType, StructField, StructType
+from pyspark.sql.types import ArrayType, DoubleType, LongType, StringType, StructField, StructType
 
 from contractforge import IngestionHooks, ingest
 
@@ -135,6 +135,45 @@ def test_shape_flattens_structs_and_extracts_nested_columns(spark, unique_name):
     assert row["id"] == 1
     assert row["customer_email"] == "a@example.com"
     assert row["customer_address_city"] == "SP"
+
+
+def test_shape_columns_project_sibling_nested_fields_when_alias_overwrites_parent(spark, unique_name):
+    table = f"{unique_name}_shape_sibling_projection"
+    schema = StructType(
+        [
+            StructField("id", StringType(), False),
+            StructField(
+                "amount",
+                StructType(
+                    [
+                        StructField("_VALUE", DoubleType(), True),
+                        StructField("_currency", StringType(), True),
+                    ]
+                ),
+                True,
+            ),
+        ]
+    )
+    df = spark.createDataFrame([Row(id="evt-1", amount=Row(_VALUE=10.5, _currency="USD"))], schema)
+
+    res = ingest(
+        source=df,
+        mode="scd0_append",
+        shape={
+            "columns": {
+                "id": "event_id",
+                "amount._VALUE": {"alias": "amount", "cast": "DOUBLE"},
+                "amount._currency": "currency",
+            }
+        },
+        **_common(table, "silver"),
+    )
+
+    assert res["status"] == "SUCCESS"
+    row = spark.table(f"spark_catalog.silver.{table}").select("event_id", "amount", "currency").first()
+    assert row["event_id"] == "evt-1"
+    assert row["amount"] == 10.5
+    assert row["currency"] == "USD"
 
 
 def test_json_like_string_is_not_parsed_when_shape_is_absent(spark, make_df, unique_name):

@@ -20,7 +20,6 @@ from .config import (
     VALID_FILE_CONNECTOR_FORMATS,
     VALID_HTTP_FILE_FORMATS,
     VALID_IDEMPOTENCY_POLICIES,
-    VALID_LAYERS,
     VALID_MERGE_STRATEGIES,
     VALID_OBJECT_STORAGE_PROVIDERS,
     VALID_QUALITY_FAIL_ACTIONS,
@@ -94,6 +93,7 @@ def _require_ratio(value: Any, field: str) -> float:
 
 
 _CONNECTOR_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_LAYER_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _SIMPLE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FILE_CONNECTORS = {"csv", "delta", "json", "orc", "parquet", "text"}
 _HTTP_FILE_CONNECTORS = {"http_csv", "http_file", "http_json", "http_text"}
@@ -114,6 +114,19 @@ def _validate_connector_name(value: Any, field: str = "source.connector") -> str
             "começando por letra."
         )
     return connector
+
+
+def _normalize_layer(value: Any, default: str = "bronze") -> str:
+    """Normaliza a camada lógica sem restringir a Medallion bronze/silver/gold."""
+    raw = default if value is None or value == "" else str(value).strip()
+    if not raw:
+        raise ValueError("layer é obrigatório e não pode ser vazio")
+    if not _LAYER_NAME_RE.match(raw):
+        raise ValueError(
+            "layer deve começar por letra e conter apenas letras, números, '_' ou '-'. "
+            "Use target_schema para controlar o schema físico do destino."
+        )
+    return raw
 
 
 def _normalize_named_list(value: Any, field: str) -> List[str]:
@@ -173,8 +186,31 @@ def _normalize_options(value: Any, field: str) -> Dict[str, Any]:
     return dict(_require_mapping(value, field))
 
 
+def _normalize_connector_schema_alias(
+    *,
+    raw: Mapping[str, Any],
+    options: Dict[str, Any],
+    read: Dict[str, Any],
+) -> None:
+    if "schema" not in raw:
+        return
+    schema = str(raw.get("schema") or "").strip()
+    if not schema:
+        raise ValueError("source.schema não pode ser vazio")
+    existing_read_schema = str(read.get("schema") or "").strip()
+    existing_options_schema = str(options.get("schema") or "").strip()
+    if existing_read_schema and existing_read_schema != schema:
+        raise ValueError("source.schema conflita com source.read.schema")
+    if existing_options_schema and existing_options_schema != schema:
+        raise ValueError("source.schema conflita com source.options.schema")
+    read["schema"] = schema
+
+
 def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
     connector = _validate_connector_name(raw.get("connector"))
+    options = _normalize_options(raw.get("options"), "source.options")
+    read = _normalize_options(raw.get("read"), "source.read")
+    _normalize_connector_schema_alias(raw=raw, options=options, read=read)
     return ConnectorSpec(
         connector=connector,
         name=(str(raw["name"]).strip() if raw.get("name") is not None else None),
@@ -185,8 +221,8 @@ def _normalize_connector_source(raw: Mapping[str, Any]) -> "ConnectorSpec":
         container=(str(raw["container"]).strip() if raw.get("container") is not None else None),
         table=(str(raw["table"]).strip() if raw.get("table") is not None else None),
         query=(str(raw["query"]).strip() if raw.get("query") is not None else None),
-        options=_normalize_options(raw.get("options"), "source.options"),
-        read=_normalize_options(raw.get("read"), "source.read"),
+        options=options,
+        read=read,
         request=_normalize_options(raw.get("request"), "source.request"),
         auth=_normalize_options(raw.get("auth"), "source.auth"),
         pagination=_normalize_options(raw.get("pagination"), "source.pagination"),
@@ -806,7 +842,7 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
     if "target_table" not in kwargs:
         raise ValueError("target_table é obrigatório ou use target.table")
 
-    layer = _validate_enum(kwargs.get("layer", "bronze"), VALID_LAYERS, "layer", default="bronze")
+    layer = _normalize_layer(kwargs.get("layer", "bronze"))
     merge_strategy = _validate_enum(
         kwargs.get("merge_strategy", "delta"), VALID_MERGE_STRATEGIES, "merge_strategy", default="delta"
     )

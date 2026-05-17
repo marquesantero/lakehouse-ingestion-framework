@@ -1,8 +1,8 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.4.3 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.5 | **Licença:** MIT | **Python:** >= 3.10
 
-Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion (Bronze/Silver/Gold), conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
+Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
 ---
 
@@ -69,9 +69,9 @@ O framework não compete com DLT/Lakeflow como orquestrador gerenciado. Ele ocup
 - `docs/antipadroes.md`: configurações perigosas e alternativas recomendadas.
 - `docs/template_projeto.md` e `examples/project_template/`: estrutura inicial para um repositório de dados com DAB.
 
-### 1.3 Arquitetura Medallion
+### 1.3 Arquitetura Medallion e layers custom
 
-O framework adota o modelo de camadas:
+O framework vem com convenções para o modelo de camadas Medallion, mas `layer` é uma classificação lógica livre. Use `bronze`, `silver` e `gold` quando fizer sentido; use `stage`, `raw`, `trusted`, `curated`, `sandbox` ou outro nome quando sua organização pedir uma taxonomia diferente.
 
 | Camada | Valor `layer` | Modos típicos | Propósito |
 |--------|---------------|---------------|-----------|
@@ -79,7 +79,7 @@ O framework adota o modelo de camadas:
 | **Silver** | `"silver"` | `scd1_upsert`, `scd1_hash_diff`, `scd2_historical`, `snapshot_soft_delete` | Padronização, qualidade, consolidação, histórico |
 | **Gold** | `"gold"` | `scd0_overwrite`, `scd1_upsert` | Consumo, agregações, modelos semânticos |
 
-> **Restrição:** Bronze rejeita `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete` — a camada bronze deve ser orientada a captura, não a modelagem histórica.
+> **Restrição:** apenas o valor literal `layer: bronze` rejeita `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete`, porque bronze deve ser orientada a captura. Layers custom não herdam essa restrição automaticamente.
 
 ### 1.4 Fluxo de Execução
 
@@ -129,6 +129,16 @@ ingest(
 # → main.crm_curated.c_cliente
 ```
 
+Se o fluxo tiver uma etapa lógica `stage`, declare isso sem forçar o schema físico:
+
+```yaml
+source: raw.orders
+layer: stage                 # classificação lógica para presets/observabilidade
+target_schema: staging_area  # schema físico no catálogo
+target_table: stg_orders
+mode: scd0_overwrite
+```
+
 Em YAML, o mesmo contrato pode usar campos planos ou o bloco `target`:
 
 ```yaml
@@ -162,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.4.3-py3-none-any.whl
+# → dist/contractforge-2.6.5-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.4.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.5-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.4.3-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -376,7 +386,7 @@ O `IngestionPlan` é uma dataclass **frozen** (imutável após construção). To
 | `source` | `str \| DataFrame \| SourceSpec \| ConnectorSpec` | (obrigatório) | Origem: nome de tabela Unity Catalog, DataFrame Spark, Autoloader `available_now` ou conector declarativo |
 | `target_table` | `str` | (obrigatório) | Nome da tabela alvo **sem** catálogo/schema. Ex.: `"c_cliente"` |
 | `catalog` | `str` | `"main"` | Catálogo Unity Catalog onde alvo e ctrl tables residem |
-| `layer` | `"bronze" \| "silver" \| "gold"` | `"bronze"` | Camada lógica Medallion para presets, restrições e observabilidade |
+| `layer` | `str` | `"bronze"` | Classificação lógica para presets, restrições e observabilidade. Bronze/Silver/Gold são convenções, não enum fechado |
 | `target_schema` | `str \| None` | `None` | Schema físico do target. Quando omitido, usa `layer` |
 | `mode` | `WriteMode` | `"scd0_append"` | Estratégia de escrita (ver §6) |
 | `source_system` | `str` | `"default"` | Identificador da origem, gravado como metadado técnico |
@@ -516,7 +526,7 @@ target_table: c_cliente                  # str: nome da tabela alvo (sem catalog
 
 # --- Identificação do ambiente ---
 catalog: main                            # default: "main"
-layer: silver                            # camada lógica: bronze | silver | gold
+layer: silver                            # camada lógica: bronze/silver/gold ou custom, ex.: stage/raw/curated
 target_schema: crm_curated               # opcional; default = layer
 mode: scd1_upsert                        # modo de escrita (ver §6)
 source_system: crm                       # default: "default"
@@ -649,7 +659,7 @@ Conectores nativos:
 
 O retorno de `ingest()` inclui `source` com metadados do conector. `ctrl_ingestion_runs` registra `source_connector`, `source_provider`, `source_format`, `source_path`, configurações redigidas, capabilities do source e métricas operacionais em `source_metrics_json`.
 
-`source_metrics_json` é preenchido pelo resolver do conector. Em REST, inclui quantidade de requests, páginas lidas, registros extraídos, bytes lidos, tipo de paginação, retry/rate limit e watermark aplicado. Em HTTP file, inclui formato, registros materializados, bytes baixados e retry. Em JDBC e aliases nomeados, inclui estratégia de leitura, se houve pushdown incremental, watermark aplicado, particionamento e `fetchsize`. Em fontes Spark nativas, registra a estratégia (`spark_table`, `spark_sql`, `spark_files` ou `spark_format`) e se a fonte foi declarada como completa.
+`source_metrics_json` é preenchido pelo resolver do conector. Em REST, inclui quantidade de requests, páginas lidas, registros extraídos, bytes lidos, tipo de paginação, retry/rate limit e watermark aplicado. Em HTTP file, inclui formato, registros materializados, bytes baixados e retry. Em JDBC e aliases nomeados, inclui estratégia de leitura, se houve pushdown incremental, watermark aplicado, particionamento, `fetchsize`, tipo de autenticação e, para RDS IAM, a região e se o token foi gerado. Em fontes Spark nativas, registra a estratégia (`spark_table`, `spark_sql`, `spark_files` ou `spark_format`) e se a fonte foi declarada como completa.
 
 `contractforge validate` faz validação estática dos conectores nativos sem abrir Spark: campos obrigatórios, tipos de paginação REST, auth REST, particionamento JDBC e formatos de object storage são verificados antes do job.
 
@@ -772,7 +782,7 @@ source:
     multiline: true
 ```
 
-`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. Para `s3`, `adls`, `azure_blob` e `gcs`, a lib valida o contrato e delega credenciais ao runtime Spark/Unity Catalog quando o path já está governado pelo ambiente.
+`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. Para paths já governados por Unity Catalog/External Location/Volumes, a lib valida o contrato e delega credenciais ao runtime Spark.
 
 Em Databricks serverless, prefira External Location/Volume:
 
@@ -780,20 +790,45 @@ Em Databricks serverless, prefira External Location/Volume:
 source:
   type: connector
   connector: azure_blob
-  path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/generated/csv/large/orders_250k.csv
+  path: abfss://landing@exampleacct.dfs.core.windows.net/datasets/csv/orders.csv
   format: csv
   options:
     header: true
     inferSchema: false
   read:
     source_complete: true
+    schema: "order_id STRING, customer_id STRING, order_ts_utc TIMESTAMP, amount DOUBLE"
 ```
 
 Para `azure_blob`, também é possível declarar SAS diretamente no contrato usando secret placeholder em job cluster/classic/local. Nesse caso, a ContractForge resolve o secret, configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` e monta o path `wasbs://...` automaticamente. O secret pode conter o SAS com ou sem `?` inicial. Esse caminho é apropriado para runtimes onde configuração Hadoop/Spark é permitida.
 
-Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
+Para `s3`, também é possível declarar credenciais diretamente em `source.auth` em job cluster/classic/local. A ContractForge resolve secrets, configura `fs.s3a.access.key`, `fs.s3a.secret.key`, `fs.s3a.session.token` quando existir, e escolhe `SimpleAWSCredentialsProvider` ou `TemporaryAWSCredentialsProvider`.
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}"  # opcional para STS
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Use `source.auth` para S3 apenas em runtimes onde configuração Hadoop/Spark é permitida. Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume. O conector `s3` não executa fallback REST implícito.
+
+Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...`, `s3://...` governado por External Location, ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
 
 Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl` e `ndjson` são formatos lógicos da ContractForge e usam o reader Spark `json`. A leitura de `xml` depende de suporte do runtime Spark; Excel não é formato Spark nativo e deve usar um conector específico/runtime externo.
+
+Quando o schema é conhecido, declare `source.read.schema` como DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; declarar ambos com valores diferentes falha antes da leitura. Isso evita inferência em leituras grandes ou com muitos arquivos pequenos e aparece em `source_metrics_json.schema_declared=true`.
 
 ### 5C.2B HTTP File
 
@@ -822,7 +857,7 @@ mode: scd0_overwrite
 source_system: covid19br_github
 ```
 
-Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Para JSON, `source.response.records_path` usa o mesmo JSON path simples do `rest_api`:
+Formatos suportados: `csv`, `json`, `jsonl`, `ndjson` e `text`. Para JSON, `source.response.records_path` usa o mesmo JSON path simples do `rest_api`: raiz `$`, campos com `$.data.items` e índices inteiros como `$[1]` ou `$.data[0].items`. Não é JSONPath completo; wildcards, filtros e expressões não são suportados.
 
 ```yaml
 source:
@@ -831,7 +866,7 @@ source:
   path: https://example.com/export.json
   format: json
   response:
-    records_path: $.data
+    records_path: $.data[0].items
 ```
 
 Aliases:
@@ -855,7 +890,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
   read:
     partition_column: id
@@ -873,12 +910,50 @@ mode: scd0_append
 
 Aliases `postgres`, `postgresql`, `sqlserver`, `mysql` e `oracle` usam o mesmo executor JDBC, mas deixam o contrato mais explícito e a observabilidade registra o conector real declarado. Os drivers JDBC continuam responsabilidade do runtime.
 
+Para Amazon RDS/Aurora com IAM database authentication, o conector pode gerar o token IAM no driver Python usando `auth.type: rds_iam`. A lib não depende de `boto3` nem AWS CLI para isso; ela assina o token SigV4 a partir das credenciais declaradas, das variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`, ou da AWS credential provider chain quando `credential_provider: default_chain` for configurado com `botocore` instalado.
+
+O guia operacional completo está em [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md). Ele cobre driver JDBC, cluster `SINGLE_USER` versus artifact allowlist, `GRANT rds_iam`, policy `rds-db:connect`, secrets e troubleshooting.
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    sslmode: require
+```
+
+Para usar instance profile, web identity ou outro provider suportado por `botocore`, substitua as chaves explícitas por:
+
+```yaml
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    credential_provider: default_chain
+```
+
+Conectividade continua sendo responsabilidade do runtime. Para RDS/Aurora, use uma das opções suportadas pela plataforma: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional com security group restrito, ou Aurora Express Internet Access Gateway quando esse modo estiver habilitado e acessível a partir do compute.
+
+Validação real já realizada em Databricks classic single-node com Aurora PostgreSQL 17.7 e ContractForge 2.6.5+: `auth.type=rds_iam`, Spark JDBC, particionamento JDBC, quality rules e `scd1_hash_diff` terminaram com `SUCCESS`.
+
 Regras:
 
 - `source.options.url` é obrigatório.
 - Informe `source.options.dbtable` ou `source.options.query`.
 - Particionamento JDBC exige os quatro campos juntos: `partition_column`, `lower_bound`, `upper_bound`, `num_partitions`.
 - Use `source.read.source_complete=true` somente quando a query/tabela representar o estado completo necessário ao modo de escrita.
+- Em `ingest()` programático, informe `catalog` explicitamente. `target_schema` qualificado não muda `plan.catalog`.
+- `PAM authentication failed` em RDS/Aurora geralmente indica problema de IAM/database auth, não problema de rede.
 
 ### 5C.3B Snowflake e BigQuery
 
@@ -959,9 +1034,33 @@ layer: bronze
 mode: scd0_append
 ```
 
-Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. Esse modo é adequado para JSON plano e estável.
+Por padrão, `rest_api` usa `response.mode: records`: a lib aplica `response.records_path`, materializa uma lista de registros e deixa o Spark inferir o schema. `records_path` suporta apenas navegação simples em JSON: `$`, `$.data.items`, `$[0]` e `$.data[0].items`. Em Spark clássico, essa materialização usa JSON lines + `spark.read.json`, por RDD quando disponível ou por staging configurado, o que é mais robusto para payloads REST reais com structs, arrays e campos opcionais heterogêneos. O caminho usado fica registrado em `source_metrics.dataframe_materialization`.
 
-Para APIs com JSON complexo, arrays de structs, campos opcionais heterogêneos ou schema que precisa ser controlado por contrato, use `response.mode: raw`. Nesse modo o conector não transforma os registros: ele grava uma linha por página com o payload bruto em uma coluna string. O tratamento fica no `shape`.
+Para APIs com JSON muito heterogêneo, objetos dinâmicos ou campos que podem gerar conflito na inferência do Spark, declare `source.read.schema` ou o alias curto `source.schema`. O schema é repassado ao Spark JSON reader e transforma a API em um contrato explícito de leitura. Isso evita correções específicas por fonte e mantém o tratamento de dados no contrato.
+
+Quando o runtime não expõe `sparkContext` e bloqueia inferência direta por `createDataFrame`, declare um staging de JSON local acessível ao driver Python e ao Spark reader:
+
+```yaml
+source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://api.example.com/items
+  response:
+    records_path: $.data
+  read:
+    staging_path: /Volumes/main/ops/tmp/contractforge_rest_api
+    schema: "id STRING, payload STRUCT<status:STRING, amount:DOUBLE>"
+    json_options:
+      rescuedDataColumn: _rescued_data
+      readerCaseSensitive: true
+```
+
+Também é possível definir `CONTRACTFORGE_SOURCE_JSON_STAGING_DIR` no ambiente. O staging deve ser um caminho de filesystem que o Python consegue escrever e o Spark consegue ler, como `/Volumes/...`, `/Workspace/...` quando permitido pelo runtime, ou `file:/...`. URIs remotas como `abfss://...` não são aceitas nesse campo porque a escrita é feita pelo driver Python.
+
+Use `source.read.schema` para schemas explícitos e `source.read.json_options` para repassar opções ao Spark JSON reader usado nessa materialização. Isso é útil para recursos do runtime como coluna de resgate, tratamento de case-sensitivity, permissividade de parser e formatos de data/hora.
+
+Use `response.mode: raw` quando a resposta precisa ser tratada como documento completo por página, quando você quer controlar o schema explicitamente com `shape.parse_json`, ou quando o volume/payload é grande demais para materialização direta em memória. Nesse modo o conector não transforma os registros: ele grava uma linha por página com o payload bruto em uma coluna string. O tratamento fica no `shape`.
 
 ```yaml
 source:
@@ -2365,6 +2464,8 @@ with_retry(lambda: execute_write_mode(...))
 
 **Erros que NÃO disparam retry** (propagam imediatamente): OOM, schema mismatch, permissão, etc.
 
+Durante `ensure_ctrl_tables`, o registro em `ctrl_ingestion_metadata` é tratado de forma idempotente por versão. Se múltiplas tasks iniciarem em paralelo com o mesmo `ctrl_schema` e outra execução já tiver gravado a mesma `framework_version`/`ctrl_schema_version`, conflitos Delta nessa escrita de metadata não interrompem a ingestão.
+
 ### 11.3 Idempotência (`idempotency_key` + `idempotency_policy`)
 
 Permite identificar unicamente um lote lógico e controlar reexecuções:
@@ -2456,7 +2557,7 @@ Eventos OpenLineage em JSON.
 
 ### 12.9 `ctrl_ingestion_metadata`
 
-Uma linha por componente. Registra `framework_version`, `ctrl_schema_version` e `updated_at_utc`.
+Uma linha por componente. Registra `framework_version`, `ctrl_schema_version` e `updated_at_utc`. A tabela é atualizada apenas quando a versão atual ainda não está registrada, evitando conflitos desnecessários em jobs multi-task paralelos.
 
 ### 12.10 `ctrl_ingestion_schema_changes`
 

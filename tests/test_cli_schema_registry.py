@@ -157,7 +157,7 @@ def test_cli_init_supports_custom_target_schema_in_split_contract(tmp_path, caps
                 "--target-table",
                 "orders",
                 "--layer",
-                "silver",
+                "stage",
                 "--target-schema",
                 "sales_curated",
                 "--mode",
@@ -173,6 +173,7 @@ def test_cli_init_supports_custom_target_schema_in_split_contract(tmp_path, caps
     ingestion = (tmp_path / "contracts" / "sales" / "orders.ingestion.yaml").read_text(encoding="utf-8")
     annotations = (tmp_path / "contracts" / "sales" / "orders.annotations.yaml").read_text(encoding="utf-8")
     assert "target_schema: sales_curated" in ingestion
+    assert "layer: stage" in ingestion
     assert "schema: sales_curated" in annotations
     assert main(["validate-bundle", str(base)]) == 0
     assert "OK" in capsys.readouterr().out

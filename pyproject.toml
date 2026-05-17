@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contractforge"
-version = "2.4.3"
+version = "2.6.8"
 description = "Contract-first framework for governed lakehouse ingestion on Delta Lake and Databricks."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,6 +34,7 @@ Issues = "https://github.com/marquesantero/contractforge/issues"
 [project.optional-dependencies]
 databricks = ["databricks-sdk>=0.20"]
 spark = ["pyspark>=3.4,<4", "delta-spark>=3.0,<4"]
+aws = ["botocore>=1.34"]
 dev = [
     "build>=1.0",
     "twine>=4.0",

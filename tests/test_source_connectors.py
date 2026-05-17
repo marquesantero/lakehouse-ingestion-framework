@@ -203,7 +203,7 @@ def test_connector_metadata_redacts_sensitive_identifiers_and_paths(monkeypatch)
 
 
 def test_file_connector_uses_spark_reader(monkeypatch):
-    calls = {"format": None, "options": {}, "load": None}
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
 
     class Reader:
         def format(self, value):
@@ -212,6 +212,10 @@ def test_file_connector_uses_spark_reader(monkeypatch):
 
         def options(self, **kwargs):
             calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
             return self
 
         def load(self, path):
@@ -232,7 +236,116 @@ def test_file_connector_uses_spark_reader(monkeypatch):
     assert resolved.df == "df"
     assert resolved.label == "json:/landing/orders"
     assert resolved.connector == "json"
-    assert calls == {"format": "json", "options": {"multiline": "true"}, "load": "/landing/orders"}
+    assert calls == {"format": "json", "options": {"multiline": "true"}, "schema": None, "load": "/landing/orders"}
+
+
+def test_file_connector_applies_declared_schema_from_read(monkeypatch):
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "options": {"header": True, "schema": "should_not_be_forwarded STRING"},
+            "read": {"schema": "order_id STRING, amount DOUBLE", "source_complete": True},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls == {
+        "format": "csv",
+        "options": {"header": "true"},
+        "schema": "order_id STRING, amount DOUBLE",
+        "load": "/landing/orders",
+    }
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_file_connector_accepts_top_level_source_schema_alias(monkeypatch):
+    calls = {"format": None, "options": {}, "schema": None, "load": None}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def schema(self, value):
+            calls["schema"] = value
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "csv",
+            "path": "/landing/orders",
+            "schema": "order_id STRING, amount DOUBLE",
+            "options": {"header": True},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert plan.source.read["schema"] == "order_id STRING, amount DOUBLE"
+    assert calls == {
+        "format": "csv",
+        "options": {"header": "true"},
+        "schema": "order_id STRING, amount DOUBLE",
+        "load": "/landing/orders",
+    }
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_connector_rejects_conflicting_top_level_source_schema_alias():
+    with pytest.raises(ValueError, match="source.schema conflita com source.read.schema"):
+        build_plan_from_kwargs(
+            source={
+                "type": "connector",
+                "connector": "csv",
+                "path": "/landing/orders",
+                "schema": "order_id STRING",
+                "read": {"schema": "event_id STRING"},
+            },
+            target_table="b_orders",
+        )
 
 
 def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch):
@@ -275,6 +388,175 @@ def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch
     assert resolved.metadata["source_metrics"]["source_complete"] is True
 
 
+def test_s3_connector_configures_static_credentials_from_auth(monkeypatch):
+    calls = {"format": None, "options": {}, "load": None, "conf": {}}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setenv("CONTRACTFORGE_SECRET_AWS_ACCESS_KEY_ID", "AKIA_TEST")
+    monkeypatch.setenv("CONTRACTFORGE_SECRET_AWS_SECRET_ACCESS_KEY", "SECRET_TEST")
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {
+                "access_key_id": "{{ secret:aws/access-key-id }}",
+                "secret_access_key": "{{ secret:aws/secret-access-key }}",
+            },
+            "options": {"header": True, "fs.s3a.endpoint": "s3.us-east-1.amazonaws.com"},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["format"] == "csv"
+    assert calls["options"] == {"header": "true"}
+    assert calls["load"] == "s3a://landing/orders"
+    assert calls["conf"] == {
+        "fs.s3a.endpoint": "s3.us-east-1.amazonaws.com",
+        "fs.s3a.access.key": "AKIA_TEST",
+        "fs.s3a.secret.key": "SECRET_TEST",
+        "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+    }
+    assert resolved.metadata["source_metrics"]["s3_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["s3_temporary_credentials"] is False
+    assert resolved.metadata["source_metrics"]["s3_conf_options_configured"] == 1
+    _assert_text_not_present(resolved.metadata, "AKIA_TEST")
+    _assert_text_not_present(resolved.metadata, "SECRET_TEST")
+
+
+def test_s3_connector_configures_temporary_credentials_from_auth(monkeypatch):
+    calls = {"conf": {}}
+
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self, path):
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "json",
+            "path": "s3a://landing/events",
+            "auth": {
+                "access_key": "AKIA_TEST",
+                "secret_key": "SECRET_TEST",
+                "token": "SESSION_TEST",
+            },
+        },
+        target_table="b_events",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["conf"]["fs.s3a.session.token"] == "SESSION_TEST"
+    assert calls["conf"]["fs.s3a.aws.credentials.provider"] == (
+        "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider"
+    )
+    assert resolved.metadata["source_metrics"]["s3_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["s3_temporary_credentials"] is True
+    _assert_text_not_present(resolved.metadata, "SESSION_TEST")
+
+
+def test_s3_connector_requires_access_and_secret_key_together(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {"access_key_id": "AKIA_TEST"},
+        },
+        target_table="b_orders",
+    )
+
+    with pytest.raises(ValueError, match="access_key_id e secret_access_key"):
+        resolve_batch_source(plan.source, plan)
+
+
+def test_s3_connector_reports_clear_error_when_spark_conf_is_blocked(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class Conf:
+        def set(self, key, value):
+            raise RuntimeError("CONFIG_NOT_AVAILABLE: Configuration fs.s3a.access.key is not available")
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {"access_key_id": "AKIA_TEST", "secret_access_key": "SECRET_TEST"},
+        },
+        target_table="b_orders",
+    )
+
+    with pytest.raises(RuntimeError, match="External Location"):
+        resolve_batch_source(plan.source, plan)
+
+
 @pytest.mark.parametrize("fmt", ["avro", "xml"])
 def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
     calls = {"format": None, "load": None}
@@ -300,7 +582,7 @@ def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
             "type": "connector",
             "connector": "azure_blob",
             "format": fmt,
-            "path": f"wasbs://container@account.blob.core.windows.net/blob_teste/generated/{fmt}/sample",
+            "path": f"wasbs://container@account.blob.core.windows.net/datasets/{fmt}/sample",
         },
         target_table="b_data",
     )
@@ -309,7 +591,7 @@ def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
 
     assert resolved.df == "df"
     assert calls["format"] == fmt
-    assert calls["load"].endswith(f"generated/{fmt}/sample")
+    assert calls["load"].endswith(f"datasets/{fmt}/sample")
 
 
 @pytest.mark.parametrize("fmt", ["jsonl", "ndjson"])
@@ -375,9 +657,9 @@ def test_azure_blob_connector_builds_wasbs_path_and_configures_sas(monkeypatch):
             "type": "connector",
             "connector": "azure_blob",
             "format": "csv",
-            "account_url": "https://generalcafe.blob.core.windows.net/",
-            "container": "databricksdata",
-            "path": "blob_teste/generated/csv/partitioned/sales",
+            "account_url": "https://exampleacct.blob.core.windows.net/",
+            "container": "landing",
+            "path": "datasets/csv/partitioned/sales",
             "auth": {"sas_token": "{{ secret:scope/blob-sas }}"},
             "options": {"header": True},
         },
@@ -390,14 +672,14 @@ def test_azure_blob_connector_builds_wasbs_path_and_configures_sas(monkeypatch):
     assert calls["format"] == "csv"
     assert calls["options"] == {"header": "true"}
     assert calls["load"] == (
-        "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/csv/partitioned/sales"
+        "wasbs://landing@exampleacct.blob.core.windows.net/datasets/csv/partitioned/sales"
     )
     assert calls["conf"] == {
-        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+        "fs.azure.sas.landing.exampleacct.blob.core.windows.net": "sv=1&sig=secret"
     }
     assert resolved.metadata["source_provider"] == "azure_blob"
     assert resolved.metadata["source_metrics"]["azure_auth_configured"] is True
-    assert resolved.metadata["source_metrics"]["azure_container"] == "databricksdata"
+    assert resolved.metadata["source_metrics"]["azure_container"] == "landing"
     _assert_text_not_present(resolved.metadata, "secret")
 
 
@@ -427,16 +709,16 @@ def test_azure_blob_connector_configures_sas_for_declared_wasbs_path(monkeypatch
     spec = ConnectorSpec(
         connector="azure_blob",
         format="json",
-        path="wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl",
+        path="wasbs://landing@exampleacct.blob.core.windows.net/datasets/json/jsonl",
         auth={"sas_token": "sv=1&sig=secret"},
     )
 
     resolved = resolve_batch_source(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
     assert resolved.df == "df"
-    assert calls["load"] == "wasbs://databricksdata@generalcafe.blob.core.windows.net/blob_teste/generated/json/jsonl"
+    assert calls["load"] == "wasbs://landing@exampleacct.blob.core.windows.net/datasets/json/jsonl"
     assert calls["conf"] == {
-        "fs.azure.sas.databricksdata.generalcafe.blob.core.windows.net": "sv=1&sig=secret"
+        "fs.azure.sas.landing.exampleacct.blob.core.windows.net": "sv=1&sig=secret"
     }
 
 
@@ -448,9 +730,9 @@ def test_azure_blob_connector_reports_blocked_spark_config_with_serverless_guida
     spec = ConnectorSpec(
         connector="azure_blob",
         format="csv",
-        account_url="https://generalcafe.blob.core.windows.net/",
-        container="databricksdata",
-        path="blob_teste/generated/csv/large/orders_250k.csv",
+        account_url="https://exampleacct.blob.core.windows.net/",
+        container="landing",
+        path="datasets/csv/large/orders_large.csv",
         auth={"sas_token": "sv=1&sig=secret"},
     )
 
@@ -511,6 +793,72 @@ def test_http_file_connector_supports_json_records_path(monkeypatch):
 
     assert resolved.df["rows"] == [{"id": 1}, {"id": 2}]
     assert resolved.metadata["source_metrics"]["records_read"] == 2
+
+
+def test_http_file_connector_supports_json_records_path_with_array_indexes(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'{"pages":[{"items":[{"id":1}]},{"items":[{"id":2},{"id":3}]}]}', {}, url, 63
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$.pages[1].items"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df["rows"] == [{"id": 2}, {"id": 3}]
+    assert resolved.metadata["source_metrics"]["records_read"] == 2
+
+
+def test_http_file_connector_supports_root_array_index_records_path(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'[[{"id":1}],[{"id":2},{"id":3}]]', {}, url, 33
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$[1]"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df["rows"] == [{"id": 2}, {"id": 3}]
+
+
+def test_http_file_connector_rejects_index_on_non_array_records_path(monkeypatch):
+    class FakeSpark:
+        def createDataFrame(self, rows, schema=None):
+            return {"rows": rows, "schema": schema}
+
+    def fake_request(self, url, headers, timeout):
+        return b'{"data":{"items":[{"id":1}]}}', {}, url, 27
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="http_file",
+        format="json",
+        path="https://api.example.com/file.json",
+        response={"records_path": "$.data[0]"},
+    )
+
+    with pytest.raises(ValueError, match="não é array"):
+        HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_http_file_requires_declared_format():
@@ -590,7 +938,76 @@ def test_jdbc_connector_applies_incremental_predicate(monkeypatch):
         "partitioned_read": False,
         "fetchsize": None,
         "source_complete": False,
+        "jdbc_auth_configured": False,
+        "jdbc_auth_type": "none",
     }
+
+
+def test_jdbc_connector_extracts_typed_watermark_for_incremental_predicate(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="jdbc",
+        options={"url": "jdbc:test", "dbtable": "public.orders"},
+        incremental={"watermark_column": "updated_at"},
+    )
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        watermark_columns=["updated_at"],
+        runtime_parameters={
+            "_contractforge_watermark_previous": (
+                '{"updated_at": {"type": "timestamp", "value": "2026-05-16 12:00:00"}}'
+            )
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, plan)
+
+    assert resolved.df == "df"
+    assert captured["dbtable"] == (
+        "(SELECT * FROM public.orders WHERE updated_at > '2026-05-16 12:00:00') cf_src"
+    )
+    assert resolved.metadata["source_metrics"]["incremental_applied"] is True
+    assert resolved.metadata["source_metrics"]["watermark_value"] == "2026-05-16 12:00:00"
+
+
+def test_jdbc_connector_rejects_typed_composite_watermark_without_incremental_column():
+    spec = ConnectorSpec(
+        connector="jdbc",
+        options={"url": "jdbc:test", "dbtable": "public.orders"},
+        incremental={"predicate": "updated_at > '{watermark}'"},
+    )
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        watermark_columns=["updated_at", "sequence_id"],
+        runtime_parameters={
+            "_contractforge_watermark_previous": (
+                '{"updated_at": {"type": "timestamp", "value": "2026-05-16 12:00:00"}, '
+                '"sequence_id": {"type": "bigint", "value": "10"}}'
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="watermark composto"):
+        JdbcConnector().resolve_batch(spec, plan)
 
 
 def test_named_jdbc_connector_uses_jdbc_reader(monkeypatch):
@@ -627,6 +1044,236 @@ def test_named_jdbc_connector_uses_jdbc_reader(monkeypatch):
     assert captured["dbtable"] == "public.orders"
     assert captured["fetchsize"] == "5000"
     assert resolved.metadata["source_connector"] == "postgres"
+
+
+def test_jdbc_connector_applies_basic_auth_from_source_auth(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host/db", "dbtable": "public.orders"},
+        auth={"type": "basic", "username": "app_user", "password": "secret-password"},
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "app_user"
+    assert captured["password"] == "secret-password"
+    assert resolved.metadata["source_metrics"]["jdbc_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_auth_type"] == "basic"
+    _assert_text_not_present(resolved.metadata, "secret-password")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={
+            "url": "jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres",
+            "dbtable": "public.orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "postgres",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "SECRET_TEST",
+            "session_token": "SESSION_TEST",
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "postgres"
+    assert captured["password"].startswith(
+        "database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/?"
+    )
+    assert "Action=connect" in captured["password"]
+    assert "DBUser=postgres" in captured["password"]
+    assert "X-Amz-Security-Token=" in captured["password"]
+    assert captured["ssl"] == "true"
+    assert captured["sslmode"] == "require"
+    assert resolved.metadata["source_metrics"]["jdbc_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_auth_type"] == "rds_iam"
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_token_generated"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_rds_region"] == "us-east-1"
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_credential_source"] == "explicit"
+    _assert_text_not_present(resolved.metadata, "SECRET_TEST")
+    _assert_text_not_present(resolved.metadata, "SESSION_TEST")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token_with_default_chain(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sources_module,
+        "_aws_credentials_from_default_chain",
+        lambda: ("AKIA_CHAIN", "SECRET_CHAIN", "TOKEN_CHAIN"),
+    )
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={
+            "url": "jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres",
+            "dbtable": "public.orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "postgres",
+            "credential_provider": "default_chain",
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "postgres"
+    assert "Action=connect" in captured["password"]
+    assert "X-Amz-Security-Token=" in captured["password"]
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_credential_source"] == "default_chain"
+    _assert_text_not_present(resolved.metadata, "SECRET_CHAIN")
+    _assert_text_not_present(resolved.metadata, "TOKEN_CHAIN")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token_with_mysql_default_port(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="mysql",
+        options={
+            "url": "jdbc:mysql://orders.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com/app",
+            "dbtable": "orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "app_user",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "SECRET_TEST",
+        },
+    )
+
+    JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert captured["password"].startswith(
+        "orders.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:3306/?"
+    )
+    assert "DBUser=app_user" in captured["password"]
+
+
+def test_jdbc_connector_rejects_unknown_rds_iam_credential_provider(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host.us-east-1.rds.amazonaws.com:5432/postgres", "dbtable": "public.orders"},
+        auth={"type": "rds_iam", "username": "postgres", "credential_provider": "metadata_only"},
+    )
+
+    with pytest.raises(ValueError, match="credential_provider"):
+        JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+
+def test_jdbc_connector_rejects_rds_iam_without_aws_credentials(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host.us-east-1.rds.amazonaws.com:5432/postgres", "dbtable": "public.orders"},
+        auth={"type": "rds_iam", "username": "postgres"},
+    )
+
+    with pytest.raises(ValueError, match="access_key_id e secret_access_key"):
+        JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_jdbc_connector_metadata_never_exposes_credentials(monkeypatch):
@@ -838,6 +1485,189 @@ def test_rest_api_connector_applies_params_and_incremental(monkeypatch):
     assert resolved.metadata["source_metrics"]["watermark_value"] == "2026-05-01T00:00:00Z"
     assert resolved.metadata["source_metrics"]["request_count"] == 1
     assert resolved.metadata["source_metrics"]["records_read"] == 1
+
+
+def test_rest_api_connector_materializes_complex_records_as_json_lines(monkeypatch):
+    captured = {}
+
+    class FakeContext:
+        def parallelize(self, rows):
+            captured["json_lines"] = rows
+            return rows
+
+    class FakeReader:
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, rows):
+            return {"json_lines": rows}
+
+    class FakeSpark:
+        sparkContext = FakeContext()
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("rest_api records should use spark.read.json when available")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {
+            "data": [
+                {
+                    "id": "R1",
+                    "display_name": "Record",
+                    "authorships": [{"author": {"id": "A1"}}, {"author": {"id": "A2"}, "raw": ["x"]}],
+                    "open_access": {"is_oa": True},
+                }
+            ]
+        }
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        name="records_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+        read={"json_options": {"readerCaseSensitive": True}},
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_lines": captured["json_lines"]}
+    assert '"authorships"' in captured["json_lines"][0]
+    assert captured["options"] == {"readerCaseSensitive": "true"}
+    assert resolved.metadata["source_metrics"]["dataframe_materialization"] == "spark_read_json_lines"
+
+
+def test_rest_api_connector_uses_configured_staging_when_spark_context_is_unavailable(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeReader:
+        def schema(self, value):
+            captured["schema"] = value
+            return self
+
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, path):
+            captured["path"] = path
+            return {"json_path": path}
+
+    class FakeSpark:
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("rest_api records should use spark.read.json before createDataFrame fallback")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {
+            "data": [
+                {
+                    "id": "R1",
+                    "quality_score": {"value": 99.1, "is_in_top_percentile": True},
+                }
+            ]
+        }
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        name="records_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+        read={
+            "staging_path": str(tmp_path),
+            "schema": "id STRING, quality_score STRUCT<value:DOUBLE,is_in_top_percentile:BOOLEAN>",
+            "json_options": {"rescuedDataColumn": "_rescued_data"},
+        },
+    )
+
+    resolved = RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_path": captured["path"]}
+    assert str(captured["path"]).endswith(".jsonl")
+    assert captured["schema"] == "id STRING, quality_score STRUCT<value:DOUBLE,is_in_top_percentile:BOOLEAN>"
+    assert captured["options"] == {"rescuedDataColumn": "_rescued_data"}
+    assert resolved.metadata["source_metrics"]["dataframe_materialization"] == "spark_read_json_staging_file"
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_http_file_connector_applies_declared_schema_to_parsed_records(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeReader:
+        def schema(self, value):
+            captured["schema"] = value
+            return self
+
+        def option(self, key, value):
+            captured.setdefault("options", {})[key] = value
+            return self
+
+        def json(self, path):
+            captured["path"] = path
+            return {"json_path": path}
+
+    class FakeSpark:
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise AssertionError("http_file parsed records should use spark.read.json when staging is declared")
+
+    def fake_request_with_retry(self, url, headers, timeout, retry_attempts, backoff):
+        return b"id,amount\nA1,10.5\n", {}, url, 18
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(HttpFileConnector, "_request_with_retry", fake_request_with_retry)
+    spec = ConnectorSpec(
+        connector="http_file",
+        name="orders_csv",
+        format="csv",
+        request={"url": "https://api.example.com/orders.csv"},
+        read={"staging_path": str(tmp_path), "schema": "id STRING, amount DOUBLE"},
+    )
+
+    resolved = HttpFileConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == {"json_path": captured["path"]}
+    assert captured["schema"] == "id STRING, amount DOUBLE"
+    assert resolved.metadata["source_metrics"]["schema_declared"] is True
+
+
+def test_rest_api_connector_requires_staging_for_complex_records_without_spark_context(monkeypatch):
+    class FakeSpark:
+        class FakeReader:
+            def json(self, path):
+                return {"json_path": path}
+
+        read = FakeReader()
+
+        def createDataFrame(self, rows, schema=None):
+            raise TypeError("cannot infer nested field")
+
+    def fake_request(self, url, method, headers, body, timeout, *, parse_json_payload=True):
+        payload = {"data": [{"id": "R1", "nested": {"value": 1}}]}
+        text = '{"data":[{"id":"R1"}]}'
+        return payload, {}, url, len(text.encode("utf-8")), text
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setattr(RestApiConnector, "_request", fake_request)
+    spec = ConnectorSpec(
+        connector="rest_api",
+        request={"url": "https://api.example.com/items"},
+        response={"records_path": "$.data"},
+    )
+
+    with pytest.raises(ValueError, match="source.read.staging_path"):
+        RestApiConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_rest_api_connector_can_return_raw_payload_without_json_parsing(monkeypatch):

@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `2.4.3`
+**Versão do pacote:** `2.6.5`
 **Pacote Python:** `contractforge`
 **Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -217,12 +217,13 @@ ingest_plan(plan)
        │              write_scd2
 [21] write_finished_at = now
 [22] delta_version_after = describe history limit 1
-[23] write_committed = rows_written > 0 && version_before != version_after
-[24] if optimize_after_write: run_optimize(target, zorder_columns)
-[25] wm_current = compute_watermark(df, plan.watermark_columns)
-[26] operation_metrics = describe history limit 1 (operationMetrics)
-[27] row_metrics = extract_row_metrics(operation_metrics)
-[28] upsert_state(SUCCESS, wm_current, run_id, rows_written)
+[23] if version_before != version_after: operation_metrics = describe history limit 1
+[24] row_metrics = resolve_write_metrics(rows_written, operation_metrics)
+[25] rows_written = normalize_rows_written(rows_written, row_metrics)
+[26] write_committed = rows_written > 0 && version_before != version_after
+[27] if optimize_after_write: run_optimize(target, zorder_columns)
+[28] wm_current = compute_watermark(df, plan.watermark_columns)
+[29] upsert_state(SUCCESS, wm_current, run_id, rows_written)
     │
     ▼   (except Exception as exc)
        status = "FAILED"
@@ -244,7 +245,7 @@ return dict {status, run_id, rows_*, watermark_*, write_committed,
 
 - O `try/except/finally` garante que **runs**, **state**, **quality**, **explain** e **lineage** são sempre persistidos, mesmo em falha. A única exceção é falha catastrófica antes da criação das ctrl tables ou em chamadas de log que ergam exceção (capturadas e logadas via `logger.error`).
 - A escrita do **target** é **uma única operação Delta** (uma transação). Os logs em ctrl tables não fazem parte da mesma transação — são atomicidade independente, daí o `try/except` ao redor de cada bloco final.
-- `delta_version_before/after` são lidos antes e depois para confirmar `write_committed`. Útil quando o motor não escreve nada (ex.: hash-diff sem mudanças) — `rows_written = 0` e versão não muda.
+- `delta_version_before/after` são lidos antes e depois para confirmar `write_committed`. Métricas Delta só são usadas quando a versão mudou, evitando reutilizar `DESCRIBE HISTORY` antigo em no-op. Quando o runtime expõe `operationMetrics.numOutputRows`, `rows_written` é normalizado para refletir as linhas afetadas reais.
 
 ### 3.2 Variáveis "vivas" no escopo do `ingest_plan`
 
@@ -316,10 +317,10 @@ Helpers puros (sem Spark), todos com escape correto:
 
 ### 4.3 `config.py` — Configuração e tipos
 
-**Tipos exportados** (todos `Literal` para narrowing estático):
+**Tipos exportados principais**:
 
 ```python
-Layer = Literal["bronze", "silver", "gold"]
+Layer = str  # classificação lógica livre; Bronze/Silver/Gold são convenções
 WriteMode = Literal["scd0_append", "scd0_overwrite", "scd1_upsert",
                     "scd1_hash_diff", "scd2_historical", "snapshot_soft_delete"]
 MergeStrategy = Literal["delta", "delta_by_partition", "replace_partitions"]
@@ -328,7 +329,7 @@ QualityFailAction = Literal["fail", "warn", "quarantine"]
 Source = Union[str, DataFrame]
 ```
 
-**`VALID_WRITE_MODES`**: set usado pela validação runtime (Literal só faz tipagem estática).
+**`VALID_WRITE_MODES`**: set usado pela validação runtime. `layer` não usa enum fechado; é validado apenas como identificador lógico não vazio com letras, números, `_` ou `-`.
 
 **`CONTROL_COLUMNS`**: conjunto de colunas que o framework adiciona/manipula. Importante: o cálculo de hash em `schema.py` exclui essas colunas para que mudanças neles não invalidem o `row_hash`.
 
@@ -374,7 +375,7 @@ Frozen dataclass com 40+ campos. Agrupados por finalidade:
 
 **Identificação** — `source` (str, DataFrame, `SourceSpec` ou `ConnectorSpec`), `target_table`, `catalog`, `layer`, `target_schema`, `mode`, `source_system`, `ctrl_schema`, `notebook_name`.
 
-`layer` é a camada lógica Medallion usada por presets, restrições e observabilidade. `target_schema` é o schema físico do target; quando omitido, o framework usa `layer` para manter o padrão `{catalog}.{layer}.{target_table}`.
+`layer` é a classificação lógica usada por presets, restrições e observabilidade. Bronze/Silver/Gold são convenções, mas valores como `stage`, `raw`, `trusted` e `curated` são válidos. `target_schema` é o schema físico do target; quando omitido, o framework usa `layer` para manter o padrão `{catalog}.{layer}.{target_table}`.
 
 **Metadados de contrato** — `description`, `owner`, `domain`, `tags`, `sla`, `runtime_parameters`. Não mudam a escrita; são propagados para retorno e `ctrl_ingestion_runs`.
 
@@ -419,7 +420,7 @@ Pontos importantes:
 - **Lista de parâmetros conhecida** (`_KNOWN_PARAMS`): qualquer kwarg fora dela ergue `ValueError("Parâmetros não reconhecidos em ingest(): [...]")`. Isso evita erros silenciosos por typos (ex.: `merg_keys=` em vez de `merge_keys=`).
 - **Listas via `as_list`**: aceita string com `|`, lista, iterável, ou `None`. Padrão de usabilidade vindo do uso em notebooks Databricks (parâmetros vêm como string).
 - **Custom keys**: dict de `nome_da_chave -> lista_de_colunas`; cada lista também passa por `as_list`.
-- **Enums validados estritamente** via `_validate_enum` contra `VALID_LAYERS`, `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. Typos em `layer`, `merge_strategy`, `schema_policy`, `on_quality_fail` ou `explain_format` viram `ValueError` com a lista de valores aceitos. `mode` continua passando por `validate_write_mode`.
+- **Enums validados estritamente** via `_validate_enum` contra `VALID_MERGE_STRATEGIES`, `VALID_SCHEMA_POLICIES`, `VALID_QUALITY_FAIL_ACTIONS`, `VALID_EXPLAIN_FORMATS`. `layer` é livre, mas precisa ser um identificador lógico válido; `mode` continua passando por `validate_write_mode`.
 - **`quality_rules`** passa por `normalize_quality_rules`, então aceita dict.
 - **`column_mapping`** renomeia colunas source -> target antes da validação do plano; colisões, destinos duplicados e nomes técnicos reservados são bloqueados.
 - **`delta_properties`** aplica TBLPROPERTIES na criação da tabela Delta.
@@ -786,6 +787,8 @@ Backoff linear + jitter. Não é exponencial — para o caso de uso (escritas De
 
 **Não é genérico.** Não retenta `OutOfMemoryError`, falhas de conexão, schema mismatch, etc. — esses devem falhar rápido.
 
+`ensure_ctrl_tables` usa uma proteção adicional para `ctrl_ingestion_metadata`: antes de escrever, consulta se a `framework_version`/`ctrl_schema_version` atual já está registrada. Se outra task gravar a mesma versão durante um conflito concorrente, o conflito é tratado como sucesso idempotente e a ingestão continua. Isso evita falha intermitente em jobs multi-task que inicializam o mesmo `ctrl_schema`.
+
 ### 4.9 `writers.py` — Motores de escrita
 
 Cada modo tem sua função. Todas seguem um padrão:
@@ -826,7 +829,7 @@ Mapeia `operationMetrics` do Delta:
 
 **Heurística:** para MERGE, Delta retorna os três `numTargetRows*`. Para APPEND/WRITE, só `numOutputRows`. Caímos para `numOutputRows` em `rows_inserted` quando o primeiro nome falta — isso vale para `scd0_append` e `scd1_hash_diff`.
 
-`resolve_write_metrics` sempre adiciona `operation_metrics.logicalMetrics` com os contadores calculados pela biblioteca. Quando o Delta history traz `operationMetrics`, `metrics_source="mixed"`; caso contrário, `metrics_source="logical"`.
+`resolve_write_metrics` sempre adiciona `operation_metrics.logicalMetrics` com os contadores calculados pela biblioteca. Quando o Delta history da versão recém-gravada traz `operationMetrics`, `metrics_source="mixed"`; caso contrário, `metrics_source="logical"`. O orquestrador só consulta e aplica essas métricas quando `delta_version_after != delta_version_before`, para não reaproveitar contadores de commits antigos. `normalize_rows_written` usa `rows_affected` como fallback quando o writer retorna `0`, mas o Delta confirma linhas afetadas.
 
 Limitação: para `scd0_overwrite` o mapping fica enganoso (overwrite tecnicamente "deleta tudo e insere"). O Delta retorna `numOutputRows` mas as linhas anteriores não aparecem em `numTargetRowsDeleted` (essa métrica só existe em DELETE/MERGE). Tratamos como insert simples — auditoria fina deve consultar `DESCRIBE HISTORY`.
 
@@ -1268,12 +1271,14 @@ Para um collector real, faça forwarder lendo `event_json` de execuções recent
 
 ### 9.10 `ctrl_ingestion_metadata`
 
-Uma linha por componente de controle, usada para auditoria de versão.
+Uma linha por componente de controle, usada para auditoria de versão. A tabela registra a versão atual do framework e do schema de controle; ela não é atualizada como heartbeat a cada execução.
 
 | Campo                                                        |
 | ------------------------------------------------------------ |
 | `component`, `framework_version`, `ctrl_schema_version`      |
 | `updated_at_utc`                                             |
+
+Em inicialização concorrente, a gravação é idempotente por versão: se outro worker já registrou a mesma versão, a execução ignora o conflito de commit e segue.
 
 ---
 
@@ -1451,7 +1456,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-2.4.3-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.6.5-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 

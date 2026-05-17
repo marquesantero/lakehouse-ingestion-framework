@@ -6,6 +6,85 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.8 - 2026-05-17
+
+- Melhora `error_message` curto de runs com exceções Spark/JVM, priorizando linhas úteis como `StorageException`, `AnalysisException`, `PSQLException`, `ValueError` e `Caused by` em vez de frames genéricos como `java.lang.Thread.run`.
+- Mantém o traceback completo em `ctrl_ingestion_errors`; a mudança afeta apenas o resumo curto em `ctrl_ingestion_runs` e no retorno.
+- Permite índices simples em `response.records_path` dos conectores REST/HTTP JSON, como `$[1]` e `$.data[0].items`, sem transformar o recurso em JSONPath completo.
+
+## 2.6.7 - 2026-05-17
+
+- Aceita `source.schema` como alias de `source.read.schema` em conectores declarativos, evitando que schemas explícitos sejam ignorados silenciosamente.
+- Rejeita conflitos entre `source.schema`, `source.read.schema` e `source.options.schema` com erro claro antes da leitura.
+- Atualiza JSON Schema do contrato para reconhecer `source.schema`.
+
+## 2.6.6 - 2026-05-17
+
+- Permite `source.auth.credential_provider=default_chain` para JDBC `auth.type=rds_iam`, usando a AWS credential provider chain via `botocore` quando credenciais explícitas/variáveis de ambiente não forem usadas.
+- Registra `jdbc_rds_iam_credential_source` para auditoria segura da origem das credenciais (`explicit`, `env` ou `default_chain`) sem expor secrets.
+- Mantém o caminho existente por secrets/variáveis de ambiente e adiciona erro claro para providers não suportados ou runtime sem `botocore`.
+
+## 2.6.5 - 2026-05-17
+
+- Adiciona `source.auth` para conectores JDBC, separando credenciais de `source.options`.
+- Suporta `auth.type=basic` para `user/password` e `auth.type=rds_iam` para gerar token IAM Amazon RDS/Aurora no driver Python sem depender de `boto3` ou AWS CLI.
+- Registra métricas seguras como `jdbc_auth_type`, `jdbc_rds_iam_token_generated` e região RDS, mantendo usuário/senha/token redigidos em metadados.
+- Documenta alternativas corretas de conectividade JDBC para RDS: VPC peering/PrivateLink/mesma VPC, endpoint público tradicional ou Aurora Express Internet Access Gateway com IAM token.
+
+## 2.6.4 - 2026-05-17
+
+- Padroniza `rows_written` como métrica operacional principal quando o runtime Delta retorna contadores confiáveis mesmo que o writer não consiga calcular a contagem diretamente.
+- Evita reutilizar métricas antigas do `DESCRIBE HISTORY` quando a versão Delta não mudou, preservando `rows_written=0` para cargas sem novo commit.
+- Corrige observabilidade de modos append/hash-diff em runtimes onde `operationMetrics.numOutputRows` é a única evidência confiável de linhas gravadas.
+
+## 2.6.3 - 2026-05-17
+
+- Fortalece `ensure_ctrl_tables` contra inicialização concorrente de múltiplas tasks usando o mesmo `ctrl_schema`.
+- `ctrl_ingestion_metadata` deixa de ser atualizada em toda execução quando a versão atual já está registrada.
+- Se outro worker registrar a mesma `framework_version`/`ctrl_schema_version` durante um conflito Delta concorrente, a execução passa a continuar com warning em vez de falhar antes de tocar dados.
+- Mantém a auditoria de versão em `ctrl_ingestion_metadata` e adiciona testes de regressão para conflitos concorrentes.
+
+## 2.6.2 - 2026-05-17
+
+- Adiciona suporte declarativo a credenciais S3 via `source.auth` no conector `s3`/`object_storage` com `provider=s3`.
+- Configura `fs.s3a.access.key`, `fs.s3a.secret.key`, `fs.s3a.session.token` e o credentials provider adequado em runtimes classic/job cluster/local.
+- Permite opções Hadoop S3A em `source.options` usando chaves `fs.s3a.*` ou `spark.hadoop.fs.s3a.*`, sem repassá-las ao reader Spark.
+- Em serverless/Spark Connect, falha rápido com orientação para usar Unity Catalog External Location/Volume quando `spark.conf.set` para `fs.s3a.*` for bloqueado.
+- Mantém credenciais redigidas nos metadados e adiciona métricas seguras `s3_auth_configured`, `s3_temporary_credentials` e `s3_conf_options_configured`.
+
+## 2.6.1 - 2026-05-16
+
+- Corrige a materialização do conector `rest_api` para payloads JSON reais com structs, arrays e campos opcionais heterogêneos.
+- Em runtimes Spark clássicos, `response.mode: records` passa a materializar registros via JSON lines e `spark.read.json`, por RDD quando disponível ou por `source.read.staging_path` configurado, evitando falhas de inferência do `createDataFrame` em arrays complexos.
+- Adiciona `source.read.schema` e `source.read.json_options` para controlar explicitamente o Spark JSON reader usado na materialização de registros REST/HTTP JSON, evitando inferência frágil em payloads heterogêneos ou com objetos dinâmicos.
+- Registra `source_metrics.dataframe_materialization` para auditoria do caminho usado pelo conector REST.
+
+## 2.6.0 - 2026-05-16
+
+- Adiciona `source.read.schema` para declarar schema Spark DDL em conectores de arquivo e object storage.
+- Evita inferência de schema em leituras com muitos arquivos pequenos quando o contrato já conhece o schema esperado.
+- Registra `source_metrics.schema_declared` para observabilidade do conector.
+
+## 2.5.2 - 2026-05-16
+
+- Corrige `shape.columns` para projetar todos os paths a partir do schema original do DataFrame.
+- Evita falha quando um alias sobrescreve o nome de um struct pai antes de extrair campos irmãos, por exemplo `amount._VALUE -> amount` e `amount._currency -> currency`.
+- Adiciona teste de regressão para projeção de campos aninhados irmãos com alias conflitante com o parent struct.
+
+## 2.5.1 - 2026-05-16
+
+- Corrige conectores incrementais para extrair o valor de watermarks tipados antes de montar predicates, parâmetros, headers ou bodies.
+- Corrige falha real no JDBC incremental em segunda execução, onde o JSON completo do watermark era usado como literal SQL.
+- Adiciona validação clara para watermark composto em `source.incremental` quando não há coluna incremental única.
+
+## 2.5.0 - 2026-05-16
+
+- Torna `layer` uma classificação lógica customizável, sem limitar o contrato a `bronze`, `silver` e `gold`.
+- Mantém `target_schema` como schema físico explícito; quando omitido, `layer` segue como fallback do schema físico.
+- Atualiza JSON Schema, CLI `contractforge init`, testes e documentação para aceitar layers como `stage`, `raw`, `trusted` e `curated`.
+- Mantém a restrição operacional de Bronze apenas para o valor literal `layer: bronze`.
+- Adiciona retry no registro de `ctrl_ingestion_metadata`, reduzindo falhas por concorrência no setup das control tables.
+
 ## 2.4.3 - 2026-05-15
 
 - Adiciona suporte declarativo a Azure Blob com SAS no conector `azure_blob`.
