@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css"><link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+  <script defer src="js/vendor/highlight.min.js"></script><script defer src="js/vendor/highlight-languages/bash.min.js"></script><script defer src="js/main.js"></script>
+</head>
+<body data-page="reference">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="index.html"><img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav" aria-label="Documentation"><span class="nav-label">Start</span><a href="index.html" data-nav="home">Overview</a><a href="quickstart.html" data-nav="quickstart">Quick start</a><a href="concepts.html" data-nav="concepts">Core concepts</a><a href="contracts.html" data-nav="contracts">Contracts</a><a href="write-modes.html" data-nav="write-modes">Write modes</a><a href="transformations.html" data-nav="transformations">Transformations</a><span class="nav-label">Connectors</span><a href="connectors/index.html" data-nav="connectors">Connector overview</a><a href="connectors/table-sql.html">Table and SQL</a><a href="connectors/files.html">Files</a><a href="connectors/http-file.html">HTTP file</a><a href="connectors/object-storage.html">Object storage</a><a href="connectors/s3.html">S3</a><a href="connectors/azure-blob.html">Azure Blob</a><a href="connectors/jdbc.html">JDBC</a><a href="connectors/rest-api.html">REST API</a><a href="connectors/autoloader.html">Auto Loader</a><a href="connectors/external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="governance.html" data-nav="governance">Governance</a><a href="operations.html" data-nav="operations">Operations</a><a href="examples.html" data-nav="examples">Examples</a><a href="reference.html" data-nav="reference">Reference</a></nav><div class="sidebar-footer"><a href="pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div></aside>
+<main class="content">
+  <header class="page-header"><p class="eyebrow">Reference</p><h1>CLI and API entry points.</h1><p class="lead">This page is intentionally compact. Detailed parameter reference remains in the repository markdown docs while the site focuses on navigation and usage decisions.</p></header>
+  <section class="section">
+    <h2>CLI</h2>
+    <pre><code>contractforge validate path/to/table.ingestion.yaml
+contractforge validate-project contracts/
+contractforge validate-bundle contracts/silver/s_customers
+contractforge connectors list
+contractforge connectors show rest_api jdbc s3
+contractforge connectors doctor rest_api jdbc s3
+contractforge templates list
+contractforge templates wizard
+contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops
+contractforge maintenance cost-report --catalog main --ctrl-schema ops</code></pre>
+  </section>
+  <section class="section">
+    <h2>Python API</h2>
+    <div class="table-wrap"><table><tr><th>Function</th><th>Use</th></tr><tr><td><code>ingest()</code></td><td>Direct Python invocation with kwargs or DataFrame source.</td></tr><tr><td><code>ingest_plan()</code></td><td>Execute a prepared <code>IngestionPlan</code>.</td></tr><tr><td><code>load_contract_bundle()</code></td><td>Load split YAML contracts.</td></tr><tr><td><code>ingest_bundle()</code></td><td>Execute an ingestion bundle with governance context.</td></tr><tr><td><code>register_source_resolver()</code></td><td>Add custom source connectors.</td></tr><tr><td><code>register_write_mode()</code></td><td>Add custom write modes when the built-in modes are not enough.</td></tr></table></div>
+  </section>
+</main>
+</div>
+</body>
+</html>

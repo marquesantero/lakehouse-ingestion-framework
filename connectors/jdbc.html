@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>JDBC connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>JDBC</h1><p class="lead">Use JDBC for relational databases when the runtime has network reachability and the correct driver installed.</p></header><section class="section"><h2>Basic auth</h2><pre><code>source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:crm/postgres_url }}"
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: basic
+    username: "{{ secret:crm/user }}"
+    password: "{{ secret:crm/password }}"
+  incremental:
+    watermark_column: updated_at
+  read:
+    fetchsize: 10000
+    partition_column: order_id
+    lower_bound: 1
+    upper_bound: 1000000
+    num_partitions: 8</code></pre></section><section class="section"><h2>Amazon RDS/Aurora IAM</h2><pre><code>auth:
+  type: rds_iam
+  username: "{{ secret:contractforge-aws/rds_username }}"
+  region: us-east-1
+  credential_provider: default_chain
+  sslmode: require</code></pre><p>RDS IAM token generation requires <code>botocore</code> in the Python driver. Install <code>contractforge[aws]</code> or provide <code>botocore</code> in the runtime.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Install the JDBC driver on the cluster or serverless environment.</li><li>Partition large reads; avoid pulling entire database tables through one connection.</li><li>Network connectivity is outside the library: VPC routing, firewall, PrivateLink and security groups must be solved by the platform.</li></ul></section></main></div></body></html>

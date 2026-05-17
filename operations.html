@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operations | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css"><link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+  <script defer src="js/vendor/highlight.min.js"></script><script defer src="js/vendor/highlight-languages/sql.min.js"></script><script defer src="js/vendor/highlight-languages/bash.min.js"></script><script defer src="js/main.js"></script>
+</head>
+<body data-page="operations">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="index.html"><img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav" aria-label="Documentation"><span class="nav-label">Start</span><a href="index.html" data-nav="home">Overview</a><a href="quickstart.html" data-nav="quickstart">Quick start</a><a href="concepts.html" data-nav="concepts">Core concepts</a><a href="contracts.html" data-nav="contracts">Contracts</a><a href="write-modes.html" data-nav="write-modes">Write modes</a><a href="transformations.html" data-nav="transformations">Transformations</a><span class="nav-label">Connectors</span><a href="connectors/index.html" data-nav="connectors">Connector overview</a><a href="connectors/table-sql.html">Table and SQL</a><a href="connectors/files.html">Files</a><a href="connectors/http-file.html">HTTP file</a><a href="connectors/object-storage.html">Object storage</a><a href="connectors/s3.html">S3</a><a href="connectors/azure-blob.html">Azure Blob</a><a href="connectors/jdbc.html">JDBC</a><a href="connectors/rest-api.html">REST API</a><a href="connectors/autoloader.html">Auto Loader</a><a href="connectors/external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="governance.html" data-nav="governance">Governance</a><a href="operations.html" data-nav="operations">Operations</a><a href="examples.html" data-nav="examples">Examples</a><a href="reference.html" data-nav="reference">Reference</a></nav><div class="sidebar-footer"><a href="pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div></aside>
+<main class="content">
+  <header class="page-header"><p class="eyebrow">Operations</p><h1>Operate ingestion through evidence, not notebook logs.</h1><p class="lead">Every run should leave enough data to answer what ran, what changed, what failed and how expensive it was operationally.</p></header>
+  <section class="section">
+    <h2>Control table groups</h2>
+    <div class="page-grid">
+      <article class="page-card"><h3>Run lifecycle</h3><p><code>ctrl_ingestion_runs</code>, <code>ctrl_ingestion_errors</code>, <code>ctrl_ingestion_state</code>, <code>ctrl_ingestion_locks</code>.</p></article>
+      <article class="page-card"><h3>Quality and schema</h3><p><code>ctrl_ingestion_quality</code>, <code>ctrl_ingestion_quarantine</code>, <code>ctrl_ingestion_schema_changes</code>.</p></article>
+      <article class="page-card"><h3>Governance</h3><p><code>ctrl_ingestion_annotations</code>, <code>ctrl_ingestion_operations</code>, <code>ctrl_ingestion_access</code>.</p></article>
+      <article class="page-card"><h3>Lineage and streams</h3><p><code>ctrl_ingestion_lineage</code>, <code>ctrl_ingestion_streams</code>, <code>ctrl_ingestion_explain</code>.</p></article>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Recent run health</h2>
+    <pre><code>SELECT
+  status,
+  target_table,
+  mode,
+  rows_read,
+  rows_written,
+  duration_seconds,
+  error_message
+FROM main.ops.ctrl_ingestion_runs
+ORDER BY start_ts_utc DESC
+LIMIT 50;</code></pre>
+  </section>
+  <section class="section">
+    <h2>Maintenance commands</h2>
+    <pre><code>contractforge maintenance ctrl-retention --catalog main --ctrl-schema ops --retention-days 30
+contractforge maintenance cost-report --catalog main --ctrl-schema ops --dbu-per-hour 2 --currency-per-dbu 0.40</code></pre>
+    <p>The cost report is operational estimation from run duration and user-provided rates. It is not cloud billing.</p>
+  </section>
+</main>
+</div>
+</body>
+</html>

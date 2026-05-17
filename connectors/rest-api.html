@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>REST API connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>REST API</h1><p class="lead">Use REST for bounded API extraction, controlled pagination and payload capture. For large recurring loads, land files first and process them with Auto Loader.</p></header><section class="section"><h2>Records mode</h2><pre><code>source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://api.example.com/orders
+  response:
+    records_path: $.data
+  pagination:
+    type: cursor
+    cursor_param: cursor
+    next_cursor_path: $.next
+  limits:
+    max_pages: 100
+    timeout_seconds: 60</code></pre></section><section class="section"><h2>Raw payload mode</h2><p>Use raw mode when the API response is a document and the structure belongs in <code>transform.shape</code>.</p><pre><code>source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://eonet.gsfc.nasa.gov/api/v3/events
+  response:
+    mode: raw
+    raw_column: raw_response
+  limits:
+    max_page_bytes: 10485760
+
+transform:
+  shape:
+    parse_json:
+      - column: raw_response
+        alias: payload
+        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Always set page, byte, timeout and retry limits.</li><li>Use secrets for tokens and API keys.</li><li>Use explicit schemas for heterogeneous payloads.</li></ul></section></main></div></body></html>
