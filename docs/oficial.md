@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.6.3 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.4 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -172,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.6.3-py3-none-any.whl
+# → dist/contractforge-2.6.4-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.6.3-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.4-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.3-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.4-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 

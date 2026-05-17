@@ -77,6 +77,7 @@ from .writers import (
     delta_version,
     execute_write_mode,
     latest_operation_metrics,
+    normalize_rows_written,
     resolve_write_metrics,
     run_optimize,
     write_strategy,
@@ -996,7 +997,16 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         )
         write_finished_at = utc_now_str()
         delta_version_after = delta_version(target) if table_exists(target) else None
-        write_committed = rows_written > 0 and delta_version_after != delta_version_before
+        delta_version_changed = delta_version_after is not None and delta_version_after != delta_version_before
+        delta_metrics = latest_operation_metrics(target) if delta_version_changed else {}
+        row_metrics, operation_metrics, metrics_source = resolve_write_metrics(
+            plan, rows_written, delta_metrics
+        )
+        rows_written = normalize_rows_written(rows_written, row_metrics)
+        row_metrics["rows_affected"] = rows_written
+        if "logicalMetrics" in operation_metrics:
+            operation_metrics["logicalMetrics"]["rows_affected"] = rows_written
+        write_committed = rows_written > 0 and delta_version_changed
         stage_durations["write"] = (utc_now_ts() - stage_started).total_seconds()
 
         if rows_written > 0 and plan.optimize_after_write:
@@ -1009,10 +1019,6 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
             compute_watermark(prepared_df, plan.watermark_columns)
             if plan.watermark_columns and rows_read > 0
             else wm_prev
-        )
-        delta_metrics = latest_operation_metrics(target) if table_exists(target) else {}
-        row_metrics, operation_metrics, metrics_source = resolve_write_metrics(
-            plan, rows_written, delta_metrics
         )
         stage_started = utc_now_ts()
         governance_validation = validate_governance_contract(target, plan.annotations, None)

@@ -6,6 +6,12 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.4 - 2026-05-17
+
+- Padroniza `rows_written` como métrica operacional principal quando o runtime Delta retorna contadores confiáveis mesmo que o writer não consiga calcular a contagem diretamente.
+- Evita reutilizar métricas antigas do `DESCRIBE HISTORY` quando a versão Delta não mudou, preservando `rows_written=0` para cargas sem novo commit.
+- Corrige observabilidade de modos append/hash-diff em runtimes onde `operationMetrics.numOutputRows` é a única evidência confiável de linhas gravadas.
+
 ## 2.6.3 - 2026-05-17
 
 - Fortalece `ensure_ctrl_tables` contra inicialização concorrente de múltiplas tasks usando o mesmo `ctrl_schema`.

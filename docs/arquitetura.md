@@ -1,6 +1,6 @@
 # ContractForge — Arquitetura e Referência Técnica
 
-**Versão do pacote:** `2.6.3`
+**Versão do pacote:** `2.6.4`
 **Pacote Python:** `contractforge`
 **Import principal:** `contractforge`
 **Ambiente-alvo:** Databricks Runtime, Unity Catalog, Delta Lake (também roda em PySpark + delta-spark fora do Databricks)
@@ -217,12 +217,13 @@ ingest_plan(plan)
        │              write_scd2
 [21] write_finished_at = now
 [22] delta_version_after = describe history limit 1
-[23] write_committed = rows_written > 0 && version_before != version_after
-[24] if optimize_after_write: run_optimize(target, zorder_columns)
-[25] wm_current = compute_watermark(df, plan.watermark_columns)
-[26] operation_metrics = describe history limit 1 (operationMetrics)
-[27] row_metrics = extract_row_metrics(operation_metrics)
-[28] upsert_state(SUCCESS, wm_current, run_id, rows_written)
+[23] if version_before != version_after: operation_metrics = describe history limit 1
+[24] row_metrics = resolve_write_metrics(rows_written, operation_metrics)
+[25] rows_written = normalize_rows_written(rows_written, row_metrics)
+[26] write_committed = rows_written > 0 && version_before != version_after
+[27] if optimize_after_write: run_optimize(target, zorder_columns)
+[28] wm_current = compute_watermark(df, plan.watermark_columns)
+[29] upsert_state(SUCCESS, wm_current, run_id, rows_written)
     │
     ▼   (except Exception as exc)
        status = "FAILED"
@@ -244,7 +245,7 @@ return dict {status, run_id, rows_*, watermark_*, write_committed,
 
 - O `try/except/finally` garante que **runs**, **state**, **quality**, **explain** e **lineage** são sempre persistidos, mesmo em falha. A única exceção é falha catastrófica antes da criação das ctrl tables ou em chamadas de log que ergam exceção (capturadas e logadas via `logger.error`).
 - A escrita do **target** é **uma única operação Delta** (uma transação). Os logs em ctrl tables não fazem parte da mesma transação — são atomicidade independente, daí o `try/except` ao redor de cada bloco final.
-- `delta_version_before/after` são lidos antes e depois para confirmar `write_committed`. Útil quando o motor não escreve nada (ex.: hash-diff sem mudanças) — `rows_written = 0` e versão não muda.
+- `delta_version_before/after` são lidos antes e depois para confirmar `write_committed`. Métricas Delta só são usadas quando a versão mudou, evitando reutilizar `DESCRIBE HISTORY` antigo em no-op. Quando o runtime expõe `operationMetrics.numOutputRows`, `rows_written` é normalizado para refletir as linhas afetadas reais.
 
 ### 3.2 Variáveis "vivas" no escopo do `ingest_plan`
 
@@ -828,7 +829,7 @@ Mapeia `operationMetrics` do Delta:
 
 **Heurística:** para MERGE, Delta retorna os três `numTargetRows*`. Para APPEND/WRITE, só `numOutputRows`. Caímos para `numOutputRows` em `rows_inserted` quando o primeiro nome falta — isso vale para `scd0_append` e `scd1_hash_diff`.
 
-`resolve_write_metrics` sempre adiciona `operation_metrics.logicalMetrics` com os contadores calculados pela biblioteca. Quando o Delta history traz `operationMetrics`, `metrics_source="mixed"`; caso contrário, `metrics_source="logical"`.
+`resolve_write_metrics` sempre adiciona `operation_metrics.logicalMetrics` com os contadores calculados pela biblioteca. Quando o Delta history da versão recém-gravada traz `operationMetrics`, `metrics_source="mixed"`; caso contrário, `metrics_source="logical"`. O orquestrador só consulta e aplica essas métricas quando `delta_version_after != delta_version_before`, para não reaproveitar contadores de commits antigos. `normalize_rows_written` usa `rows_affected` como fallback quando o writer retorna `0`, mas o Delta confirma linhas afetadas.
 
 Limitação: para `scd0_overwrite` o mapping fica enganoso (overwrite tecnicamente "deleta tudo e insere"). O Delta retorna `numOutputRows` mas as linhas anteriores não aparecem em `numTargetRowsDeleted` (essa métrica só existe em DELETE/MERGE). Tratamos como insert simples — auditoria fina deve consultar `DESCRIBE HISTORY`.
 
@@ -1455,7 +1456,7 @@ python -m build
 twine check dist/*
 ```
 
-Gera `dist/contractforge-2.6.3-py3-none-any.whl` e `.tar.gz`.
+Gera `dist/contractforge-2.6.4-py3-none-any.whl` e `.tar.gz`.
 
 ### 14.2 Instalação no Databricks
 
