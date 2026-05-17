@@ -810,6 +810,8 @@ def test_jdbc_connector_applies_incremental_predicate(monkeypatch):
         "partitioned_read": False,
         "fetchsize": None,
         "source_complete": False,
+        "jdbc_auth_configured": False,
+        "jdbc_auth_type": "none",
     }
 
 
@@ -914,6 +916,160 @@ def test_named_jdbc_connector_uses_jdbc_reader(monkeypatch):
     assert captured["dbtable"] == "public.orders"
     assert captured["fetchsize"] == "5000"
     assert resolved.metadata["source_connector"] == "postgres"
+
+
+def test_jdbc_connector_applies_basic_auth_from_source_auth(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host/db", "dbtable": "public.orders"},
+        auth={"type": "basic", "username": "app_user", "password": "secret-password"},
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "app_user"
+    assert captured["password"] == "secret-password"
+    assert resolved.metadata["source_metrics"]["jdbc_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_auth_type"] == "basic"
+    _assert_text_not_present(resolved.metadata, "secret-password")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={
+            "url": "jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres",
+            "dbtable": "public.orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "postgres",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "SECRET_TEST",
+            "session_token": "SESSION_TEST",
+        },
+    )
+
+    resolved = JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert resolved.df == "df"
+    assert captured["user"] == "postgres"
+    assert captured["password"].startswith(
+        "database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/?"
+    )
+    assert "Action=connect" in captured["password"]
+    assert "DBUser=postgres" in captured["password"]
+    assert "X-Amz-Security-Token=" in captured["password"]
+    assert captured["ssl"] == "true"
+    assert captured["sslmode"] == "require"
+    assert resolved.metadata["source_metrics"]["jdbc_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_auth_type"] == "rds_iam"
+    assert resolved.metadata["source_metrics"]["jdbc_rds_iam_token_generated"] is True
+    assert resolved.metadata["source_metrics"]["jdbc_rds_region"] == "us-east-1"
+    _assert_text_not_present(resolved.metadata, "SECRET_TEST")
+    _assert_text_not_present(resolved.metadata, "SESSION_TEST")
+
+
+def test_jdbc_connector_generates_rds_iam_auth_token_with_mysql_default_port(monkeypatch):
+    captured = {}
+
+    class Reader:
+        def format(self, value):
+            captured["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            captured.update(kwargs)
+            return self
+
+        def load(self):
+            return "df"
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    spec = ConnectorSpec(
+        connector="mysql",
+        options={
+            "url": "jdbc:mysql://orders.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com/app",
+            "dbtable": "orders",
+        },
+        auth={
+            "type": "rds_iam",
+            "username": "app_user",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "SECRET_TEST",
+        },
+    )
+
+    JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
+
+    assert captured["password"].startswith(
+        "orders.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:3306/?"
+    )
+    assert "DBUser=app_user" in captured["password"]
+
+
+def test_jdbc_connector_rejects_rds_iam_without_aws_credentials(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    spec = ConnectorSpec(
+        connector="postgres",
+        options={"url": "jdbc:postgresql://host.us-east-1.rds.amazonaws.com:5432/postgres", "dbtable": "public.orders"},
+        auth={"type": "rds_iam", "username": "postgres"},
+    )
+
+    with pytest.raises(ValueError, match="access_key_id e secret_access_key"):
+        JdbcConnector().resolve_batch(spec, build_plan_from_kwargs(source="x", target_table="t"))
 
 
 def test_jdbc_connector_metadata_never_exposes_credentials(monkeypatch):

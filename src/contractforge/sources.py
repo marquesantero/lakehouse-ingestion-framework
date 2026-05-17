@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import datetime as dt
+import hashlib
+import hmac
 import io
 import importlib.util
 import json
@@ -39,6 +42,16 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(\s*[:=]\s*)([^\s,;})\]]+)"
 )
 _JSON_LINES_FORMATS = {"jsonl", "ndjson"}
+_JDBC_HOST_RE = re.compile(
+    r"^jdbc:(?P<dialect>[a-z0-9]+)://(?P<host>[^/:?;]+)(?::(?P<port>\d+))?",
+    re.IGNORECASE,
+)
+_JDBC_DEFAULT_PORTS = {
+    "mariadb": 3306,
+    "mysql": 3306,
+    "postgres": 5432,
+    "postgresql": 5432,
+}
 
 
 @dataclass(frozen=True)
@@ -294,19 +307,29 @@ CONNECTOR_RUNTIME_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "status": "runtime_required",
         "runtime": "Driver JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Valide o driver no cluster/serverless antes de executar contratos produtivos."],
+        "notes": [
+            "Valide o driver no cluster/serverless antes de executar contratos produtivos.",
+            "Use source.auth para user/password ou auth.type=rds_iam para token IAM RDS gerado no driver.",
+            "Conectividade de rede continua responsabilidade do runtime: VPC, peering, PrivateLink, firewall ou endpoint público.",
+        ],
     },
     "postgres": {
         "status": "runtime_required",
         "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Alias JDBC; a lib não instala o driver."],
+        "notes": [
+            "Alias JDBC; a lib não instala o driver.",
+            "Para Amazon RDS/Aurora PostgreSQL com IAM auth, use source.auth.type=rds_iam e SSL habilitado.",
+        ],
     },
     "postgresql": {
         "status": "runtime_required",
         "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Alias JDBC; a lib não instala o driver."],
+        "notes": [
+            "Alias JDBC; a lib não instala o driver.",
+            "Para Amazon RDS/Aurora PostgreSQL com IAM auth, use source.auth.type=rds_iam e SSL habilitado.",
+        ],
     },
     "sqlserver": {
         "status": "runtime_required",
@@ -446,6 +469,87 @@ def _spark_options(options: Mapping[str, Any]) -> Dict[str, str]:
         else:
             normalized[str(key)] = str(value)
     return normalized
+
+
+def _aws_quote(value: Any) -> str:
+    return urllib.parse.quote(str(value), safe="-_.~")
+
+
+def _aws_sign(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _aws_signature_key(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
+    key_date = _aws_sign(("AWS4" + secret_key).encode("utf-8"), date_stamp)
+    key_region = _aws_sign(key_date, region)
+    key_service = _aws_sign(key_region, service)
+    return _aws_sign(key_service, "aws4_request")
+
+
+def _parse_jdbc_host_port(url: str, default_port: int) -> tuple[str, int]:
+    match = _JDBC_HOST_RE.match(url)
+    if not match:
+        raise ValueError(
+            "source.options.url JDBC deve estar no formato jdbc:<dialeto>://host:porta/database "
+            "para usar auth.type=rds_iam"
+        )
+    dialect = match.group("dialect").lower()
+    fallback_port = _JDBC_DEFAULT_PORTS.get(dialect, default_port)
+    return match.group("host"), int(match.group("port") or fallback_port)
+
+
+def _infer_aws_region_from_host(host: str) -> Optional[str]:
+    match = re.search(r"\.([a-z]{2}-[a-z]+-\d)\.(?:rds|rdsrelay)\.", host)
+    return match.group(1) if match else None
+
+
+def _rds_iam_auth_token(
+    *,
+    host: str,
+    port: int,
+    region: str,
+    username: str,
+    access_key: str,
+    secret_key: str,
+    session_token: Optional[str] = None,
+    now: Optional[dt.datetime] = None,
+) -> str:
+    """Gera token IAM RDS usando SigV4 sem depender de boto3/awscli."""
+    current = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
+    amz_date = current.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = current.strftime("%Y%m%d")
+    service = "rds-db"
+    credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
+    endpoint = f"{host}:{port}"
+    query: list[tuple[str, str]] = [
+        ("Action", "connect"),
+        ("DBUser", username),
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+        ("X-Amz-Credential", f"{access_key}/{credential_scope}"),
+        ("X-Amz-Date", amz_date),
+        ("X-Amz-Expires", "900"),
+        ("X-Amz-SignedHeaders", "host"),
+    ]
+    if session_token:
+        query.append(("X-Amz-Security-Token", session_token))
+    canonical_query = "&".join(f"{_aws_quote(k)}={_aws_quote(v)}" for k, v in sorted(query))
+    canonical_headers = f"host:{endpoint}\n"
+    signed_headers = "host"
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    canonical_request = "\n".join(
+        ["GET", "/", canonical_query, canonical_headers, signed_headers, payload_hash]
+    )
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signing_key = _aws_signature_key(secret_key, date_stamp, region, service)
+    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{endpoint}/?{canonical_query}&X-Amz-Signature={signature}"
 
 
 def _optional_source_schema(spec: ConnectorSpec) -> str:
@@ -1129,6 +1233,7 @@ class JdbcConnector:
             raise ValueError(f"source.options.url é obrigatório para connector={spec.connector}")
         if "dbtable" not in options and "query" not in options:
             raise ValueError(f"connector={spec.connector} requer source.options.dbtable ou source.options.query")
+        auth_metrics = self._apply_auth(spec, options)
         watermark_value = _incremental_watermark_value(spec, plan)
         if watermark_value:
             self._apply_incremental_predicate(spec, options, watermark_value)
@@ -1160,6 +1265,7 @@ class JdbcConnector:
             "partitioned_read": bool(provided),
             "fetchsize": read.get("fetchsize"),
             "source_complete": capabilities.source_complete,
+            **auth_metrics,
         }
         return SourceResolution(
             df,
@@ -1167,6 +1273,75 @@ class JdbcConnector:
             spec.connector,
             metadata,
             capabilities,
+        )
+
+    def _apply_auth(self, spec: ConnectorSpec, options: Dict[str, Any]) -> Dict[str, Any]:
+        auth = resolve_secrets(spec.auth or {})
+        auth_type = str(auth.get("type") or ("basic" if auth else "none")).strip().lower()
+        if auth_type in {"", "none"}:
+            return {"jdbc_auth_configured": False, "jdbc_auth_type": "none"}
+        if auth_type in {"basic", "password", "user_password"}:
+            username = auth.get("username") or auth.get("user")
+            password = auth.get("password") or auth.get("token")
+            if username:
+                options["user"] = username
+            if password:
+                options["password"] = password
+            if not username and not password:
+                raise ValueError("source.auth para JDBC requer username/user e password/token")
+            return {"jdbc_auth_configured": True, "jdbc_auth_type": "basic"}
+        if auth_type in {"rds_iam", "aws_rds_iam", "rds_iam_token"}:
+            username = str(auth.get("username") or auth.get("user") or options.get("user") or "").strip()
+            if not username:
+                raise ValueError("source.auth.type=rds_iam requer auth.username ou auth.user")
+            host, port = _parse_jdbc_host_port(str(options["url"]), int(auth.get("port") or 5432))
+            region = str(auth.get("region") or _infer_aws_region_from_host(host) or "").strip()
+            if not region:
+                raise ValueError("source.auth.type=rds_iam requer auth.region quando a região não puder ser inferida")
+            access_key = (
+                auth.get("access_key_id")
+                or auth.get("access_key")
+                or auth.get("aws_access_key_id")
+                or os.getenv("AWS_ACCESS_KEY_ID")
+            )
+            secret_key = (
+                auth.get("secret_access_key")
+                or auth.get("secret_key")
+                or auth.get("aws_secret_access_key")
+                or os.getenv("AWS_SECRET_ACCESS_KEY")
+            )
+            session_token = (
+                auth.get("session_token")
+                or auth.get("token")
+                or auth.get("aws_session_token")
+                or os.getenv("AWS_SESSION_TOKEN")
+            )
+            if not access_key or not secret_key:
+                raise ValueError(
+                    "source.auth.type=rds_iam requer access_key_id e secret_access_key "
+                    "ou variáveis AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY disponíveis no driver"
+                )
+            options["user"] = username
+            options["password"] = _rds_iam_auth_token(
+                host=host,
+                port=port,
+                region=region,
+                username=username,
+                access_key=str(access_key),
+                secret_key=str(secret_key),
+                session_token=None if session_token is None else str(session_token),
+            )
+            options.setdefault("ssl", "true")
+            options.setdefault("sslmode", str(auth.get("sslmode") or "require"))
+            return {
+                "jdbc_auth_configured": True,
+                "jdbc_auth_type": "rds_iam",
+                "jdbc_rds_iam_token_generated": True,
+                "jdbc_rds_region": region,
+                "jdbc_ssl_enabled": True,
+            }
+        raise ValueError(
+            "source.auth.type para JDBC deve ser um de: none, basic, password, user_password, rds_iam"
         )
 
     def _apply_incremental_predicate(

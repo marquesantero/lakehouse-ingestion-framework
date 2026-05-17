@@ -91,7 +91,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
 
 target:
@@ -110,6 +112,8 @@ quality_rules:
 ```
 
 `layer` é metadata operacional e pode ser customizado. O schema físico é `target.schema` ou `target_schema`; se omitido, a lib usa `layer` como fallback.
+
+Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python. A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway.
 
 ## Shape Declarativo
 

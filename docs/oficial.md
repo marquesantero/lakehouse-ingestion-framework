@@ -1,6 +1,6 @@
 # ContractForge — Documentação Oficial
 
-**Versão:** 2.6.4 | **Licença:** MIT | **Python:** >= 3.10
+**Versão:** 2.6.5 | **Licença:** MIT | **Python:** >= 3.10
 
 Framework declarativo para ingestão de dados em Delta Lake no Databricks (ou PySpark + delta-spark standalone), com contratos por tabela, suporte à arquitetura Medallion e classificações lógicas customizadas, conectores declarativos, quality gates, watermarks tipados, 6 modos de escrita, snapshot com soft delete, evolução de schema, ingestão Autoloader `available_now`, explain mode e emissão de eventos OpenLineage.
 
@@ -172,14 +172,14 @@ pip install "contractforge[spark]"
 # Build local
 pip install build
 python -m build
-# → dist/contractforge-2.6.4-py3-none-any.whl
+# → dist/contractforge-2.6.5-py3-none-any.whl
 
 # Upload para UC Volume
-databricks fs cp dist/contractforge-2.6.4-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.5-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 
 # No notebook Databricks:
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl
 dbutils.library.restartPython()
 ```
 
@@ -659,7 +659,7 @@ Conectores nativos:
 
 O retorno de `ingest()` inclui `source` com metadados do conector. `ctrl_ingestion_runs` registra `source_connector`, `source_provider`, `source_format`, `source_path`, configurações redigidas, capabilities do source e métricas operacionais em `source_metrics_json`.
 
-`source_metrics_json` é preenchido pelo resolver do conector. Em REST, inclui quantidade de requests, páginas lidas, registros extraídos, bytes lidos, tipo de paginação, retry/rate limit e watermark aplicado. Em HTTP file, inclui formato, registros materializados, bytes baixados e retry. Em JDBC e aliases nomeados, inclui estratégia de leitura, se houve pushdown incremental, watermark aplicado, particionamento e `fetchsize`. Em fontes Spark nativas, registra a estratégia (`spark_table`, `spark_sql`, `spark_files` ou `spark_format`) e se a fonte foi declarada como completa.
+`source_metrics_json` é preenchido pelo resolver do conector. Em REST, inclui quantidade de requests, páginas lidas, registros extraídos, bytes lidos, tipo de paginação, retry/rate limit e watermark aplicado. Em HTTP file, inclui formato, registros materializados, bytes baixados e retry. Em JDBC e aliases nomeados, inclui estratégia de leitura, se houve pushdown incremental, watermark aplicado, particionamento, `fetchsize`, tipo de autenticação e, para RDS IAM, a região e se o token foi gerado. Em fontes Spark nativas, registra a estratégia (`spark_table`, `spark_sql`, `spark_files` ou `spark_format`) e se a fonte foi declarada como completa.
 
 `contractforge validate` faz validação estática dos conectores nativos sem abrir Spark: campos obrigatórios, tipos de paginação REST, auth REST, particionamento JDBC e formatos de object storage são verificados antes do job.
 
@@ -890,7 +890,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
   read:
     partition_column: id
@@ -907,6 +909,28 @@ mode: scd0_append
 ```
 
 Aliases `postgres`, `postgresql`, `sqlserver`, `mysql` e `oracle` usam o mesmo executor JDBC, mas deixam o contrato mais explícito e a observabilidade registra o conector real declarado. Os drivers JDBC continuam responsabilidade do runtime.
+
+Para Amazon RDS/Aurora com IAM database authentication, o conector pode gerar o token IAM no driver Python usando `auth.type: rds_iam`. A lib não depende de `boto3` nem AWS CLI para isso; ela assina o token SigV4 a partir das credenciais declaradas ou das variáveis `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    sslmode: require
+```
+
+Conectividade continua sendo responsabilidade do runtime. Para RDS/Aurora, use uma das opções suportadas pela plataforma: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional com security group restrito, ou Aurora Express Internet Access Gateway quando esse modo estiver habilitado e acessível a partir do compute.
 
 Regras:
 

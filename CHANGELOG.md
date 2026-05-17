@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.5 - 2026-05-17
+
+- Adiciona `source.auth` para conectores JDBC, separando credenciais de `source.options`.
+- Suporta `auth.type=basic` para `user/password` e `auth.type=rds_iam` para gerar token IAM Amazon RDS/Aurora no driver Python sem depender de `boto3` ou AWS CLI.
+- Registra métricas seguras como `jdbc_auth_type`, `jdbc_rds_iam_token_generated` e região RDS, mantendo usuário/senha/token redigidos em metadados.
+- Documenta alternativas corretas de conectividade JDBC para RDS: VPC peering/PrivateLink/mesma VPC, endpoint público tradicional ou Aurora Express Internet Access Gateway com IAM token.
+
 ## 2.6.4 - 2026-05-17
 
 - Padroniza `rows_written` como métrica operacional principal quando o runtime Delta retorna contadores confiáveis mesmo que o writer não consiga calcular a contagem diretamente.

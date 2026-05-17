@@ -19,7 +19,7 @@ def test_short_error_message_uses_last_traceback_line():
 
 
 def test_framework_and_ctrl_schema_versions_are_current():
-    assert FRAMEWORK_VERSION == "2.6.4"
+    assert FRAMEWORK_VERSION == "2.6.5"
     assert CTRL_SCHEMA_VERSION == 11
 
 

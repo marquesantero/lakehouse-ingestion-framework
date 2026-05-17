@@ -110,14 +110,14 @@ Recomendado para uso compartilhado em produção.
 ```bash
 pip install build
 python -m build
-# gera: dist/contractforge-2.6.4-py3-none-any.whl
+# gera: dist/contractforge-2.6.5-py3-none-any.whl
 ```
 
 **Passo 2 — Upload para Unity Catalog Volume:**
 
 ```bash
 # via Databricks CLI
-databricks fs cp dist/contractforge-2.6.4-py3-none-any.whl \
+databricks fs cp dist/contractforge-2.6.5-py3-none-any.whl \
   dbfs:/Volumes/<catalog>/<schema>/libs/
 ```
 
@@ -127,7 +127,7 @@ Ou pela UI: **Catalog → Volumes → Upload to volume**.
 
 1. Compute → seu cluster → Libraries → **Install new**
 2. Source: **Volume**
-3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.6.4-py3-none-any.whl`
+3. File path: `/Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl`
 4. Install
 5. Reinicie o cluster (a library só fica ativa após restart)
 
@@ -137,7 +137,7 @@ Em qualquer notebook anexado ao cluster:
 
 ```python
 import contractforge
-print(contractforge.__version__)  # 2.6.4
+print(contractforge.__version__)  # 2.6.5
 from contractforge import ingest, IngestionPlan, QualityRules
 ```
 
@@ -146,13 +146,13 @@ from contractforge import ingest, IngestionPlan, QualityRules
 Funciona em **serverless** (que não aceita cluster libraries tradicionais) e em desenvolvimento iterativo.
 
 ```python
-%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.4-py3-none-any.whl
+%pip install /Volumes/<catalog>/<schema>/libs/contractforge-2.6.5-py3-none-any.whl
 ```
 
 Se o cluster não permite `%pip` por restrição:
 
 ```python
-%pip install --index-url https://<seu_pypi_privado> contractforge==2.6.4
+%pip install --index-url https://<seu_pypi_privado> contractforge==2.6.5
 ```
 
 Em seguida:
@@ -717,9 +717,33 @@ source:
   options:
     url: "{{ secret:erp/jdbc_url }}"
     dbtable: public.orders
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"
   incremental:
     watermark_column: updated_at
     initial_value: "1970-01-01 00:00:00"
+```
+
+Para Amazon RDS/Aurora com IAM authentication, use `auth.type: rds_iam`. A ContractForge gera o token IAM no driver Python sem depender de `boto3` ou AWS CLI. A rede ainda precisa estar acessível via mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway:
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    sslmode: require
 ```
 
 ---

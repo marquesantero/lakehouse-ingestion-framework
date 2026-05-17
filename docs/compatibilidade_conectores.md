@@ -14,8 +14,8 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 | `s3` | Spark file reader | Acesso S3 no runtime ou `source.auth` em classic/local | Parcial | Sim | Sim via External Location; auth direto pode ser bloqueado | Alias de object storage com provider inferido; `source.auth.access_key_id`, `secret_access_key` e `session_token` opcional configuram `fs.s3a.*`. |
 | `adls`, `azure_blob` | Spark file reader | Acesso Azure Storage no runtime/Unity Catalog ou SAS em runtime que permita config Hadoop | Parcial | Sim | Sim, via External Location/Volume ou rede liberada | `azure_blob` aceita `account_url`, `container` e `auth.sas_token`; se serverless bloquear `fs.azure.sas...`, a lib falha rápido com orientação operacional. |
 | `gcs` | Spark file reader | Acesso GCS no runtime | Parcial | Sim | Sim | Requer configuração GCS no cluster/serverless. |
-| `jdbc` | Spark JDBC | Driver JDBC | Sim | Sim | Sim, se driver/runtime suportar | Exige `options.url` e `dbtable` ou `query`. |
-| `postgres`, `postgresql` | Spark JDBC | Driver PostgreSQL | Sim | Sim | Sim, se driver disponível | Alias de `jdbc`; melhora clareza e observabilidade. |
+| `jdbc` | Spark JDBC | Driver JDBC | Sim | Sim | Sim, se driver/runtime suportar | Exige `options.url` e `dbtable` ou `query`; aceita `source.auth` para basic/RDS IAM. |
+| `postgres`, `postgresql` | Spark JDBC | Driver PostgreSQL | Sim | Sim | Sim, se driver disponível | Alias de `jdbc`; suporta `auth.type=rds_iam` para Amazon RDS/Aurora. |
 | `sqlserver` | Spark JDBC | Driver Microsoft SQL Server | Sim | Sim | Sim, se driver disponível | Use `fetchsize` e particionamento em tabelas grandes. |
 | `mysql` | Spark JDBC | Driver MySQL/MariaDB | Sim | Sim | Sim, se driver disponível | Alias de `jdbc`. |
 | `oracle` | Spark JDBC | Driver Oracle | Sim | Sim | Sim, se driver disponível | Driver costuma exigir distribuição/licença controlada. |
@@ -31,6 +31,7 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 - Para APIs REST grandes, descarregue primeiro em landing files e use `autoloader`.
 - Para `snapshot_soft_delete`, declare `source.read.source_complete=true` apenas quando a fonte representar o estado completo.
 - Para JDBC em tabelas grandes, configure `partition_column`, `lower_bound`, `upper_bound`, `num_partitions` e `fetchsize`.
+- Para Amazon RDS/Aurora, conectividade de rede não é resolvida pela lib: use mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB ou endpoint público tradicional. Aurora criado por Express Configuration pode usar Internet Access Gateway com IAM token, mas ainda exige permissão IAM e TCP acessível a partir do runtime.
 - Para Snowflake/BigQuery, valide o conector Spark no runtime antes de usar o contrato em produção.
 - Para conectores que usam credenciais, use `{{ secret:scope/key }}` e valide que `contractforge validate`/`connectors doctor` não exibem segredo literal.
 - Para Azure Blob com SAS, salve apenas o SAS token no secret scope e declare `account_url`, `container` e `path` separadamente no contrato.
@@ -99,7 +100,9 @@ source:
   options:
     url: "{{ secret:erp/postgres_url }}"
     dbtable: public.orders
-    user: "{{ secret:erp/user }}"
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
     password: "{{ secret:erp/password }}"
   incremental:
     watermark_column: updated_at
@@ -120,6 +123,36 @@ mode: scd1_upsert
 merge_keys: order_id
 watermark_columns: updated_at
 ```
+
+## Exemplo JDBC Amazon RDS/Aurora com IAM Auth
+
+`auth.type: rds_iam` gera o token IAM no driver Python no momento da leitura. O token vale poucos minutos para abrir a conexão, mas a sessão estabelecida continua válida. Use esse caminho quando o runtime já tem credenciais AWS declaradas em secrets ou variáveis de ambiente.
+
+```yaml
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: jdbc:postgresql://database-1.cluster-cgxy0608al48.us-east-1.rds.amazonaws.com:5432/postgres
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: postgres
+    region: us-east-1
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    sslmode: require
+```
+
+Alternativas de rede recomendadas:
+
+- Databricks AWS e RDS na mesma VPC/subnets roteáveis.
+- VPC peering ou Transit Gateway entre VPC do Databricks e VPC do RDS.
+- AWS PrivateLink com NLB para cenários cross-VPC/cross-account.
+- RDS público tradicional com security group restrito ao CIDR/IP de saída do Databricks, apenas para validações controladas.
+- Aurora Express Internet Access Gateway com IAM token quando o cluster foi criado nesse modo e o relay aceitar conexão TCP do runtime.
 
 ## Exemplo REST API Incremental
 
