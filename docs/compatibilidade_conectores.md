@@ -128,6 +128,8 @@ watermark_columns: updated_at
 
 `auth.type: rds_iam` gera o token IAM no driver Python no momento da leitura. O token vale poucos minutos para abrir a conexão, mas a sessão estabelecida continua válida. Use esse caminho quando o runtime já tem credenciais AWS declaradas em secrets ou variáveis de ambiente.
 
+O setup completo de usuário PostgreSQL, IAM policy `rds-db:connect`, secrets, driver JDBC e troubleshooting está em [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md).
+
 ```yaml
 source:
   type: connector
@@ -153,6 +155,12 @@ Alternativas de rede recomendadas:
 - AWS PrivateLink com NLB para cenários cross-VPC/cross-account.
 - RDS público tradicional com security group restrito ao CIDR/IP de saída do Databricks, apenas para validações controladas.
 - Aurora Express Internet Access Gateway com IAM token quando o cluster foi criado nesse modo e o relay aceitar conexão TCP do runtime.
+
+Observações práticas:
+
+- Em clusters Unity Catalog `standard`/shared, Maven libraries podem exigir artifact allowlist. Se o driver JDBC for bloqueado, use cluster `SINGLE_USER` para validações ou peça allowlist ao admin do metastore.
+- `PAM authentication failed` normalmente indica usuário sem `rds_iam`, IAM principal sem `rds-db:connect`, token expirado ou token gerado para usuário/host/região diferentes.
+- Quando usar `ingest()` diretamente, informe `catalog` explicitamente. `target_schema` qualificado não substitui `plan.catalog`.
 
 ## Exemplo REST API Incremental
 
