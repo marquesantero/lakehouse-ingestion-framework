@@ -20,6 +20,7 @@ https://marquesantero.github.io/contractforge/
 ## Guias Por Tema
 
 - [Compatibilidade de conectores](compatibilidade_conectores.md): matriz de conectores, dependências e suporte por runtime.
+- [RDS/Aurora JDBC com IAM Auth](rds_iam_jdbc.md): setup completo para `source.auth.type=rds_iam`, grants, policy IAM, secrets e troubleshooting.
 - [Operação e manutenção](operacao.md): retenção das ctrl tables, limpeza/VACUUM e práticas operacionais.
 - [Performance](performance.md): guidelines por modo de escrita, cache, JDBC, REST, Delta layout e métricas.
 - [Segurança](seguranca.md): práticas para secrets, explain, lineage, ctrl tables e quarentena.

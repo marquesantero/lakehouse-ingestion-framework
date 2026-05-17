@@ -53,6 +53,26 @@ pytest -q
 - Prefer defensive validation over runtime surprises.
 - Avoid Databricks-specific assumptions unless the feature is explicitly Databricks-only and documented as such.
 
+## GitHub Project Workflow
+
+ContractForge uses the GitHub Project `ContractForge` as the operational source of truth for planned work, active work, and historical delivery records.
+
+- Every relevant action must have a Project item. Prefer repository issues instead of draft cards so work keeps labels, milestones, discussion, PR links, and audit history.
+- Create the item before implementation when the work is more than a trivial typo fix. Include context, scope, acceptance criteria, expected validation, risk notes, and links to related docs, runs, issues, or PRs.
+- Assign labels that describe both type and area, for example `type:backlog`, `type:technical-debt`, `area:core`, `area:connectors`, `area:observability`, `area:shape`, `area:security`, or `area:docs`.
+- Assign the appropriate milestone/sprint. Closed milestones represent completed historical work; open milestones represent active or planned work.
+- Set `Priority` and `Size` in the Project when creating or triaging the item.
+
+Project status rules:
+
+- `Backlog`: accepted idea or future work, but not selected for immediate execution.
+- `Ready`: next action has been selected and the implementation/validation approach is clear.
+- `In progress`: implementation or active investigation has started.
+- `In review`: PR is open, review is pending, or validation results are being checked before merge.
+- `Done`: implementation, documentation, validation, merge, and release steps are complete when applicable.
+
+When finishing an item, update the issue or PR with the evidence that matters: commands run, Databricks job/run IDs, test results, release/tag links, documentation links, known residual risks, and any follow-up issues created from the work.
+
 ## Compatibility Principles
 
 - `main` is protected and changes must go through PR.

@@ -375,6 +375,7 @@ def _apply_array(df: DataFrame, array: ShapeArrayConfig) -> DataFrame:
 def _apply_columns(df: DataFrame, columns: Dict[str, ShapeColumnConfig]) -> DataFrame:
     if not columns:
         return df
+    source_schema = df.schema
     projected = []
     for column in columns.values():
         if column.expression:
@@ -382,13 +383,12 @@ def _apply_columns(df: DataFrame, columns: Dict[str, ShapeColumnConfig]) -> Data
         else:
             if not column.path:
                 raise ValueError(f"shape.columns.{column.alias} requer path ou expression")
-            if _data_type_at_path(df.schema, column.path) is None:
+            if _data_type_at_path(source_schema, column.path) is None:
                 raise ValueError(f"shape.columns referencia path inexistente: {column.path}")
             expr = _path_col(column.path)
         if column.cast:
             expr = expr.cast(column.cast)
-        df = df.withColumn(column.alias, expr)
-        projected.append(F.col(column.alias).alias(column.alias))
+        projected.append(expr.alias(column.alias))
     return df.select(*projected)
 
 

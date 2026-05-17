@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import datetime as dt
+import hashlib
+import hmac
 import io
 import importlib.util
 import json
@@ -12,6 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Protocol, Tuple
 
@@ -38,6 +42,16 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(\s*[:=]\s*)([^\s,;})\]]+)"
 )
 _JSON_LINES_FORMATS = {"jsonl", "ndjson"}
+_JDBC_HOST_RE = re.compile(
+    r"^jdbc:(?P<dialect>[a-z0-9]+)://(?P<host>[^/:?;]+)(?::(?P<port>\d+))?",
+    re.IGNORECASE,
+)
+_JDBC_DEFAULT_PORTS = {
+    "mariadb": 3306,
+    "mysql": 3306,
+    "postgres": 5432,
+    "postgresql": 5432,
+}
 
 
 @dataclass(frozen=True)
@@ -293,19 +307,29 @@ CONNECTOR_RUNTIME_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "status": "runtime_required",
         "runtime": "Driver JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Valide o driver no cluster/serverless antes de executar contratos produtivos."],
+        "notes": [
+            "Valide o driver no cluster/serverless antes de executar contratos produtivos.",
+            "Use source.auth para user/password ou auth.type=rds_iam para token IAM RDS gerado no driver.",
+            "Conectividade de rede continua responsabilidade do runtime: VPC, peering, PrivateLink, firewall ou endpoint público.",
+        ],
     },
     "postgres": {
         "status": "runtime_required",
         "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Alias JDBC; a lib não instala o driver."],
+        "notes": [
+            "Alias JDBC; a lib não instala o driver.",
+            "Para Amazon RDS/Aurora PostgreSQL com IAM auth, use source.auth.type=rds_iam e SSL habilitado.",
+        ],
     },
     "postgresql": {
         "status": "runtime_required",
         "runtime": "Driver PostgreSQL JDBC no classpath do Spark",
         "python_packages": [],
-        "notes": ["Alias JDBC; a lib não instala o driver."],
+        "notes": [
+            "Alias JDBC; a lib não instala o driver.",
+            "Para Amazon RDS/Aurora PostgreSQL com IAM auth, use source.auth.type=rds_iam e SSL habilitado.",
+        ],
     },
     "sqlserver": {
         "status": "runtime_required",
@@ -386,10 +410,47 @@ def _watermark_previous(plan: IngestionPlan) -> Optional[str]:
     return None if value is None else str(value)
 
 
+def _incremental_watermark_column(spec: ConnectorSpec, plan: IngestionPlan) -> Optional[str]:
+    column = spec.incremental.get("watermark_column") if spec.incremental else None
+    if column not in {None, ""}:
+        return str(column)
+    if len(plan.watermark_columns) == 1:
+        return plan.watermark_columns[0]
+    return None
+
+
+def _extract_incremental_watermark_value(
+    raw: str,
+    spec: ConnectorSpec,
+    plan: IngestionPlan,
+) -> str:
+    text = raw.strip()
+    if not text.startswith("{"):
+        return raw
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(parsed, dict):
+        return raw
+
+    column = _incremental_watermark_column(spec, plan)
+    if not column:
+        raise ValueError(
+            "source.incremental com watermark tipado exige watermark_column "
+            "quando o plano usa watermark composto"
+        )
+    item = parsed.get(column)
+    if not isinstance(item, Mapping) or "value" not in item:
+        raise ValueError(f"Watermark anterior não contém valor para source.incremental.watermark_column={column!r}")
+    value = item.get("value")
+    return "" if value is None else str(value)
+
+
 def _incremental_watermark_value(spec: ConnectorSpec, plan: IngestionPlan) -> Optional[str]:
     previous = _watermark_previous(plan)
     if previous not in {None, ""}:
-        return previous
+        return _extract_incremental_watermark_value(previous, spec, plan)
     initial = spec.incremental.get("initial_value") if spec.incremental else None
     return None if initial in {None, ""} else str(initial)
 
@@ -401,11 +462,124 @@ def _format_incremental_template(template: str, watermark_value: str) -> str:
 def _spark_options(options: Mapping[str, Any]) -> Dict[str, str]:
     normalized: Dict[str, str] = {}
     for key, value in options.items():
+        if str(key) == "schema":
+            continue
         if isinstance(value, bool):
             normalized[str(key)] = "true" if value else "false"
         else:
             normalized[str(key)] = str(value)
     return normalized
+
+
+def _aws_quote(value: Any) -> str:
+    return urllib.parse.quote(str(value), safe="-_.~")
+
+
+def _aws_sign(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _aws_signature_key(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
+    key_date = _aws_sign(("AWS4" + secret_key).encode("utf-8"), date_stamp)
+    key_region = _aws_sign(key_date, region)
+    key_service = _aws_sign(key_region, service)
+    return _aws_sign(key_service, "aws4_request")
+
+
+def _parse_jdbc_host_port(url: str, default_port: int) -> tuple[str, int]:
+    match = _JDBC_HOST_RE.match(url)
+    if not match:
+        raise ValueError(
+            "source.options.url JDBC deve estar no formato jdbc:<dialeto>://host:porta/database "
+            "para usar auth.type=rds_iam"
+        )
+    dialect = match.group("dialect").lower()
+    fallback_port = _JDBC_DEFAULT_PORTS.get(dialect, default_port)
+    return match.group("host"), int(match.group("port") or fallback_port)
+
+
+def _infer_aws_region_from_host(host: str) -> Optional[str]:
+    match = re.search(r"\.([a-z]{2}-[a-z]+-\d)\.(?:rds|rdsrelay)\.", host)
+    return match.group(1) if match else None
+
+
+def _aws_credentials_from_default_chain() -> tuple[str, str, Optional[str]]:
+    try:
+        import botocore.session  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ValueError(
+            "source.auth.type=rds_iam com credential_provider=default_chain requer botocore "
+            "instalado no driver ou credenciais explícitas em source.auth"
+        ) from exc
+
+    session = botocore.session.get_session()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise ValueError(
+            "source.auth.type=rds_iam não encontrou credenciais AWS na default credential chain"
+        )
+    frozen = credentials.get_frozen_credentials()
+    return frozen.access_key, frozen.secret_key, frozen.token
+
+
+def _rds_iam_auth_token(
+    *,
+    host: str,
+    port: int,
+    region: str,
+    username: str,
+    access_key: str,
+    secret_key: str,
+    session_token: Optional[str] = None,
+    now: Optional[dt.datetime] = None,
+) -> str:
+    """Gera token IAM RDS usando SigV4 sem depender de boto3/awscli."""
+    current = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
+    amz_date = current.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = current.strftime("%Y%m%d")
+    service = "rds-db"
+    credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
+    endpoint = f"{host}:{port}"
+    query: list[tuple[str, str]] = [
+        ("Action", "connect"),
+        ("DBUser", username),
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+        ("X-Amz-Credential", f"{access_key}/{credential_scope}"),
+        ("X-Amz-Date", amz_date),
+        ("X-Amz-Expires", "900"),
+        ("X-Amz-SignedHeaders", "host"),
+    ]
+    if session_token:
+        query.append(("X-Amz-Security-Token", session_token))
+    canonical_query = "&".join(f"{_aws_quote(k)}={_aws_quote(v)}" for k, v in sorted(query))
+    canonical_headers = f"host:{endpoint}\n"
+    signed_headers = "host"
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    canonical_request = "\n".join(
+        ["GET", "/", canonical_query, canonical_headers, signed_headers, payload_hash]
+    )
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signing_key = _aws_signature_key(secret_key, date_stamp, region, service)
+    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{endpoint}/?{canonical_query}&X-Amz-Signature={signature}"
+
+
+def _optional_source_schema(spec: ConnectorSpec) -> str:
+    """Retorna schema Spark DDL declarado para fontes de arquivo."""
+    raw = spec.read.get("schema") or spec.options.get("schema")
+    if raw is None:
+        return ""
+    schema = str(raw).strip()
+    if not schema:
+        raise ValueError("source.read.schema não pode ser vazio")
+    return schema
 
 
 def _bool_option(value: Any, *, default: bool = False) -> bool:
@@ -777,13 +951,18 @@ class FileConnector:
         if not path:
             raise ValueError(f"source.path é obrigatório para connector={spec.connector}")
         options = resolve_secrets(spec.options)
+        schema = _optional_source_schema(spec)
         capabilities = self.capabilities(spec)
-        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
+        reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
+        if schema:
+            reader = reader.schema(schema)
+        df = reader.load(str(path))
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(schema),
         }
         return SourceResolution(
             df,
@@ -832,14 +1011,26 @@ class ObjectStorageConnector(FileConnector):
                     "Policy/NCC para permitir o destino. Use SAS direto apenas em job cluster/classic/local "
                     "onde Hadoop config fs.azure.sas.* é permitido."
                 ) from exc
+            if provider == "s3" and self._is_spark_config_blocked(exc):
+                raise RuntimeError(
+                    "Databricks serverless/Spark Connect bloqueou a configuração de credenciais S3 no Spark "
+                    f"para connector=s3 e format={fmt!r}. Em serverless, use Unity Catalog External "
+                    "Location/Volume. Use source.auth com credenciais S3 apenas em job cluster/classic/local "
+                    "onde Hadoop config fs.s3a.* é permitido."
+                ) from exc
             raise
         capabilities = self.capabilities(spec)
-        df = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options)).load(str(path))
+        schema = _optional_source_schema(spec)
+        reader = spark.read.format(_spark_file_format(fmt)).options(**_spark_options(options))
+        if schema:
+            reader = reader.schema(schema)
+        df = reader.load(str(path))
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
             "read_strategy": "spark_files",
             "file_format": fmt,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(schema),
             **storage_metrics,
         }
         resolved = SourceResolution(
@@ -868,7 +1059,61 @@ class ObjectStorageConnector(FileConnector):
             path = self._resolve_azure_blob_path(spec, path)
             metrics["azure_auth_configured"] = bool((spec.auth or {}).get("sas_token") or (spec.auth or {}).get("token"))
             metrics["azure_container"] = spec.container or self._azure_container_from_uri(path)
+        if provider == "s3":
+            options, metrics = self._configure_s3_auth_and_options(spec, options, metrics)
         return path, options, metrics
+
+    def _configure_s3_auth_and_options(
+        self,
+        spec: ConnectorSpec,
+        options: Mapping[str, Any],
+        metrics: dict[str, Any],
+    ) -> tuple[Mapping[str, Any], dict[str, Any]]:
+        auth = resolve_secrets(spec.auth or {})
+        access_key = auth.get("access_key_id") or auth.get("access_key") or auth.get("aws_access_key_id")
+        secret_key = auth.get("secret_access_key") or auth.get("secret_key") or auth.get("aws_secret_access_key")
+        session_token = auth.get("session_token") or auth.get("token") or auth.get("aws_session_token")
+
+        if bool(access_key) != bool(secret_key):
+            raise ValueError(
+                "source.auth para connector=s3 requer access_key_id e secret_access_key juntos"
+            )
+
+        spark_options, reader_options = self._split_s3_spark_options(options)
+        for key, value in spark_options.items():
+            spark.conf.set(str(key), str(value))
+
+        if access_key and secret_key:
+            spark.conf.set("fs.s3a.access.key", str(access_key))
+            spark.conf.set("fs.s3a.secret.key", str(secret_key))
+            if session_token:
+                spark.conf.set("fs.s3a.session.token", str(session_token))
+                spark.conf.set(
+                    "fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider",
+                )
+            else:
+                spark.conf.set(
+                    "fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+                )
+
+        metrics["s3_auth_configured"] = bool(access_key and secret_key)
+        metrics["s3_temporary_credentials"] = bool(session_token)
+        metrics["s3_conf_options_configured"] = len(spark_options)
+        return reader_options, metrics
+
+    @staticmethod
+    def _split_s3_spark_options(options: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        spark_options: dict[str, Any] = {}
+        reader_options: dict[str, Any] = {}
+        for key, value in options.items():
+            key_text = str(key)
+            if key_text.startswith("fs.s3a.") or key_text.startswith("spark.hadoop.fs.s3a."):
+                spark_options[key_text] = value
+            else:
+                reader_options[key] = value
+        return spark_options, reader_options
 
     def _resolve_azure_blob_path(self, spec: ConnectorSpec, path: str) -> str:
         auth = resolve_secrets(spec.auth or {})
@@ -1007,6 +1252,7 @@ class JdbcConnector:
             raise ValueError(f"source.options.url é obrigatório para connector={spec.connector}")
         if "dbtable" not in options and "query" not in options:
             raise ValueError(f"connector={spec.connector} requer source.options.dbtable ou source.options.query")
+        auth_metrics = self._apply_auth(spec, options)
         watermark_value = _incremental_watermark_value(spec, plan)
         if watermark_value:
             self._apply_incremental_predicate(spec, options, watermark_value)
@@ -1038,6 +1284,7 @@ class JdbcConnector:
             "partitioned_read": bool(provided),
             "fetchsize": read.get("fetchsize"),
             "source_complete": capabilities.source_complete,
+            **auth_metrics,
         }
         return SourceResolution(
             df,
@@ -1045,6 +1292,87 @@ class JdbcConnector:
             spec.connector,
             metadata,
             capabilities,
+        )
+
+    def _apply_auth(self, spec: ConnectorSpec, options: Dict[str, Any]) -> Dict[str, Any]:
+        auth = resolve_secrets(spec.auth or {})
+        auth_type = str(auth.get("type") or ("basic" if auth else "none")).strip().lower()
+        if auth_type in {"", "none"}:
+            return {"jdbc_auth_configured": False, "jdbc_auth_type": "none"}
+        if auth_type in {"basic", "password", "user_password"}:
+            username = auth.get("username") or auth.get("user")
+            password = auth.get("password") or auth.get("token")
+            if username:
+                options["user"] = username
+            if password:
+                options["password"] = password
+            if not username and not password:
+                raise ValueError("source.auth para JDBC requer username/user e password/token")
+            return {"jdbc_auth_configured": True, "jdbc_auth_type": "basic"}
+        if auth_type in {"rds_iam", "aws_rds_iam", "rds_iam_token"}:
+            username = str(auth.get("username") or auth.get("user") or options.get("user") or "").strip()
+            if not username:
+                raise ValueError("source.auth.type=rds_iam requer auth.username ou auth.user")
+            host, port = _parse_jdbc_host_port(str(options["url"]), int(auth.get("port") or 5432))
+            region = str(auth.get("region") or _infer_aws_region_from_host(host) or "").strip()
+            if not region:
+                raise ValueError("source.auth.type=rds_iam requer auth.region quando a região não puder ser inferida")
+            credential_provider = str(
+                auth.get("credential_provider")
+                or auth.get("credentials_provider")
+                or auth.get("aws_credential_provider")
+                or ""
+            ).strip().lower()
+            access_key = auth.get("access_key_id") or auth.get("access_key") or auth.get("aws_access_key_id")
+            secret_key = auth.get("secret_access_key") or auth.get("secret_key") or auth.get("aws_secret_access_key")
+            session_token = auth.get("session_token") or auth.get("token") or auth.get("aws_session_token")
+            credential_source = "explicit"
+            if not access_key or not secret_key:
+                env_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+                env_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+                env_session_token = os.getenv("AWS_SESSION_TOKEN")
+                if env_access_key and env_secret_key:
+                    access_key = env_access_key
+                    secret_key = env_secret_key
+                    session_token = session_token or env_session_token
+                    credential_source = "env"
+                elif credential_provider in {"default_chain", "aws_default_chain", "botocore", "boto3"}:
+                    access_key, secret_key, provider_session_token = _aws_credentials_from_default_chain()
+                    session_token = session_token or provider_session_token
+                    credential_source = "default_chain"
+                elif credential_provider:
+                    raise ValueError(
+                        "source.auth.credential_provider para rds_iam deve ser default_chain "
+                        "(aliases aceitos: aws_default_chain, botocore, boto3)"
+                    )
+            if not access_key or not secret_key:
+                raise ValueError(
+                    "source.auth.type=rds_iam requer access_key_id e secret_access_key "
+                    "ou variáveis AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY disponíveis no driver; "
+                    "para usar AWS credential provider chain, configure credential_provider=default_chain"
+                )
+            options["user"] = username
+            options["password"] = _rds_iam_auth_token(
+                host=host,
+                port=port,
+                region=region,
+                username=username,
+                access_key=str(access_key),
+                secret_key=str(secret_key),
+                session_token=None if session_token is None else str(session_token),
+            )
+            options.setdefault("ssl", "true")
+            options.setdefault("sslmode", str(auth.get("sslmode") or "require"))
+            return {
+                "jdbc_auth_configured": True,
+                "jdbc_auth_type": "rds_iam",
+                "jdbc_rds_iam_token_generated": True,
+                "jdbc_rds_region": region,
+                "jdbc_rds_iam_credential_source": credential_source,
+                "jdbc_ssl_enabled": True,
+            }
+        raise ValueError(
+            "source.auth.type para JDBC deve ser um de: none, basic, password, user_password, rds_iam"
         )
 
     def _apply_incremental_predicate(
@@ -1075,14 +1403,40 @@ def _json_path(payload: Any, path: Optional[str]) -> Any:
     if not path or path == "$":
         return payload
     raw = path.strip()
-    if not raw.startswith("$."):
-        raise ValueError(f"JSON path simples esperado no formato $.campo.subcampo: {path}")
+    if not raw.startswith("$"):
+        raise ValueError(f"JSON path simples esperado começando com $: {path}")
     current = payload
-    for part in raw[2:].split("."):
-        if isinstance(current, Mapping):
-            current = current.get(part)
-        else:
+    position = 1
+    while position < len(raw):
+        if current is None:
             return None
+        marker = raw[position]
+        if marker == ".":
+            position += 1
+            start = position
+            while position < len(raw) and raw[position] not in ".[":
+                position += 1
+            part = raw[start:position]
+            if not part:
+                raise ValueError(f"JSON path simples inválido: {path}")
+            if not isinstance(current, Mapping):
+                return None
+            current = current.get(part)
+            continue
+        if marker == "[":
+            end = raw.find("]", position)
+            if end < 0:
+                raise ValueError(f"JSON path simples inválido: {path}")
+            index_text = raw[position + 1 : end].strip()
+            if not index_text.isdigit():
+                raise ValueError(f"JSON path simples suporta apenas índices inteiros não negativos: {path}")
+            if not isinstance(current, list):
+                raise ValueError(f"JSON path tentou indexar valor que não é array: {path}")
+            index = int(index_text)
+            current = current[index] if index < len(current) else None
+            position = end + 1
+            continue
+        raise ValueError(f"JSON path simples inválido: {path}")
     return current
 
 
@@ -1161,7 +1515,13 @@ class HttpFileConnector:
             encoding = response_headers.get_content_charset() if hasattr(response_headers, "get_content_charset") else None
         text = raw.decode(encoding or "utf-8-sig")
         records = self._parse_records(text, fmt, spec)
-        df = _records_to_dataframe(spark, records)
+        df, _ = _records_to_dataframe(
+            spark,
+            records,
+            staging_path=spec.read.get("staging_path"),
+            json_options=spec.read.get("json_options"),
+            schema=_optional_source_schema(spec),
+        )
 
         capabilities = self.capabilities(spec)
         metadata = _connector_metadata(spec, capabilities)
@@ -1173,6 +1533,7 @@ class HttpFileConnector:
             "bytes_read": bytes_read,
             "retry_attempts": retry_attempts,
             "source_complete": capabilities.source_complete,
+            "schema_declared": bool(_optional_source_schema(spec)),
         }
         return SourceResolution(
             df,
@@ -1485,7 +1846,13 @@ class RestApiConnector:
             if page_type not in {"cursor", "link_header"} or not next_url:
                 break
 
-        df = _records_to_dataframe(spark, raw_rows if response_mode == "raw" else all_records)
+        df, materialization_strategy = _records_to_dataframe(
+            spark,
+            raw_rows if response_mode == "raw" else all_records,
+            staging_path=spec.read.get("staging_path"),
+            json_options=spec.read.get("json_options"),
+            schema=_optional_source_schema(spec),
+        )
         capabilities = self.capabilities(spec)
         metadata = _connector_metadata(spec, capabilities)
         metadata["source_metrics"] = {
@@ -1504,6 +1871,8 @@ class RestApiConnector:
             "rate_limit_per_minute": rate_limit_per_minute,
             "retry_attempts": retry_attempts,
             "source_complete": capabilities.source_complete,
+            "dataframe_materialization": materialization_strategy,
+            "schema_declared": bool(_optional_source_schema(spec)),
         }
         return SourceResolution(
             df,
@@ -1555,11 +1924,87 @@ def _with_query_param(url: str, key: str, value: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query)))
 
 
-def _records_to_dataframe(session: SparkSession, records: list[Any]) -> DataFrame:
+def _records_to_dataframe(
+    session: SparkSession,
+    records: list[Any],
+    *,
+    staging_path: Optional[str] = None,
+    json_options: Optional[Mapping[str, Any]] = None,
+    schema: Optional[str] = None,
+) -> tuple[DataFrame, str]:
     if not records:
-        return session.createDataFrame([], "value string").limit(0)
+        return session.createDataFrame([], schema or "value string").limit(0), "empty"
     normalized = [record if isinstance(record, Mapping) else {"value": record} for record in records]
-    return session.createDataFrame(normalized)
+    if hasattr(session, "sparkContext") and hasattr(session, "read"):
+        json_lines = [json.dumps(record, default=str, ensure_ascii=False) for record in normalized]
+        return (
+            _json_reader(session, json_options, schema=schema).json(session.sparkContext.parallelize(json_lines)),
+            "spark_read_json_lines",
+        )
+    staging_dir = _json_staging_dir(staging_path)
+    if staging_dir and hasattr(session, "read"):
+        json_path = _write_json_lines_file(normalized, staging_dir)
+        return _json_reader(session, json_options, schema=schema).json(json_path), "spark_read_json_staging_file"
+    try:
+        return session.createDataFrame(normalized, schema=schema), "create_dataframe"
+    except Exception as exc:
+        if hasattr(session, "read"):
+            raise ValueError(
+                "Não foi possível materializar registros JSON complexos com createDataFrame. "
+                "Declare source.read.staging_path ou a variável CONTRACTFORGE_SOURCE_JSON_STAGING_DIR "
+                "com um diretório acessível tanto ao driver Python quanto ao Spark reader, ou use "
+                "source.response.mode=raw com shape.parse_json para controlar o schema explicitamente."
+            ) from exc
+        safe_records = [_json_safe_record(record) for record in normalized]
+        return session.createDataFrame(safe_records), "create_dataframe_json_safe_fallback"
+
+
+def _json_safe_record(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_record(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return json.dumps(value, default=str, ensure_ascii=False)
+    return value
+
+
+def _json_reader(session: SparkSession, options: Optional[Mapping[str, Any]], *, schema: Optional[str] = None) -> Any:
+    reader = session.read
+    if schema:
+        reader = reader.schema(schema)
+    if options is not None and not isinstance(options, Mapping):
+        raise ValueError("source.read.json_options deve ser objeto")
+    if not options:
+        return reader
+    for key, value in options.items():
+        option_key = str(key).strip()
+        if not option_key:
+            raise ValueError("source.read.json_options não pode conter chave vazia")
+        reader = reader.option(option_key, str(value).lower() if isinstance(value, bool) else str(value))
+    return reader
+
+
+def _write_json_lines_file(records: list[Mapping[str, Any]], staging_dir: str) -> str:
+    use_file_uri = staging_dir.startswith("file:")
+    local_dir = staging_dir[5:] if use_file_uri else staging_dir
+    os.makedirs(local_dir, exist_ok=True)
+    path = os.path.join(local_dir, f"{uuid.uuid4().hex}.jsonl")
+    with open(path, "w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, default=str, ensure_ascii=False))
+            handle.write("\n")
+    return f"file:{path}" if use_file_uri else path
+
+
+def _json_staging_dir(staging_path: Any) -> Optional[str]:
+    raw = str(staging_path or os.environ.get("CONTRACTFORGE_SOURCE_JSON_STAGING_DIR") or "").strip()
+    if not raw:
+        return None
+    if "://" in raw and not raw.startswith("file:"):
+        raise ValueError(
+            "source.read.staging_path para materialização JSON deve ser um caminho de filesystem local "
+            "acessível ao driver Python e ao Spark reader, por exemplo /Volumes/... ou file:/..."
+        )
+    return raw
 
 
 def _spark_file_format(fmt: str) -> str:

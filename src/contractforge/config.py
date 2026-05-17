@@ -10,11 +10,11 @@ from typing import Literal, Union
 
 from pyspark.sql import DataFrame
 
-FRAMEWORK_VERSION = "2.4.3"
+FRAMEWORK_VERSION = "2.6.8"
 CTRL_SCHEMA_VERSION = 11
 
-#: Camadas reconhecidas (Medallion Architecture).
-Layer = Literal["bronze", "silver", "gold"]
+#: Classificação lógica do contrato. Bronze/Silver/Gold são convenções, não limite.
+Layer = str
 
 #: Modos oficiais de escrita; ver ``writers.py`` para a semântica de cada um.
 WriteMode = Literal[
@@ -62,9 +62,6 @@ VALID_WRITE_MODES = {
     "scd2_historical",
     "snapshot_soft_delete",
 }
-
-#: Camadas válidas para validação runtime.
-VALID_LAYERS = {"bronze", "silver", "gold"}
 
 #: Estratégias de merge válidas para validação runtime.
 VALID_MERGE_STRATEGIES = {"delta", "delta_by_partition", "replace_partitions"}
