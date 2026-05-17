@@ -57,6 +57,29 @@ def test_scd1_upsert_updates_existing_rows(spark, make_df, unique_name):
     assert by_id == {1: "a", 2: "B_NEW", 3: "c"}
 
 
+def test_transform_deduplicate_runs_before_merge_safety(spark, make_df, unique_name):
+    table = f"{unique_name}_transform_dedup"
+    df = make_df(
+        [
+            (1, "old", "2026-05-01T10:00:00"),
+            (1, "new", "2026-05-01T11:00:00"),
+            (2, "only", "2026-05-01T09:00:00"),
+        ],
+        "id long, val string, updated_at string",
+    )
+    res = ingest(
+        source=df,
+        mode="scd1_upsert",
+        merge_keys="id",
+        transform={"deduplicate": {"keys": "id", "order_by": "updated_at DESC NULLS LAST"}},
+        **_common(table),
+    )
+    assert res["status"] == "SUCCESS"
+    final = spark.table(f"spark_catalog.silver.{table}")
+    by_id = {r["id"]: r["val"] for r in final.select("id", "val").collect()}
+    assert by_id == {1: "new", 2: "only"}
+
+
 def test_preset_silver_scd1_upsert_runs_end_to_end(spark, make_df, unique_name):
     table = f"{unique_name}_preset_scd1"
     df = make_df([(1, "a"), (2, "b")], "id long, val string")

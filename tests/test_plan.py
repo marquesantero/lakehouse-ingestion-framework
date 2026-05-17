@@ -5,10 +5,12 @@ import pytest
 
 from contractforge import (
     IngestionPlan,
+    DeduplicateConfig,
     QualityExpression,
     QualityRules,
     ShapeConfig,
     SourceSpec,
+    TransformConfig,
     apply_preset,
     get_preset,
     ingest,
@@ -317,6 +319,77 @@ def test_build_plan_accepts_shape_contract():
     assert plan.shape.columns["payload_json.customer.email"].alias == "customer_email"
     assert plan.shape.columns["item.sku"].cast == "STRING"
     assert plan.shape.columns["item_qty_numeric"].expression == "CAST(item.qty AS BIGINT)"
+    assert isinstance(plan.transform, TransformConfig)
+    assert plan.transform.shape == plan.shape
+
+
+def test_build_plan_accepts_transform_shape_contract():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        transform={
+            "shape": {
+                "parse_json": [
+                    {
+                        "column": "payload",
+                        "schema": "STRUCT<id: STRING>",
+                        "alias": "payload_json",
+                    }
+                ],
+                "columns": {"payload_json.id": "event_id"},
+            }
+        },
+    )
+    assert isinstance(plan.shape, ShapeConfig)
+    assert plan.transform.shape == plan.shape
+    assert plan.shape.parse_json[0].alias == "payload_json"
+    assert plan.shape.columns["payload_json.id"].alias == "event_id"
+
+
+def test_build_plan_accepts_transform_deduplicate_contract():
+    plan = build_plan_from_kwargs(
+        source="x",
+        target_table="t",
+        transform={
+            "deduplicate": {
+                "keys": "id|tenant_id",
+                "order_by": "updated_at DESC NULLS LAST, sequence DESC",
+            }
+        },
+    )
+    assert isinstance(plan.transform.deduplicate, DeduplicateConfig)
+    assert plan.transform.deduplicate.keys == ["id", "tenant_id"]
+    assert plan.transform.deduplicate.order_by == "updated_at DESC NULLS LAST, sequence DESC"
+    assert plan.dedup_order_expr == "updated_at DESC NULLS LAST, sequence DESC"
+
+
+def test_build_plan_rejects_conflicting_transform_aliases():
+    with pytest.raises(ValueError, match="shape e transform.shape conflitam"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            shape={"columns": {"a": "a"}},
+            transform={"shape": {"columns": {"b": "b"}}},
+        )
+    with pytest.raises(ValueError, match="dedup_order_expr e transform.deduplicate.order_by conflitam"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            dedup_order_expr="updated_at DESC",
+            transform={"deduplicate": {"keys": "id", "order_by": "sequence DESC"}},
+        )
+    with pytest.raises(ValueError, match="transform.deduplicate.keys"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            transform={"deduplicate": {"keys": [], "order_by": "updated_at DESC"}},
+        )
+    with pytest.raises(ValueError, match="transform.deduplicate.order_by"):
+        build_plan_from_kwargs(
+            source="x",
+            target_table="t",
+            transform={"deduplicate": {"keys": "id", "order_by": " "}},
+        )
 
 
 def test_build_plan_rejects_invalid_shape_contract():

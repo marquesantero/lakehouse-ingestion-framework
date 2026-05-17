@@ -27,10 +27,12 @@ from .governance import (
 from .lineage import capture_explain, write_explain_plan, write_openlineage_event
 from .plan import (  # noqa: F401
     ConnectorSpec,
+    DeduplicateConfig,
     IngestionPlan,
     QualityExpression,
     QualityRules,
     SourceSpec,
+    TransformConfig,
     build_plan_from_kwargs,
     target_full_table_name,
     target_schema_name,
@@ -356,9 +358,9 @@ def _prepare_dataframe(
 ) -> DataFrame:
     """Aplica todas as transformações pré-quality em ordem determinística.
 
-    Sequência: ``select_columns`` -> ``column_mapping`` -> ``shape`` ->
+    Sequência: ``select_columns`` -> ``column_mapping`` -> ``transform.shape`` ->
     ``filter_expression`` -> ``custom_keys`` -> ``apply_watermark`` ->
-    ``deduplicate_by_order`` -> ``fix_encoding`` -> adição das colunas de
+    ``transform.deduplicate`` -> ``fix_encoding`` -> adição das colunas de
     controle (``ingestion_date``, ``source_system``, ``__run_id``).
     """
     if plan.select_columns:
@@ -377,7 +379,11 @@ def _prepare_dataframe(
     if plan.watermark_columns:
         df = apply_watermark(df, plan.watermark_columns, wm_prev)
 
-    dedup_keys = plan.merge_keys or plan.hash_keys
+    dedup_keys = (
+        plan.transform.deduplicate.keys
+        if plan.transform.deduplicate
+        else (plan.merge_keys or plan.hash_keys)
+    )
     if plan.dedup_order_expr and dedup_keys:
         df = deduplicate_by_order(df, dedup_keys, plan.dedup_order_expr)
 
@@ -494,7 +500,7 @@ def _validate_merge_key_duplicates(
         raise ValueError(
             f"mode={mode} recebeu {duplicate_row_count} linhas duplicadas em "
             f"{duplicate_key_count} grupos de merge_keys. keys={keys}. "
-            "Corrija a chave composta, declare quality_rules.unique_key ou aplique dedup_order_expr."
+            "Corrija a chave composta, declare quality_rules.unique_key ou aplique transform.deduplicate."
         )
 
 

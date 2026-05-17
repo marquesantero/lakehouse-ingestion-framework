@@ -492,6 +492,22 @@ class ConnectorSpec:
 
 
 @dataclass(frozen=True)
+class DeduplicateConfig:
+    """Deduplicação declarativa antes de quality/write."""
+
+    keys: List[str]
+    order_by: str
+
+
+@dataclass(frozen=True)
+class TransformConfig:
+    """Namespace canônico para transformações físicas pré-quality/write."""
+
+    shape: Optional[ShapeConfig] = None
+    deduplicate: Optional[DeduplicateConfig] = None
+
+
+@dataclass(frozen=True)
 class IngestionPlan:
     """Contrato declarativo de ingestão de uma tabela.
 
@@ -522,6 +538,7 @@ class IngestionPlan:
     select_columns: List[str] = field(default_factory=list)
     column_mapping: Dict[str, str] = field(default_factory=dict)
     shape: Optional[ShapeConfig] = None
+    transform: TransformConfig = field(default_factory=TransformConfig)
     filter_expression: Optional[str] = None
     watermark_columns: List[str] = field(default_factory=list)
     merge_keys: List[str] = field(default_factory=list)
@@ -690,10 +707,66 @@ def normalize_quality_rules(
     return QualityRules(**normalized)
 
 
+def _normalize_deduplicate_config(value: Any) -> Optional[DeduplicateConfig]:
+    if value is None:
+        return None
+    if isinstance(value, DeduplicateConfig):
+        return value
+    raw = _require_mapping(value, "transform.deduplicate")
+    unexpected = set(raw) - {"keys", "order_by"}
+    if unexpected:
+        raise ValueError(f"transform.deduplicate possui campos não reconhecidos: {sorted(unexpected)}")
+    keys = _normalize_named_list(raw.get("keys"), "transform.deduplicate.keys")
+    if not keys:
+        raise ValueError("transform.deduplicate.keys deve declarar pelo menos uma coluna")
+    order_by = str(raw.get("order_by") or "").strip()
+    if not order_by:
+        raise ValueError("transform.deduplicate.order_by é obrigatório e não pode ser vazio")
+    return DeduplicateConfig(keys=keys, order_by=order_by)
+
+
+def _normalize_transform_config(
+    transform_value: Any,
+    *,
+    legacy_shape: Any,
+    legacy_dedup_order_expr: Any,
+) -> TransformConfig:
+    if transform_value is None:
+        transform_raw: Mapping[str, Any] = {}
+    elif isinstance(transform_value, TransformConfig):
+        transform_raw = {}
+    else:
+        transform_raw = _require_mapping(transform_value, "transform")
+
+    if isinstance(transform_value, TransformConfig):
+        transform_shape = transform_value.shape
+        transform_deduplicate = transform_value.deduplicate
+    else:
+        unexpected = set(transform_raw) - {"shape", "deduplicate"}
+        if unexpected:
+            raise ValueError(f"transform possui campos não reconhecidos: {sorted(unexpected)}")
+        transform_shape = normalize_shape(transform_raw.get("shape"))
+        transform_deduplicate = _normalize_deduplicate_config(transform_raw.get("deduplicate"))
+
+    legacy_shape_config = normalize_shape(legacy_shape)
+    if legacy_shape_config and transform_shape and legacy_shape_config != transform_shape:
+        raise ValueError("shape e transform.shape conflitam. Use apenas transform.shape como contrato canônico.")
+    shape = transform_shape or legacy_shape_config
+
+    legacy_order_by = str(legacy_dedup_order_expr or "").strip()
+    if transform_deduplicate and legacy_order_by and legacy_order_by != transform_deduplicate.order_by:
+        raise ValueError(
+            "dedup_order_expr e transform.deduplicate.order_by conflitam. "
+            "Use transform.deduplicate como contrato canônico."
+        )
+
+    return TransformConfig(shape=shape, deduplicate=transform_deduplicate)
+
+
 _KNOWN_PARAMS = {
     "source", "target", "target_table", "catalog", "layer", "target_schema", "mode", "source_system", "ctrl_schema",
     "notebook_name", "description", "owner", "domain", "tags", "sla", "runtime_parameters",
-    "select_columns", "column_mapping", "shape", "filter_expression", "watermark_columns",
+    "select_columns", "column_mapping", "shape", "transform", "filter_expression", "watermark_columns",
     "merge_keys", "hash_keys", "hash_exclude_columns", "custom_keys", "dedup_order_expr",
     "partition_column", "partition_value", "merge_strategy", "merge_partition_column",
     "replace_partitions_source_complete", "cluster_columns", "zorder_columns", "optimize_after_write",
@@ -811,6 +884,13 @@ def validate_plan_shape(plan: IngestionPlan) -> None:
         for column, ratio in plan.quality_rules.max_null_ratio.items():
             if ratio < 0 or ratio > 1:
                 raise ValueError(f"quality_rules.max_null_ratio.{column} deve estar entre 0 e 1")
+    if not isinstance(plan.transform, TransformConfig):
+        raise ValueError("transform deve ser TransformConfig")
+    if plan.transform.deduplicate:
+        if not plan.transform.deduplicate.keys:
+            raise ValueError("transform.deduplicate.keys deve declarar pelo menos uma coluna")
+        if not plan.transform.deduplicate.order_by.strip():
+            raise ValueError("transform.deduplicate.order_by é obrigatório e não pode ser vazio")
 
 
 def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
@@ -870,6 +950,16 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         "idempotency_policy",
         default="always_run",
     )
+    transform = _normalize_transform_config(
+        kwargs.get("transform"),
+        legacy_shape=kwargs.get("shape"),
+        legacy_dedup_order_expr=kwargs.get("dedup_order_expr"),
+    )
+    effective_dedup_order_expr = (
+        transform.deduplicate.order_by
+        if transform.deduplicate
+        else (str(kwargs.get("dedup_order_expr")).strip() if kwargs.get("dedup_order_expr") else None)
+    )
     plan = IngestionPlan(
         source=_normalize_source(kwargs["source"]),
         target_table=kwargs["target_table"],
@@ -888,14 +978,15 @@ def build_plan_from_kwargs(**kwargs: Any) -> IngestionPlan:
         runtime_parameters=dict(kwargs.get("runtime_parameters") or {}),
         select_columns=as_list(kwargs.get("select_columns")),
         column_mapping=_normalize_string_mapping(kwargs.get("column_mapping"), "column_mapping"),
-        shape=normalize_shape(kwargs.get("shape")),
+        shape=transform.shape,
+        transform=transform,
         filter_expression=kwargs.get("filter_expression"),
         watermark_columns=as_list(kwargs.get("watermark_columns")),
         merge_keys=as_list(kwargs.get("merge_keys")),
         hash_keys=as_list(kwargs.get("hash_keys")),
         hash_exclude_columns=as_list(kwargs.get("hash_exclude_columns")),
         custom_keys=normalized_custom,
-        dedup_order_expr=kwargs.get("dedup_order_expr"),
+        dedup_order_expr=effective_dedup_order_expr,
         partition_column=kwargs.get("partition_column"),
         partition_value=kwargs.get("partition_value"),
         merge_strategy=merge_strategy,  # type: ignore[arg-type]

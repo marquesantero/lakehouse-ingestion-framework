@@ -26,6 +26,7 @@ def test_yaml_schema_contains_new_contract_fields():
     assert "access" in props
     assert "preset" in props
     assert "shape" in props
+    assert "transform" in props
 
 
 def test_cli_validate_accepts_json_contract(tmp_path, capsys):

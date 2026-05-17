@@ -116,30 +116,42 @@ quality_rules:
 
 Para Amazon RDS/Aurora, `connector: postgres` também aceita `auth.type: rds_iam`, gerando token IAM no driver Python com credenciais explícitas, variáveis `AWS_*` ou `credential_provider: default_chain` (`contractforge[aws]`). A conectividade de rede continua responsabilidade do runtime: mesma VPC, VPC peering, Transit Gateway, PrivateLink/NLB, endpoint público tradicional ou Aurora Express Internet Access Gateway. Veja o guia completo em [docs/rds_iam_jdbc.md](docs/rds_iam_jdbc.md).
 
-## Shape Declarativo
+## Transformações Declarativas
 
-`shape` normaliza JSON, structs e arrays antes de quality/write. Quando `shape.columns` é declarado, ele funciona como projeção: só os aliases declarados seguem como colunas de negócio, evitando carregar campos brutos ou colunas técnicas de camadas anteriores. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
+`transform` é o namespace canônico para mudanças físicas antes de quality/write. Use `transform.shape` para normalizar JSON, structs e arrays, e `transform.deduplicate` para reduzir múltiplas versões por chave antes de MERGE. O campo histórico `shape` continua aceito como atalho, mas novos contratos devem usar `transform.shape`.
+
+Quando `transform.shape.columns` é declarado, ele funciona como projeção: só os aliases declarados seguem como colunas de negócio, evitando carregar campos brutos ou colunas técnicas de camadas anteriores. Para arrays paralelos de APIs, use `zip_arrays` antes do `explode`:
 
 ```yaml
-shape:
-  zip_arrays:
-    - alias: hourly_rows
-      columns:
-        hourly.time: time
-        hourly.temperature_2m: temperature_2m
-  arrays:
-    - path: hourly_rows
-      mode: explode_outer
-      alias: hour
-  columns:
-    location_id: location_id
-    hour.time: forecast_hour
-    hour.temperature_2m:
-      alias: temperature_2m
-      cast: DOUBLE
-    forecast_date:
-      expression: "TO_DATE(hour.time)"
-      alias: forecast_date
+transform:
+  shape:
+    zip_arrays:
+      - alias: hourly_rows
+        columns:
+          hourly.time: time
+          hourly.temperature_2m: temperature_2m
+    arrays:
+      - path: hourly_rows
+        mode: explode_outer
+        alias: hour
+    columns:
+      location_id: location_id
+      hour.time: forecast_hour
+      hour.temperature_2m:
+        alias: temperature_2m
+        cast: DOUBLE
+      forecast_date:
+        expression: "TO_DATE(hour.time)"
+        alias: forecast_date
+```
+
+Deduplicação declarativa evita MERGE ambíguo quando a fonte traz múltiplas versões da mesma chave:
+
+```yaml
+transform:
+  deduplicate:
+    keys: [order_id]
+    order_by: "updated_at DESC NULLS LAST, ingestion_sequence DESC"
 ```
 
 ## CLI
@@ -230,7 +242,7 @@ Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `jso
 
 Quando o schema é conhecido, use `source.read.schema` com DDL Spark. `source.schema` também é aceito como alias curto e é normalizado para `source.read.schema`; se ambos forem declarados com valores diferentes, o contrato falha antes da leitura. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.
 
-Para APIs REST com JSON complexo, use `response.mode: raw` e deixe o `shape` estruturar o payload com schema explícito:
+Para APIs REST com JSON complexo, use `response.mode: raw` e deixe `transform.shape` estruturar o payload com schema explícito:
 
 ```yaml
 source:
@@ -247,16 +259,17 @@ source:
     max_page_bytes: 10485760
     max_total_bytes: 52428800
 
-shape:
-  parse_json:
-    - column: raw_response
-      alias: payload
-      schema: "STRUCT<events: ARRAY<STRUCT<id: STRING, title: STRING>>>"
+transform:
+  shape:
+    parse_json:
+      - column: raw_response
+        alias: payload
+        schema: "STRUCT<events: ARRAY<STRUCT<id: STRING, title: STRING>>>"
 ```
 
-O conector continua responsável só por baixar e proteger o volume; `shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
+O conector continua responsável só por baixar e proteger o volume; `transform.shape` faz parse/flatten/explode, e `annotations` governa catálogo, tags e PII.
 
-Quando a API já retorna uma lista de registros, `response.records_path` suporta navegação simples (`$`, `$.data.items`, `$[1]`, `$.data[0].items`) em `rest_api` e `http_file` JSON. Não é JSONPath completo; para payloads complexos, prefira `response.mode: raw` + `shape`.
+Quando a API já retorna uma lista de registros, `response.records_path` suporta navegação simples (`$`, `$.data.items`, `$[1]`, `$.data[0].items`) em `rest_api` e `http_file` JSON. Não é JSONPath completo; para payloads complexos, prefira `response.mode: raw` + `transform.shape`.
 
 ## Contratos Separados
 

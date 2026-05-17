@@ -89,8 +89,8 @@ Cada chamada `ingest()` ou `ingest_plan()` segue este pipeline determinístico:
 1. Resolve a fonte (tabela ou DataFrame)
 2. Lê watermark anterior do ctrl_ingestion_state
 3. Prepara o DataFrame:
-   → select_columns → column_mapping → shape → filter_expression → custom_keys
-   → apply_watermark → deduplicate_by_order → fix_encoding
+   → select_columns → column_mapping → transform.shape → filter_expression → custom_keys
+   → apply_watermark → transform.deduplicate → fix_encoding
    → remove colunas técnicas herdadas de execuções ContractForge anteriores
    → adiciona colunas técnicas (ingestion_date, source_system, __run_id)
 4. Valida schema policy + regras de modo
@@ -1312,9 +1312,16 @@ register_preset("company_silver_default", {
 
 ---
 
-## 5E. Shape Declarativo para JSON, Structs e Arrays
+## 5E. Transformações Declarativas para JSON, Structs, Arrays e Deduplicação
 
-`shape` transforma a estrutura física do DataFrame antes de filtros, watermark, dedup, quality e escrita. Ele é separado de `annotations`: `shape` altera dados/colunas; `annotations` descreve catálogo.
+`transform` é o namespace canônico para transformações físicas do DataFrame antes de filtros, watermark, quality e escrita. Ele é separado de `annotations`: `transform` altera dados/colunas; `annotations` descreve catálogo.
+
+Subseções suportadas:
+
+- `transform.shape`: parse de JSON string, flatten de structs, tratamento de arrays e projeção de colunas.
+- `transform.deduplicate`: escolha determinística de uma linha por chave antes de MERGE/quality/write.
+
+O campo top-level `shape` continua aceito como atalho, mas novos contratos devem preferir `transform.shape` para manter todas as transformações no mesmo nó.
 
 ### 5E.1 Quando Usar
 
@@ -1324,31 +1331,32 @@ register_preset("company_silver_default", {
 
 ### 5E.2 Parse de JSON em Coluna String
 
-Quando o JSON já chega como `struct`/`array`, `columns`, `arrays` e `flatten` atuam diretamente no schema. Quando o payload chega como texto (`string`), declare `shape.parse_json` para converter esse texto em uma coluna estruturada antes dos demais passos do `shape`.
+Quando o JSON já chega como `struct`/`array`, `columns`, `arrays` e `flatten` atuam diretamente no schema. Quando o payload chega como texto (`string`), declare `transform.shape.parse_json` para converter esse texto em uma coluna estruturada antes dos demais passos do shape.
 
 ```yaml
-shape:
-  parse_json:
-    - column: payload
-      schema: "STRUCT<customer: STRUCT<email: STRING, address: STRUCT<city: STRING>>, items: ARRAY<STRUCT<sku: STRING, qty: BIGINT>>>"
-      alias: payload_json
-      drop_source: false
-  arrays:
-    - path: payload_json.items
-      mode: explode_outer
-      alias: item
-  columns:
-    payload_json.customer.email:
-      alias: customer_email
-    payload_json.customer.address.city:
-      alias: customer_city
-    item.sku:
-      alias: item_sku
+transform:
+  shape:
+    parse_json:
+      - column: payload
+        schema: "STRUCT<customer: STRUCT<email: STRING, address: STRUCT<city: STRING>>, items: ARRAY<STRUCT<sku: STRING, qty: BIGINT>>>"
+        alias: payload_json
+        drop_source: false
+    arrays:
+      - path: payload_json.items
+        mode: explode_outer
+        alias: item
+    columns:
+      payload_json.customer.email:
+        alias: customer_email
+      payload_json.customer.address.city:
+        alias: customer_city
+      item.sku:
+        alias: item_sku
 ```
 
 Comportamento:
 
-- `parse_json` só executa quando `shape` é declarado; fontes sem `shape` continuam intactas.
+- `parse_json` só executa quando `transform.shape` ou `shape` é declarado; fontes sem shape continuam intactas.
 - Cada item de `parse_json` exige `column` e `schema`; o schema usa DDL Spark aceito por `from_json`.
 - A coluna informada em `column` precisa ser `string`; se já for `struct`/`array`, remova `parse_json` e use os paths diretamente.
 - Sem `alias`, a própria coluna string é sobrescrita pelo struct/array parseado.
@@ -1367,16 +1375,17 @@ target_table: s_orders
 catalog: main
 merge_keys: order_id
 
-shape:
-  flatten:
-    enabled: true
-    separator: "_"
-    include:
-      - customer
-      - shipping_address
-    exclude:
-      - customer.raw_document
-    max_depth: 5
+transform:
+  shape:
+    flatten:
+      enabled: true
+      separator: "_"
+      include:
+        - customer
+        - shipping_address
+      exclude:
+        - customer.raw_document
+      max_depth: 5
 ```
 
 Exemplo:
@@ -1389,15 +1398,16 @@ customer.address.city -> customer_address_city
 ### 5E.4 Extração de Paths com Alias
 
 ```yaml
-shape:
-  columns:
-    customer.email:
-      alias: customer_email
-      cast: STRING
-    customer.document.number: customer_document_number
-    event_time:
-      expression: "CAST(event_time_epoch_ms / 1000 AS TIMESTAMP)"
-      alias: event_time
+transform:
+  shape:
+    columns:
+      customer.email:
+        alias: customer_email
+        cast: STRING
+      customer.document.number: customer_document_number
+      event_time:
+        expression: "CAST(event_time_epoch_ms / 1000 AS TIMESTAMP)"
+        alias: event_time
 ```
 
 Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_keys` e escrita.
@@ -1405,13 +1415,14 @@ Essas colunas passam a existir antes de `quality_rules`, `merge_keys`, `hash_key
 Quando `shape.columns` é declarado, ele atua como **projeção declarativa**: a saída de negócio contém apenas os aliases declarados em `shape.columns` mais as colunas técnicas adicionadas pelo framework. Isso evita carregar, por acidente, colunas brutas ou metadados técnicos de uma camada anterior para a próxima. Para preservar uma coluna, declare-a explicitamente:
 
 ```yaml
-shape:
-  columns:
-    order_id: order_id
-    customer.email: customer_email
-    event_ts:
-      expression: "TO_TIMESTAMP(event_epoch_ms / 1000)"
-      alias: event_ts
+transform:
+  shape:
+    columns:
+      order_id: order_id
+      customer.email: customer_email
+      event_ts:
+        expression: "TO_TIMESTAMP(event_epoch_ms / 1000)"
+        alias: event_ts
 ```
 
 Colunas técnicas gerenciadas pelo framework (`ingestion_date`, `ingestion_ts_utc`, `source_system`, `__run_id`, `row_hash`, campos SCD etc.) são removidas automaticamente antes de serem recriadas na execução atual. Se a origem tiver uma coluna de negócio com nome reservado, preserve-a antes com `column_mapping` para um nome não reservado.
@@ -1440,18 +1451,19 @@ Modos suportados:
 Arrays aninhados podem ser declarados em qualquer ordem. A lib resolve dependências por path e alias:
 
 ```yaml
-shape:
-  arrays:
-    - path: item.discounts
-      mode: explode_outer
-      alias: discount
-    - path: items
-      mode: explode_outer
-      alias: item
-  columns:
-    order_id: order_id
-    item.sku: item_sku
-    discount.code: discount_code
+transform:
+  shape:
+    arrays:
+      - path: item.discounts
+        mode: explode_outer
+        alias: discount
+      - path: items
+        mode: explode_outer
+        alias: item
+    columns:
+      order_id: order_id
+      item.sku: item_sku
+      discount.code: discount_code
 ```
 
 Fluxo efetivo:
@@ -1468,23 +1480,24 @@ discount.code    -> discount_code
 APIs como Open-Meteo retornam arrays paralelos no mesmo struct: `hourly.time[]`, `hourly.temperature_2m[]`, `hourly.relative_humidity_2m[]`. Fazer `explode` em cada array separadamente geraria produto cartesiano. Para esse caso, declare primeiro `zip_arrays`, gerando um array de structs alinhado por índice, e depois faça `explode_outer` por `shape.arrays`.
 
 ```yaml
-shape:
-  zip_arrays:
-    - alias: hourly_rows
-      columns:
-        hourly.time: time
-        hourly.temperature_2m: temperature_2m
-        hourly.relative_humidity_2m: relative_humidity_2m
-        hourly.precipitation_probability: precipitation_probability
-  arrays:
-    - path: hourly_rows
-      mode: explode_outer
-      alias: hour
-  columns:
-    hour.time: forecast_hour
-    hour.temperature_2m: temperature_2m
-    hour.relative_humidity_2m: relative_humidity_2m
-    hour.precipitation_probability: precipitation_probability
+transform:
+  shape:
+    zip_arrays:
+      - alias: hourly_rows
+        columns:
+          hourly.time: time
+          hourly.temperature_2m: temperature_2m
+          hourly.relative_humidity_2m: relative_humidity_2m
+          hourly.precipitation_probability: precipitation_probability
+    arrays:
+      - path: hourly_rows
+        mode: explode_outer
+        alias: hour
+    columns:
+      hour.time: forecast_hour
+      hour.temperature_2m: temperature_2m
+      hour.relative_humidity_2m: relative_humidity_2m
+      hour.precipitation_probability: precipitation_probability
 ```
 
 Comportamento:
@@ -1496,7 +1509,28 @@ Comportamento:
 - A mudança de cardinalidade só acontece quando `shape.arrays` usa `explode`/`explode_outer`, portanto os guardrails de Bronze continuam valendo.
 - Aliases técnicos consumidos pelo próprio `shape` são removidos automaticamente. No exemplo acima, `hourly_rows` e `hour` não ficam na tabela final se serviram apenas para alimentar `shape.arrays` e `shape.columns`.
 
-### 5E.7 Guardrails de Cardinalidade
+### 5E.7 Deduplicação Declarativa
+
+Use `transform.deduplicate` quando a fonte pode trazer múltiplas versões da mesma chave no mesmo lote. A deduplicação roda depois de `watermark` e antes de quality/write, evitando MERGE ambíguo sem exigir tratamento manual no notebook.
+
+```yaml
+mode: scd1_upsert
+merge_keys: [order_id]
+
+transform:
+  deduplicate:
+    keys: [order_id]
+    order_by: "updated_at DESC NULLS LAST, ingestion_sequence DESC"
+```
+
+Campos:
+
+- `keys`: colunas que definem o grupo de duplicidade. Pode ser lista YAML ou string separada por `|`.
+- `order_by`: fragmento SQL de `ORDER BY`, aceito pelo Spark SQL. Declare uma ordenação determinística; se houver empate real, adicione uma coluna de sequência, timestamp técnico ou versionamento da origem.
+
+`dedup_order_expr` continua aceito como atalho legado para deduplicar por `merge_keys` ou `hash_keys`, mas novos contratos devem preferir `transform.deduplicate` porque ele explicita as chaves da deduplicação.
+
+### 5E.8 Guardrails de Cardinalidade
 
 Em Bronze, `explode` e `explode_outer` falham por padrão:
 

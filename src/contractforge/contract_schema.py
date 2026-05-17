@@ -111,6 +111,108 @@ def yaml_schema() -> Dict[str, Any]:
             "max_files_per_trigger": {"type": "integer", "minimum": 1},
         },
     }
+    shape_schema = {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "properties": {
+            "allow_cardinality_change_on_bronze": {"type": "boolean"},
+            "parse_json": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["column", "schema"],
+                    "properties": {
+                        "column": {"type": "string"},
+                        "schema": {"type": "string"},
+                        "alias": {"type": ["string", "null"]},
+                        "drop_source": {"type": "boolean"},
+                    },
+                },
+            },
+            "flatten": {
+                "oneOf": [
+                    {"type": "boolean"},
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "enabled": {"type": "boolean"},
+                            "separator": {"type": "string"},
+                            "include": {"oneOf": [string_array, {"type": "string"}]},
+                            "exclude": {"oneOf": [string_array, {"type": "string"}]},
+                            "max_depth": {"type": "integer", "minimum": 1},
+                        },
+                    },
+                ],
+            },
+            "arrays": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["path"],
+                    "properties": {
+                        "path": {"type": "string"},
+                        "mode": {
+                            "enum": ["keep", "to_json", "size", "first", "explode", "explode_outer"]
+                        },
+                        "alias": {"type": ["string", "null"]},
+                        "allow_cartesian": {"type": "boolean"},
+                    },
+                },
+            },
+            "zip_arrays": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["alias", "columns"],
+                    "properties": {
+                        "alias": {"type": "string"},
+                        "columns": {
+                            "type": "object",
+                            "minProperties": 2,
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "columns": {
+                "type": "object",
+                "additionalProperties": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "alias": {"type": "string"},
+                                "cast": {"type": "string"},
+                                "expression": {"type": "string"},
+                            },
+                        },
+                    ]
+                },
+            },
+        },
+    }
+    transform_schema = {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "properties": {
+            "shape": shape_schema,
+            "deduplicate": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "required": ["keys", "order_by"],
+                "properties": {
+                    "keys": {"oneOf": [string_array, {"type": "string"}]},
+                    "order_by": {"type": "string"},
+                },
+            },
+        },
+    }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://github.com/marquesantero/contractforge/schema.json",
@@ -252,6 +354,7 @@ def yaml_schema() -> Dict[str, Any]:
                     },
                 },
             },
+            "transform": transform_schema,
             "filter_expression": {"type": ["string", "null"]},
             "watermark_columns": {"oneOf": [string_array, {"type": "string"}]},
             "merge_keys": {"oneOf": [string_array, {"type": "string"}]},

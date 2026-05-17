@@ -6,6 +6,13 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.7.0 - 2026-05-17
+
+- Adiciona `transform` como namespace canônico para transformações físicas pré-quality/write.
+- Adiciona `transform.shape` como forma recomendada para parse JSON, flatten, arrays e projeção estrutural, mantendo `shape` como atalho validado.
+- Adiciona `transform.deduplicate` com `keys` e `order_by` explícitos para deduplicar lotes antes de MERGE/quality/write.
+- Atualiza JSON Schema, documentação e testes para o novo contrato declarativo de transformação.
+
 ## 2.6.9 - 2026-05-17
 
 - Bloqueia `scd1_upsert`, `scd2_historical` e `snapshot_soft_delete` quando a source contém múltiplas linhas para a mesma combinação de `merge_keys`, evitando MERGE ambíguo antes da escrita.

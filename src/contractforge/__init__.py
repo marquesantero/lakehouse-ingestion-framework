@@ -29,9 +29,11 @@ from .ingestion import (
     FrameworkConfig,
     QualityExpression,
     ConnectorSpec,
+    DeduplicateConfig,
     IngestionPlan,
     QualityRules,
     SourceSpec,
+    TransformConfig,
     ingest,
     ingest_plan,
     validate_plan_shape,
@@ -80,6 +82,7 @@ __all__ = [
     "ConnectorSpec",
     "contract_template_details",
     "contract_template_files",
+    "DeduplicateConfig",
     "UCCapabilities",
     "access_drift_report",
     "AnnotationsContract",
@@ -103,6 +106,7 @@ __all__ = [
     "ShapeJsonConfig",
     "ShapeZipArraysConfig",
     "TableAnnotations",
+    "TransformConfig",
     "diagnose_source_connectors",
     "get_source_resolver",
     "get_uc_capabilities",
@@ -146,4 +150,4 @@ __all__ = [
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
