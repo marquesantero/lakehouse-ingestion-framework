@@ -782,7 +782,7 @@ source:
     multiline: true
 ```
 
-`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. Para `s3`, `adls`, `azure_blob` e `gcs`, a lib valida o contrato e delega credenciais ao runtime Spark/Unity Catalog quando o path já está governado pelo ambiente.
+`provider` aceita `adls`, `azure_blob`, `s3` e `gcs`. Para paths já governados por Unity Catalog/External Location/Volumes, a lib valida o contrato e delega credenciais ao runtime Spark.
 
 Em Databricks serverless, prefira External Location/Volume:
 
@@ -802,7 +802,29 @@ source:
 
 Para `azure_blob`, também é possível declarar SAS diretamente no contrato usando secret placeholder em job cluster/classic/local. Nesse caso, a ContractForge resolve o secret, configura `fs.azure.sas.<container>.<account>.blob.core.windows.net` e monta o path `wasbs://...` automaticamente. O secret pode conter o SAS com ou sem `?` inicial. Esse caminho é apropriado para runtimes onde configuração Hadoop/Spark é permitida.
 
-Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
+Para `s3`, também é possível declarar credenciais diretamente em `source.auth` em job cluster/classic/local. A ContractForge resolve secrets, configura `fs.s3a.access.key`, `fs.s3a.secret.key`, `fs.s3a.session.token` quando existir, e escolhe `SimpleAWSCredentialsProvider` ou `TemporaryAWSCredentialsProvider`.
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}"  # opcional para STS
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Use `source.auth` para S3 apenas em runtimes onde configuração Hadoop/Spark é permitida. Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume. O conector `s3` não executa fallback REST implícito.
+
+Em Databricks serverless/Spark Connect, se o runtime bloquear `spark.conf.set`, a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...`, `s3://...` governado por External Location, ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para permitir o destino. O conector `azure_blob` não executa fallback REST implícito; para arquivo HTTP(S) explícito de volume controlado, use `http_file`. Para `avro`, `xml`, `parquet`, `delta` e `orc`, a leitura depende do reader Spark e de credencial configurada no runtime/Unity Catalog.
 
 Formatos de arquivo aceitos por conectores de arquivo/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl` e `ndjson` são formatos lógicos da ContractForge e usam o reader Spark `json`. A leitura de `xml` depende de suporte do runtime Spark; Excel não é formato Spark nativo e deve usar um conector específico/runtime externo.
 

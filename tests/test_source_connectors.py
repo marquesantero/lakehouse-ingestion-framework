@@ -326,6 +326,175 @@ def test_object_storage_alias_sets_provider_and_uses_declared_format(monkeypatch
     assert resolved.metadata["source_metrics"]["source_complete"] is True
 
 
+def test_s3_connector_configures_static_credentials_from_auth(monkeypatch):
+    calls = {"format": None, "options": {}, "load": None, "conf": {}}
+
+    class Reader:
+        def format(self, value):
+            calls["format"] = value
+            return self
+
+        def options(self, **kwargs):
+            calls["options"].update(kwargs)
+            return self
+
+        def load(self, path):
+            calls["load"] = path
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    monkeypatch.setenv("CONTRACTFORGE_SECRET_AWS_ACCESS_KEY_ID", "AKIA_TEST")
+    monkeypatch.setenv("CONTRACTFORGE_SECRET_AWS_SECRET_ACCESS_KEY", "SECRET_TEST")
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {
+                "access_key_id": "{{ secret:aws/access-key-id }}",
+                "secret_access_key": "{{ secret:aws/secret-access-key }}",
+            },
+            "options": {"header": True, "fs.s3a.endpoint": "s3.us-east-1.amazonaws.com"},
+        },
+        target_table="b_orders",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["format"] == "csv"
+    assert calls["options"] == {"header": "true"}
+    assert calls["load"] == "s3a://landing/orders"
+    assert calls["conf"] == {
+        "fs.s3a.endpoint": "s3.us-east-1.amazonaws.com",
+        "fs.s3a.access.key": "AKIA_TEST",
+        "fs.s3a.secret.key": "SECRET_TEST",
+        "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+    }
+    assert resolved.metadata["source_metrics"]["s3_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["s3_temporary_credentials"] is False
+    assert resolved.metadata["source_metrics"]["s3_conf_options_configured"] == 1
+    _assert_text_not_present(resolved.metadata, "AKIA_TEST")
+    _assert_text_not_present(resolved.metadata, "SECRET_TEST")
+
+
+def test_s3_connector_configures_temporary_credentials_from_auth(monkeypatch):
+    calls = {"conf": {}}
+
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+        def load(self, path):
+            return "df"
+
+    class Conf:
+        def set(self, key, value):
+            calls["conf"][key] = value
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "json",
+            "path": "s3a://landing/events",
+            "auth": {
+                "access_key": "AKIA_TEST",
+                "secret_key": "SECRET_TEST",
+                "token": "SESSION_TEST",
+            },
+        },
+        target_table="b_events",
+    )
+
+    resolved = resolve_batch_source(plan.source, plan)
+
+    assert resolved.df == "df"
+    assert calls["conf"]["fs.s3a.session.token"] == "SESSION_TEST"
+    assert calls["conf"]["fs.s3a.aws.credentials.provider"] == (
+        "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider"
+    )
+    assert resolved.metadata["source_metrics"]["s3_auth_configured"] is True
+    assert resolved.metadata["source_metrics"]["s3_temporary_credentials"] is True
+    _assert_text_not_present(resolved.metadata, "SESSION_TEST")
+
+
+def test_s3_connector_requires_access_and_secret_key_together(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class FakeSpark:
+        read = Reader()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {"access_key_id": "AKIA_TEST"},
+        },
+        target_table="b_orders",
+    )
+
+    with pytest.raises(ValueError, match="access_key_id e secret_access_key"):
+        resolve_batch_source(plan.source, plan)
+
+
+def test_s3_connector_reports_clear_error_when_spark_conf_is_blocked(monkeypatch):
+    class Reader:
+        def format(self, value):
+            return self
+
+        def options(self, **kwargs):
+            return self
+
+    class Conf:
+        def set(self, key, value):
+            raise RuntimeError("CONFIG_NOT_AVAILABLE: Configuration fs.s3a.access.key is not available")
+
+    class FakeSpark:
+        read = Reader()
+        conf = Conf()
+
+    monkeypatch.setattr(sources_module, "spark", FakeSpark())
+    plan = build_plan_from_kwargs(
+        source={
+            "type": "connector",
+            "connector": "s3",
+            "format": "csv",
+            "path": "s3a://landing/orders",
+            "auth": {"access_key_id": "AKIA_TEST", "secret_access_key": "SECRET_TEST"},
+        },
+        target_table="b_orders",
+    )
+
+    with pytest.raises(RuntimeError, match="External Location"):
+        resolve_batch_source(plan.source, plan)
+
+
 @pytest.mark.parametrize("fmt", ["avro", "xml"])
 def test_object_storage_accepts_avro_and_xml_formats(monkeypatch, fmt):
     calls = {"format": None, "load": None}

@@ -197,6 +197,30 @@ source:
 
 Em job cluster/classic/local, também é possível declarar SAS com `account_url`, `container` e `auth.sas_token`; nesse caso a ContractForge monta `wasbs://...` e configura `fs.azure.sas...` no Spark. Em Databricks serverless/Spark Connect, essa configuração pode ser bloqueada; nesse caso a ContractForge falha rápido com orientação para usar Unity Catalog External Location/Volume (`abfss://...` ou `/Volumes/...`) ou configurar Serverless Network Policy/NCC para liberar o destino. O conector `azure_blob` não faz fallback REST implícito, porque isso muda semântica, custo, limites de memória e comportamento de rede. Para arquivos HTTP(S) explícitos de volume controlado, use `http_file`.
 
+## S3
+
+Em Databricks serverless, prefira Unity Catalog External Location/Volume e leia `s3://...` governado diretamente. Em classic/job cluster/local, a ContractForge também pode configurar S3A a partir de `source.auth`:
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  path: s3a://company-landing/orders/
+  format: csv
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}" # opcional
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Com `session_token`, a lib usa `TemporaryAWSCredentialsProvider`; sem ele, usa `SimpleAWSCredentialsProvider`. Se o runtime bloquear `spark.conf.set` para `fs.s3a.*`, a execução falha com orientação para usar External Location/Volume.
+
 Formatos de arquivo aceitos em file/object storage: `avro`, `csv`, `delta`, `json`, `jsonl`, `ndjson`, `orc`, `parquet`, `text` e `xml`. `jsonl/ndjson` são mapeados para o reader Spark `json`. `avro/xml/parquet/orc/delta` dependem do reader Spark e de acesso configurado no runtime/Unity Catalog. Excel não é formato Spark nativo; use um conector Spark específico quando necessário.
 
 Quando o schema é conhecido, use `source.read.schema` com DDL Spark. Isso evita inferência em diretórios grandes ou com muitos arquivos pequenos e é registrado em `source_metrics_json.schema_declared`.

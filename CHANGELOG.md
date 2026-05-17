@@ -6,6 +6,14 @@ Este projeto segue versionamento semântico enquanto a biblioteca evolui:
 - `MINOR`: novo recurso compatível ou endurecimento planejado do contrato.
 - `MAJOR`: mudança incompatível depois de adoção estável.
 
+## 2.6.2 - 2026-05-17
+
+- Adiciona suporte declarativo a credenciais S3 via `source.auth` no conector `s3`/`object_storage` com `provider=s3`.
+- Configura `fs.s3a.access.key`, `fs.s3a.secret.key`, `fs.s3a.session.token` e o credentials provider adequado em runtimes classic/job cluster/local.
+- Permite opções Hadoop S3A em `source.options` usando chaves `fs.s3a.*` ou `spark.hadoop.fs.s3a.*`, sem repassá-las ao reader Spark.
+- Em serverless/Spark Connect, falha rápido com orientação para usar Unity Catalog External Location/Volume quando `spark.conf.set` para `fs.s3a.*` for bloqueado.
+- Mantém credenciais redigidas nos metadados e adiciona métricas seguras `s3_auth_configured`, `s3_temporary_credentials` e `s3_conf_options_configured`.
+
 ## 2.6.1 - 2026-05-16
 
 - Corrige a materialização do conector `rest_api` para payloads JSON reais com structs, arrays e campos opcionais heterogêneos.

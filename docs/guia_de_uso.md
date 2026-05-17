@@ -591,6 +591,28 @@ mode: snapshot_soft_delete
 merge_keys: [order_id]
 ```
 
+Em classic/job cluster/local, credenciais S3 podem ser declaradas no contrato e resolvidas por Databricks Secrets:
+
+```yaml
+source:
+  type: connector
+  connector: s3
+  format: csv
+  path: s3a://empresa-landing/orders/
+  auth:
+    access_key_id: "{{ secret:aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:aws/aws_secret_access_key }}"
+    session_token: "{{ secret:aws/aws_session_token }}" # opcional
+  options:
+    header: true
+    fs.s3a.endpoint: s3.us-east-1.amazonaws.com
+  read:
+    source_complete: true
+    schema: "order_id STRING, customer_id STRING, amount DOUBLE"
+```
+
+Em serverless, prefira External Location/Volume para S3. Se o runtime bloquear `spark.conf.set` para `fs.s3a.*`, a lib falha com mensagem objetiva em vez de tentar fallback implícito.
+
 ```yaml
 source:
   type: connector

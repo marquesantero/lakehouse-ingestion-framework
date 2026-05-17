@@ -10,8 +10,8 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 | `http_file` | Driver Python | Biblioteca padrão `urllib` | Sim | Sim | Sim | Baixa HTTP(S) no driver e cria DataFrame; use `format=csv|json|jsonl|ndjson|text`. |
 | `http_csv`, `http_json`, `http_text` | Driver Python | Biblioteca padrão `urllib` | Sim | Sim | Sim | Aliases de `http_file`; úteis quando Spark não consegue ler `https://` como filesystem. |
 | `delta` | Spark Delta reader | Delta Lake | Sim com extra `spark` | Sim | Sim | Por path; para tabela registrada prefira `delta_table`/`table`. |
-| `object_storage`, `blob` | Spark file reader | Credencial cloud configurada | Parcial | Sim | Sim | Use `provider=adls|azure_blob|s3|gcs`; para Azure Blob, SAS pode ser declarado em `auth.sas_token`. |
-| `s3` | Spark file reader | Acesso S3 no runtime | Parcial | Sim | Sim | Alias de object storage com provider inferido. |
+| `object_storage`, `blob` | Spark file reader | Credencial cloud configurada | Parcial | Sim | Sim | Use `provider=adls|azure_blob|s3|gcs`; para Azure Blob, SAS pode ser declarado em `auth.sas_token`; para S3, chaves podem ser declaradas em `auth` em runtimes classic/local. |
+| `s3` | Spark file reader | Acesso S3 no runtime ou `source.auth` em classic/local | Parcial | Sim | Sim via External Location; auth direto pode ser bloqueado | Alias de object storage com provider inferido; `source.auth.access_key_id`, `secret_access_key` e `session_token` opcional configuram `fs.s3a.*`. |
 | `adls`, `azure_blob` | Spark file reader | Acesso Azure Storage no runtime/Unity Catalog ou SAS em runtime que permita config Hadoop | Parcial | Sim | Sim, via External Location/Volume ou rede liberada | `azure_blob` aceita `account_url`, `container` e `auth.sas_token`; se serverless bloquear `fs.azure.sas...`, a lib falha rápido com orientação operacional. |
 | `gcs` | Spark file reader | Acesso GCS no runtime | Parcial | Sim | Sim | Requer configuração GCS no cluster/serverless. |
 | `jdbc` | Spark JDBC | Driver JDBC | Sim | Sim | Sim, se driver/runtime suportar | Exige `options.url` e `dbtable` ou `query`. |
@@ -35,6 +35,7 @@ Esta matriz descreve o contrato suportado pela lib. Drivers, credenciais, extern
 - Para conectores que usam credenciais, use `{{ secret:scope/key }}` e valide que `contractforge validate`/`connectors doctor` não exibem segredo literal.
 - Para Azure Blob com SAS, salve apenas o SAS token no secret scope e declare `account_url`, `container` e `path` separadamente no contrato.
 - Para Azure Blob em Databricks serverless, prefira Unity Catalog External Location/Volume e paths `abfss://...` ou `/Volumes/...`; SAS direto via `fs.azure.sas...` pode ser bloqueado por Spark Connect.
+- Para S3 em Databricks serverless, prefira Unity Catalog External Location/Volume. `source.auth` com chaves S3 é para classic/job cluster/local, onde `fs.s3a.*` pode ser configurado.
 - Se a origem é um arquivo HTTP(S) explícito e pequeno/médio, use `http_file`. Não trate `azure_blob` como downloader REST implícito.
 
 ## Exemplos de validação
