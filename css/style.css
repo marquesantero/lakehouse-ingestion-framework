@@ -188,7 +188,7 @@ pre code {
 .content {
   margin-left: var(--sidebar);
   max-width: 1180px;
-  padding: 2.4rem clamp(1.25rem, 4vw, 4rem) 5rem;
+  padding: 2rem clamp(1.25rem, 4vw, 3.5rem) 5rem;
   width: 100%;
 }
 
@@ -197,8 +197,8 @@ pre code {
   display: grid;
   gap: 2rem;
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
-  min-height: 70vh;
-  padding: 2.5rem 0 3rem;
+  min-height: 58vh;
+  padding: 2rem 0 2.6rem;
 }
 
 .hero-copy {
@@ -207,8 +207,8 @@ pre code {
 .hero-logo {
   display: block;
   height: auto;
-  margin: .6rem 0 1.35rem;
-  max-width: min(580px, 100%);
+  margin: .45rem 0 1.1rem;
+  max-width: min(500px, 100%);
 }
 
 .eyebrow {
@@ -227,13 +227,13 @@ h1, h2, h3 {
 }
 h1 {
   font-family: var(--font-display);
-  font-size: clamp(3rem, 7vw, 6.2rem);
-  margin: 0 0 1.1rem;
-  max-width: 980px;
+  font-size: clamp(2.45rem, 5.2vw, 4.7rem);
+  margin: 0 0 .95rem;
+  max-width: 900px;
 }
 h2 {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(1.65rem, 3vw, 2.55rem);
   margin: 0 0 .95rem;
 }
 h3 {
@@ -243,9 +243,9 @@ h3 {
 
 .lead {
   color: #445260;
-  font-size: clamp(1.05rem, 2vw, 1.28rem);
-  line-height: 1.68;
-  max-width: 850px;
+  font-size: clamp(1rem, 1.45vw, 1.16rem);
+  line-height: 1.64;
+  max-width: 800px;
 }
 
 .hero-actions, .pill-row {
@@ -301,7 +301,7 @@ h3 {
 .hero-card strong {
   display: block;
   font-family: var(--font-display);
-  font-size: 1.8rem;
+  font-size: 1.45rem;
   letter-spacing: -.035em;
   line-height: 1.1;
   max-width: 14rem;
@@ -338,7 +338,7 @@ h3 {
 
 .section {
   border-top: 1px solid var(--line);
-  padding: 4rem 0;
+  padding: 3.25rem 0;
 }
 .section-heading {
   max-width: 780px;
@@ -450,10 +450,10 @@ h3 {
 
 .page-header {
   border-bottom: 1px solid var(--line);
-  padding: 3rem 0 2rem;
+  padding: 2.35rem 0 1.7rem;
 }
 .page-header h1 {
-  font-size: clamp(2.7rem, 5vw, 4.8rem);
+  font-size: clamp(2.15rem, 3.8vw, 3.55rem);
 }
 .page-grid {
   display: grid;
