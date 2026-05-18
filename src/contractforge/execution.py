@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from ._sql import new_run_id, q
+from .exceptions import raise_for_failure_result
 from .plan import ExecutionWindow, IngestionPlan, target_full_table_name
 from .state import ctrl_table_names, ensure_ctrl_tables
 from .watermark import get_watermark
@@ -137,11 +138,12 @@ def _child_plan(plan: IngestionPlan, parent_run_id: str, column: str, window: Ex
     )
 
 
-def ingest_execution_plan(plan: IngestionPlan) -> Dict[str, Any]:
-    """Executa um plano em múltiplas janelas, delegando cada janela a `ingest_plan`.
+def ingest_execution_plan(plan: IngestionPlan, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Execute a plan across multiple windows, delegating each window to ``ingest_plan``.
 
-    O run pai é lógico: ele coordena e retorna o agregado. Cada janela vira um
-    run filho real em `ctrl_ingestion_runs` com `parent_run_id`.
+    The parent run is logical: it coordinates and returns aggregate metrics.
+    Each window becomes a real child run in ``ctrl_ingestion_runs`` with
+    ``parent_run_id``.
     """
     from .ingestion import ingest_plan
 
@@ -155,7 +157,7 @@ def ingest_execution_plan(plan: IngestionPlan) -> Dict[str, Any]:
     status = "SUCCESS"
     for index, window in enumerate(windows, start=1):
         child = _child_plan(plan, parent_run_id, column, window, index)
-        result = ingest_plan(child)
+        result = ingest_plan(child, raise_on_failure=False)
         result["execution_window"] = {
             "label": _window_label(window, index),
             "column": column,
@@ -168,7 +170,7 @@ def ingest_execution_plan(plan: IngestionPlan) -> Dict[str, Any]:
             if stop_on_failure:
                 break
 
-    return {
+    result = {
         "status": status,
         "run_id": parent_run_id,
         "parent_run_id": parent_run_id,
@@ -183,3 +185,6 @@ def ingest_execution_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "rows_quarantined": sum(int(item.get("rows_quarantined") or 0) for item in results),
         "window_results": results,
     }
+    if raise_on_failure:
+        raise_for_failure_result(result)
+    return result

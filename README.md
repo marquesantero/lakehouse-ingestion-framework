@@ -103,6 +103,8 @@ result = ingest(
 )
 ```
 
+Execution failures raise `ContractForgeExecutionError` by default after the run has been recorded in control tables. If you need the legacy-style failed payload for diagnostics or tests, call `ingest(..., raise_on_failure=False)`.
+
 ## Quick Example: YAML Contract
 
 ```yaml

@@ -6,6 +6,12 @@ This project follows semantic versioning while the library evolves:
 - `MINOR`: compatible feature or planned contract hardening.
 - `MAJOR`: incompatible change after stable adoption.
 
+## Unreleased
+
+- Makes ingestion APIs fail fast for callers by default: `ingest()`, `ingest_plan()`, `ingest_stream_plan()` and `ingest_bundle()` now raise `ContractForgeExecutionError` when the final result status is `FAILED` or `ABORTED`.
+- Adds `raise_on_failure=False` as an explicit runtime option for tests, notebooks or orchestration code that need to inspect failed result payloads directly.
+- Keeps control-table logging, error persistence and stream/execution aggregation before raising to the caller.
+
 ## 2.12.0 - 2026-05-17
 
 - Adds official templates derived from validated real ingestions: HTTP CSV, object storage with nested JSON, small files, Auto Loader `available_now`, RDS/Aurora IAM hash diff, JSON payload string and parallel arrays.

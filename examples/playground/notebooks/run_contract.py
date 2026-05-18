@@ -4,7 +4,7 @@ dbutils.widgets.text("contract", "")
 contract_path = dbutils.widgets.get("contract")
 
 if not contract_path:
-    raise ValueError("Informe o parametro 'contract' com o path base do bundle ou arquivo ingestion.")
+    raise ValueError("Provide the 'contract' widget with the bundle base path or ingestion file path.")
 
 from contractforge import ingest_bundle, load_contract_bundle
 

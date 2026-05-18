@@ -66,4 +66,6 @@ result = ingest_bundle(bundle)
 display(result)
 ```
 
+`ingest_bundle()` raises `ContractForgeExecutionError` by default when execution finishes with `FAILED` or `ABORTED`. The failure is still recorded in control tables before the exception is raised. Use `ingest_bundle(bundle, raise_on_failure=False)` only when a notebook or test must inspect the failed payload directly.
+
 This avoids one notebook per table and keeps pipeline changes reviewable in pull requests.

@@ -17,6 +17,8 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 from .config import CONFIG, CONTROL_COLUMNS, CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION, FrameworkConfig  # noqa: F401
+from .contract_bundle import ContractBundle
+from .exceptions import raise_for_failure_result
 from .governance import (
     access_sql_preview,
     annotation_sql_preview,
@@ -860,42 +862,38 @@ def _finalize_execution(
     )
 
 
-def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``contractforge.streaming``."""
+def ingest_stream_plan(plan: IngestionPlan, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Compatibility wrapper that delegates to ``contractforge.streaming``."""
     from .streaming import ingest_stream_plan as _ingest_stream_plan
 
-    return _ingest_stream_plan(plan)
+    return _ingest_stream_plan(plan, raise_on_failure=raise_on_failure)
 
 
-def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
-    """Orquestra a execução de um ``IngestionPlan`` completo.
+def ingest_plan(plan: IngestionPlan, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Orchestrate a complete ``IngestionPlan`` execution.
 
-    Fluxo (try/except/finally garante que ctrl tables sempre recebem o registro):
-
-    1. Cria ctrl tables se necessário.
-    2. Adquire lock se ``plan.lock_enabled``.
-    3. Resolve a fonte e lê o watermark anterior.
-    4. Prepara o DataFrame (select, filter, custom keys, watermark, dedup, encoding).
-    5. Valida schema policy e regras do plan.
-    6. Avalia quality gates.
-    7. Em ``dry_run``, retorna sem escrever.
-    8. Executa o motor de escrita correspondente, com retry para conflitos Delta.
-    9. Atualiza ``ctrl_ingestion_state``.
-    10. Em falha, registra ``status=FAILED`` mantendo watermark anterior.
-    11. Sempre: persiste em ``ctrl_ingestion_runs`` e (se habilitado) emite OpenLineage.
+    The internal try/except/finally path ensures control tables receive the run
+    record before a failed result is optionally raised to the caller.
 
     Returns:
-        Dict com status, run_id, contagens, watermarks, mudanças de schema,
-        métricas Delta, evento OpenLineage e mensagem de erro (se houver).
+        Result payload with status, run_id, counters, watermarks, schema changes,
+        Delta metrics, OpenLineage metadata and an error summary when available.
+
+    Raises:
+        ContractForgeExecutionError: when ``raise_on_failure`` is true and the
+        final result status is ``FAILED`` or ``ABORTED``.
     """
     if plan.execution:
         from .execution import ingest_execution_plan
 
-        return ingest_execution_plan(plan)
+        return ingest_execution_plan(plan, raise_on_failure=raise_on_failure)
     if isinstance(plan.source, ConnectorSpec) and plan.source.connector == "autoloader":
-        return ingest_stream_plan(replace(plan, source=_autoloader_connector_to_source_spec(plan.source)))
+        return ingest_stream_plan(
+            replace(plan, source=_autoloader_connector_to_source_spec(plan.source)),
+            raise_on_failure=raise_on_failure,
+        )
     if isinstance(plan.source, SourceSpec):
-        return ingest_stream_plan(plan)
+        return ingest_stream_plan(plan, raise_on_failure=raise_on_failure)
 
     run_id = new_run_id()
     run_ts = utc_now_str()
@@ -1285,7 +1283,7 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 except Exception as error_log_exc:
                     logger.error("Falha ao registrar erro completo: %s", error_log_exc)
 
-    return {
+    result = {
         **_base_result_payload(
             status,
             plan,
@@ -1320,12 +1318,15 @@ def ingest_plan(plan: IngestionPlan) -> Dict[str, Any]:
         "skipped_by_run_id": skipped_by_run_id,
         "governance": governance_results,
     }
+    if raise_on_failure:
+        raise_for_failure_result(result)
+    return result
 
 
 def ingest(**kwargs: Any) -> Dict[str, Any]:
-    """Executa ingestão padronizada usando parâmetros compatíveis com notebooks.
+    """Run standardized ingestion using notebook-friendly keyword arguments.
 
-    Exemplo:
+    Example:
         ingest(
             source=df,
             target_table="c_cliente",
@@ -1340,16 +1341,21 @@ def ingest(**kwargs: Any) -> Dict[str, Any]:
             explain_mode=True,
             openlineage_enabled=True,
         )
+
+    ``raise_on_failure`` is a runtime option, not an ingestion contract field.
+    It defaults to ``True`` so failed executions raise
+    ``ContractForgeExecutionError`` after control-table logging completes.
     """
+    raise_on_failure = bool(kwargs.pop("raise_on_failure", True))
     plan = build_plan_from_kwargs(**kwargs)
-    return ingest_plan(plan)
+    return ingest_plan(plan, raise_on_failure=raise_on_failure)
 
 
-def ingest_bundle(path: str) -> Dict[str, Any]:
-    """Compatibilidade: delega para ``contractforge.bundles``."""
+def ingest_bundle(path: str | ContractBundle, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Compatibility wrapper that delegates to ``contractforge.bundles``."""
     from .bundles import ingest_bundle as _ingest_bundle
 
-    return _ingest_bundle(path)
+    return _ingest_bundle(path, raise_on_failure=raise_on_failure)
 
 
 def apply_governance_bundle(

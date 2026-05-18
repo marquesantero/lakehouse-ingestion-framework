@@ -1937,12 +1937,13 @@ def test_ingest_plan_dispatches_autoloader_connector_to_stream(monkeypatch):
         lock_enabled=False,
     )
 
-    def fake_stream(inner_plan):
+    def fake_stream(inner_plan, *, raise_on_failure=True):
         return {
             "status": "DRY_RUN",
             "stream_run_id": "stream-1",
             "source": inner_plan.source.path,
             "checkpoint": inner_plan.source.checkpoint_location,
+            "raise_on_failure": raise_on_failure,
         }
 
     monkeypatch.setattr("contractforge.ingestion.ingest_stream_plan", fake_stream)
@@ -1952,4 +1953,5 @@ def test_ingest_plan_dispatches_autoloader_connector_to_stream(monkeypatch):
         "stream_run_id": "stream-1",
         "source": "/landing/orders",
         "checkpoint": "/checkpoints/orders",
+        "raise_on_failure": True,
     }

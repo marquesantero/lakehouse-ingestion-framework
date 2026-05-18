@@ -12,6 +12,7 @@ from pyspark.sql import DataFrame
 from ._spark import runtime_info
 from ._sql import new_run_id, today_str, utc_now_str, utc_now_ts
 from .config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
+from .exceptions import raise_for_failure_result
 from .ingestion import _base_result_payload, _short_error_message, ingest_plan
 from .plan import IngestionPlan, SourceSpec, target_full_table_name, validate_plan_shape
 from .sources import get_source_resolver
@@ -156,15 +157,15 @@ def _stream_start_payload(
     }
 
 
-def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
-    """Executa ``SourceSpec`` em Autoloader ``available_now``.
+def ingest_stream_plan(plan: IngestionPlan, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Execute ``SourceSpec`` through Auto Loader ``available_now``.
 
-    Cada micro-batch vira uma chamada a ``ingest_plan`` com ``source=batch_df``.
-    A execução externa registra o ciclo em ``ctrl_ingestion_streams``.
+    Each micro-batch becomes an ``ingest_plan`` call with ``source=batch_df``.
+    The outer execution records the stream lifecycle in ``ctrl_ingestion_streams``.
     """
     validate_plan_shape(plan)
     if not isinstance(plan.source, SourceSpec):
-        raise ValueError("ingest_stream_plan requer plan.source como SourceSpec")
+        raise ValueError("ingest_stream_plan requires plan.source as SourceSpec")
 
     stream_run_id = new_run_id()
     run_date = today_str()
@@ -271,7 +272,7 @@ def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 idempotency_key=f"{batch_key_prefix}:batch:{batch_id}",
                 idempotency_policy="skip_if_success",
             )
-            result = ingest_plan(sub_plan)
+            result = ingest_plan(sub_plan, raise_on_failure=False)
             batch_results.append(result)
             if result["status"] == "FAILED":
                 raise RuntimeError(
@@ -353,7 +354,7 @@ def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
                 except Exception as error_log_exc:
                     logger.error("Falha ao registrar erro completo do stream: %s", error_log_exc)
 
-    return _stream_result(
+    result = _stream_result(
         plan,
         stream_run_id,
         target,
@@ -368,3 +369,6 @@ def ingest_stream_plan(plan: IngestionPlan) -> Dict[str, Any]:
         skipped_by_stream_run_id=skipped_by_stream_run_id,
         stream_metrics=stream_metrics,
     )
+    if raise_on_failure:
+        raise_for_failure_result(result)
+    return result

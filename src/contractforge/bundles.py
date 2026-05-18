@@ -1,11 +1,11 @@
-"""Orquestração de bundles de contrato e governança."""
+"""Contract bundle and governance orchestration."""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
 from ._sql import new_run_id, to_json, utc_now_ts
 from .config import CTRL_SCHEMA_VERSION, FRAMEWORK_VERSION
-from .contract_bundle import governance_check, governance_preview, load_contract_bundle
+from .contract_bundle import ContractBundle, governance_check, governance_preview, load_contract_bundle
 from .governance import (
     access_sql_preview,
     apply_access_contract,
@@ -23,10 +23,10 @@ from .state import (
 )
 
 
-def ingest_bundle(path: str) -> Dict[str, Any]:
-    """Carrega contrato dividido e executa o plano de ingestao."""
-    bundle = load_contract_bundle(path)
-    return ingest_plan(bundle.ingestion)
+def ingest_bundle(path: str | ContractBundle, *, raise_on_failure: bool = True) -> Dict[str, Any]:
+    """Load a split contract bundle and execute its ingestion plan."""
+    bundle = path if isinstance(path, ContractBundle) else load_contract_bundle(path)
+    return ingest_plan(bundle.ingestion, raise_on_failure=raise_on_failure)
 
 
 def apply_governance_bundle(

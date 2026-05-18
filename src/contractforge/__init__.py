@@ -19,6 +19,7 @@ from .governance import (
     validate_governance_contract,
 )
 from .hooks import IngestionHooks
+from .exceptions import ContractForgeExecutionError
 from .maintenance import apply_ctrl_retention, build_ctrl_retention_plan
 from .bundles import (
     apply_access_bundle,
@@ -100,6 +101,7 @@ __all__ = [
     "ColumnAnnotations",
     "ColumnMask",
     "ContractBundle",
+    "ContractForgeExecutionError",
     "IngestionHooks",
     "HttpFileConnector",
     "OperationsContract",

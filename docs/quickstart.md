@@ -75,6 +75,8 @@ Expected result:
 - `rows_read = 2`
 - `rows_written = 2`
 
+If the execution fails, ContractForge raises `ContractForgeExecutionError` by default after persisting the failure in the control tables. To inspect a failed result payload without raising, pass `raise_on_failure=False`.
+
 By default, the physical target schema is the `layer` value. If your organization uses business schemas, add `target_schema`, for example `target_schema="landing_orders"`, to write to `main.landing_orders.b_orders_quickstart` while keeping `layer="bronze"` as logical metadata.
 
 ## 4. Inspect Operational Evidence

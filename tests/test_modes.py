@@ -1,10 +1,11 @@
 """Testes ponta-a-ponta dos 6 modos de escrita via ``ingest``."""
 from __future__ import annotations
 
+import pytest
 from pyspark.sql import Row
 from pyspark.sql.types import ArrayType, DoubleType, LongType, StringType, StructField, StructType
 
-from contractforge import IngestionHooks, ingest
+from contractforge import ContractForgeExecutionError, IngestionHooks, ingest
 
 
 def _common(target: str, layer: str = "silver"):
@@ -301,10 +302,28 @@ def test_shape_parse_json_rejects_non_string_source(make_df, unique_name):
     table = f"{unique_name}_shape_json_non_string"
     df = make_df([(1, 10)], "id long, payload long")
 
+    with pytest.raises(ContractForgeExecutionError) as exc:
+        ingest(
+            source=df,
+            mode="scd0_append",
+            shape={"parse_json": [{"column": "payload", "schema": "STRUCT<a: STRING>"}]},
+            **_common(table, "silver"),
+        )
+
+    assert exc.value.status == "FAILED"
+    assert exc.value.result["status"] == "FAILED"
+    assert "deve ser string" in str(exc.value)
+
+
+def test_raise_on_failure_false_returns_failed_payload(make_df, unique_name):
+    table = f"{unique_name}_shape_json_non_string_payload"
+    df = make_df([(1, 10)], "id long, payload long")
+
     res = ingest(
         source=df,
         mode="scd0_append",
         shape={"parse_json": [{"column": "payload", "schema": "STRUCT<a: STRING>"}]},
+        raise_on_failure=False,
         **_common(table, "silver"),
     )
 
@@ -440,6 +459,7 @@ def test_shape_blocks_cardinality_change_on_bronze_by_default(make_df, unique_na
         source=df,
         mode="scd0_append",
         shape={"arrays": [{"path": "items", "mode": "explode_outer", "alias": "item"}]},
+        raise_on_failure=False,
         **_common(table, "bronze"),
     )
     assert res["status"] == "FAILED"
@@ -465,6 +485,7 @@ def test_shape_blocks_sibling_array_cartesian(spark, unique_name):
                 {"path": "payments", "mode": "explode_outer", "alias": "payment"},
             ]
         },
+        raise_on_failure=False,
         **_common(table, "silver"),
     )
     assert res["status"] == "FAILED"
@@ -500,7 +521,7 @@ def test_reserved_source_column_can_be_preserved_with_column_mapping(spark, make
 def test_merge_keys_all_null_fail_before_merge(spark, make_df, unique_name):
     table = f"{unique_name}_nullkeys"
     df = make_df([(None, "a"), (None, "b")], "id long, val string")
-    res = ingest(source=df, mode="scd1_upsert", merge_keys="id", **_common(table))
+    res = ingest(source=df, mode="scd1_upsert", merge_keys="id", raise_on_failure=False, **_common(table))
     assert res["status"] == "FAILED"
     assert "merge_keys totalmente nulas" in (res["error_message"] or "")
 
@@ -509,7 +530,7 @@ def test_duplicate_merge_keys_fail_before_merge_write(spark, make_df, unique_nam
     table = f"{unique_name}_dupkeys"
     df = make_df([(1, "a"), (1, "b"), (2, "c")], "id long, val string")
 
-    res = ingest(source=df, mode="scd1_upsert", merge_keys="id", **_common(table))
+    res = ingest(source=df, mode="scd1_upsert", merge_keys="id", raise_on_failure=False, **_common(table))
 
     assert res["status"] == "FAILED"
     assert "linhas duplicadas" in (res["error_message"] or "")
@@ -669,6 +690,7 @@ def test_snapshot_soft_delete_with_watermark_fails(spark, make_df, unique_name):
         mode="snapshot_soft_delete",
         merge_keys="id",
         watermark_columns="updated_at",
+        raise_on_failure=False,
         **_common(table),
     )
     assert res["status"] == "FAILED"
@@ -684,6 +706,7 @@ def test_snapshot_soft_delete_with_filter_fails(spark, make_df, unique_name):
         mode="snapshot_soft_delete",
         merge_keys="id",
         filter_expression="id > 0",
+        raise_on_failure=False,
         **_common(table),
     )
     assert res["status"] == "FAILED"
@@ -699,6 +722,7 @@ def test_quarantine_escalates_on_unique_key_failure(spark, make_df, unique_name)
         mode="scd0_append",
         quality_rules={"unique_key": ["id"]},
         on_quality_fail="quarantine",
+        raise_on_failure=False,
         **_common(table, "bronze"),
     )
     assert res["status"] == "FAILED"
@@ -717,6 +741,7 @@ def test_quarantine_escalates_on_min_rows_failure(spark, make_df, unique_name):
         mode="scd0_append",
         quality_rules={"min_rows": 5},
         on_quality_fail="quarantine",
+        raise_on_failure=False,
         **_common(table, "bronze"),
     )
     assert res["status"] == "FAILED"
@@ -730,6 +755,7 @@ def test_quality_fail_aborts_run(spark, make_df, unique_name):
         mode="scd0_append",
         quality_rules={"not_null": ["id"]},
         on_quality_fail="fail",
+        raise_on_failure=False,
         **_common(table, "bronze"),
     )
     assert res["status"] == "FAILED"
@@ -758,6 +784,7 @@ def test_bronze_rejects_scd1_upsert(spark, make_df, unique_name):
         source=df,
         mode="scd1_upsert",
         merge_keys="id",
+        raise_on_failure=False,
         **_common(table, "bronze"),
     )
     assert res["status"] == "FAILED"
