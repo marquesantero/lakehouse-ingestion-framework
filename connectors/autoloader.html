@@ -1,16 +1,180 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Auto Loader connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>Auto Loader</h1><p class="lead">Use Databricks Auto Loader when files arrive over time and you need checkpointed, finite ingestion with <code>available_now</code>.</p></header><section class="section"><h2>Example</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge Auto Loader connector documentation for Databricks available_now ingestion, checkpoints and stream metrics.">
+  <title>Auto Loader connector | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>Auto Loader</h1>
+    <p class="lead">Use Auto Loader when files arrive over time and Databricks should discover them with checkpoints. ContractForge supports finite <code>available_now</code> execution and records both stream-level and child batch evidence.</p>
+  </header>
+
+  <section class="section">
+    <h2>Scope</h2>
+    <div class="info-grid">
+      <article class="info-card"><span>Supported</span><h3>Available-now ingestion</h3><p>Run Auto Loader until currently available files are processed, then stop and return a stream result.</p></article>
+      <article class="info-card"><span>Not the goal</span><h3>Continuous streaming apps</h3><p>Long-running streaming applications should be implemented as dedicated streaming jobs outside ContractForge.</p></article>
+      <article class="info-card"><span>Observed</span><h3>Child runs</h3><p>Each micro-batch executes an internal <code>ingest_plan</code> with a child run id linked to the stream run.</p></article>
+      <article class="info-card"><span>Audited</span><h3>Aggregated metrics</h3><p><code>ctrl_ingestion_streams</code> stores processed batch count and total rows read/written/quarantined.</p></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>JSON available-now example</h2>
+    <pre><code>source:
   type: connector
   connector: autoloader
   format: json
-  path: /Volumes/main/landing/orders
+  path: /Volumes/main/landing/orders_json
   read:
-    checkpoint_location: /Volumes/main/ops/checkpoints/orders
-    schema_location: /Volumes/main/ops/schemas/orders
+    checkpoint_location: /Volumes/main/ops/checkpoints/orders_json
+    schema_location: /Volumes/main/ops/schemas/orders_json
     available_now: true
+    schema: "order_id STRING, updated_at TIMESTAMP, payload STRUCT&lt;amount:DOUBLE,status:STRING&gt;"
+    cloudFiles.includeExistingFiles: true
+    cloudFiles.maxFilesPerTrigger: 100
 
 target:
   catalog: main
-  schema: bronze
-  table: b_orders</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>ContractForge supports finite available-now ingestion, not continuous streaming orchestration.</li><li>Use stable checkpoint and schema locations outside transient workspace paths.</li><li>Stream-level metrics are aggregated into <code>ctrl_ingestion_streams</code>.</li></ul></section><section class="section"><h2>Available-now execution model</h2><p>Auto Loader creates an outer stream run and one child ingestion run per micro-batch. The stream table aggregates child rows so dashboards can verify actual files processed.</p><pre><code>SELECT stream_run_id, batches_processed, total_rows_read, total_rows_written
+  schema: bronze_sales
+  table: b_orders_autoloader
+
+layer: bronze
+mode: scd0_append
+quality_rules:
+  not_null: [order_id]</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>CSV available-now example</h2>
+    <pre><code>source:
+  type: connector
+  connector: autoloader
+  format: csv
+  path: /Volumes/main/landing/cdc_csv
+  read:
+    checkpoint_location: /Volumes/main/ops/checkpoints/cdc_csv
+    schema_location: /Volumes/main/ops/schemas/cdc_csv
+    available_now: true
+    schema: "submission_date DATE, state STRING, tot_cases BIGINT"
+    cloudFiles.includeExistingFiles: true
+    cloudFiles.schemaHints: "submission_date DATE, state STRING, tot_cases BIGINT"
+  options:
+    header: true
+    delimiter: ","
+
+target:
+  catalog: main
+  schema: bronze_health
+  table: b_cdc_autoloader
+
+layer: bronze
+mode: scd0_append</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Execution lifecycle</h2>
+    <ol class="step-list">
+      <li><strong>Start stream run.</strong> ContractForge writes a parent record in <code>ctrl_ingestion_streams</code>.</li>
+      <li><strong>Open Auto Loader readStream.</strong> The source resolver builds a <code>cloudFiles</code> reader from contract options.</li>
+      <li><strong>Process micro-batches.</strong> Each batch calls <code>ingest_plan</code> internally with <code>source=batch_df</code>.</li>
+      <li><strong>Aggregate metrics.</strong> Batch result metrics are normalized and written to the stream control table.</li>
+      <li><strong>Finish or fail.</strong> Stream status and errors are persisted before the caller receives success or an exception.</li>
+    </ol>
+  </section>
+
+  <section class="section">
+    <h2>Checkpoint and schema locations</h2>
+    <p>Use stable locations that survive job restarts. Avoid ephemeral workspace paths for production checkpoints.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Location</th><th>Purpose</th><th>Recommendation</th></tr>
+        <tr><td><code>checkpoint_location</code></td><td>Tracks processed files and stream state.</td><td>Use a governed Volume or cloud storage path dedicated to the table.</td></tr>
+        <tr><td><code>schema_location</code></td><td>Stores Auto Loader schema tracking information.</td><td>Use a stable path separate from source data and target table.</td></tr>
+        <tr><td>Source path</td><td>Incoming files.</td><td>Use one table-specific landing prefix when possible.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Stream observability</h2>
+    <p>Use stream metrics to verify that available-now ingestion really processed files and wrote rows. This was a real issue found by the harness and fixed by aggregating batch results and child run metrics.</p>
+    <pre><code>SELECT
+  stream_run_id,
+  status,
+  target_table,
+  batches_processed,
+  total_rows_read,
+  total_rows_written,
+  total_rows_quarantined,
+  error_message
 FROM main.ops.ctrl_ingestion_streams
-ORDER BY start_ts_utc DESC;</code></pre><div class="note"><strong>Scope</strong><p>ContractForge targets finite <code>available_now</code> ingestion. Use Databricks streaming jobs directly for long-running continuous stream applications.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+ORDER BY start_ts_utc DESC;</code></pre>
+    <pre><code>SELECT
+  parent_run_id,
+  run_id,
+  status,
+  rows_read,
+  rows_written,
+  rows_quarantined
+FROM main.ops.ctrl_ingestion_runs
+WHERE parent_run_id = '&lt;stream_run_id&gt;'
+ORDER BY start_ts_utc;</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Quality and quarantine in micro-batches</h2>
+    <p>Quality rules apply inside each micro-batch. If rows are quarantined, the child batch result records row-level metrics and the stream aggregate sums them.</p>
+    <pre><code>quality_rules:
+  not_null: [order_id]
+  expressions:
+    - name: positive_amount
+      expression: payload.amount &gt;= 0
+      severity: quarantine
+      message: Amount must be non-negative
+on_quality_fail: quarantine</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Common issues</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
+        <tr><td>Files not picked up</td><td>Checkpoint already marked them processed or includeExistingFiles is false.</td><td>Use a new checkpoint for tests or validate cloudFiles options.</td></tr>
+        <tr><td>Schema errors</td><td>Inferred schema drift or missing schema location.</td><td>Declare schema/schema hints and use stable schema location.</td></tr>
+        <tr><td>Stream says zero rows but target has data</td><td>Metric aggregation bug or child run mismatch.</td><td>Check <code>ctrl_ingestion_runs.parent_run_id</code>; current versions aggregate child metrics.</td></tr>
+        <tr><td>Access denied</td><td>Runtime cannot access source/checkpoint/schema path.</td><td>Fix External Location, Volume grants or cluster storage credentials.</td></tr>
+        <tr><td>Continuous stream expected</td><td>Contract uses available-now semantics.</td><td>Use a dedicated streaming job outside ContractForge for always-on streams.</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+</div>
+</body>
+</html>

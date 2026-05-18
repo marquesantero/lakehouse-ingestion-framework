@@ -1,42 +1,250 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>REST API connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>REST API</h1><p class="lead">Use REST for bounded API extraction, controlled pagination and payload capture. For large recurring loads, land files first and process them with Auto Loader.</p></header><section class="section"><h2>Records mode</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge REST API connector documentation with pagination, raw JSON, record extraction, limits, secrets and transform.shape examples.">
+  <title>REST API connector | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/python.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>REST API</h1>
+    <p class="lead">Use the REST API connector for bounded HTTP API extraction with explicit request configuration, pagination, limits, redacted secrets and either record extraction or raw payload capture.</p>
+  </header>
+
+  <section class="section">
+    <h2>When to use it</h2>
+    <div class="info-grid">
+      <article class="info-card"><span>Good fit</span><h3>Bounded APIs</h3><p>Daily snapshots, reference endpoints, small paginated APIs, public datasets and controlled operational feeds.</p></article>
+      <article class="info-card"><span>Use another path</span><h3>Large extracts</h3><p>If the payload is very large or long-running, land files in object storage first and use file or Auto Loader ingestion.</p></article>
+      <article class="info-card"><span>Connector role</span><h3>Retrieve, do not model</h3><p>The connector should fetch pages and expose metadata. Use <code>transform.shape</code> for nested records, arrays and domain projections.</p></article>
+      <article class="info-card"><span>Runtime</span><h3>Driver-side HTTP</h3><p>Requests are made from the Python driver. Network egress, DNS, proxy and API allowlists must be solved by the platform.</p></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Record extraction mode</h2>
+    <p>Use record extraction when the response contains a clear list of records and the JSON shape is already close to tabular.</p>
+    <pre><code>source:
   type: connector
   connector: rest_api
   request:
-    url: https://api.example.com/orders
+    method: GET
+    url: https://api.example.com/v1/orders
+    headers:
+      Accept: application/json
+      Authorization: "Bearer {{ secret:orders-api/token }}"
+    query:
+      status: closed
   response:
     records_path: $.data
   pagination:
     type: cursor
     cursor_param: cursor
-    next_cursor_path: $.next
+    next_cursor_path: $.next_cursor
   limits:
-    max_pages: 100
-    timeout_seconds: 60</code></pre></section><section class="section"><h2>Raw payload mode</h2><p>Use raw mode when the API response is a document and the structure belongs in <code>transform.shape</code>.</p><pre><code>source:
+    max_pages: 50
+    max_records: 100000
+    max_page_bytes: 10485760
+    timeout_seconds: 60
+    retry_attempts: 3
+    retry_backoff_seconds: 2
+
+target:
+  catalog: main
+  schema: bronze_api
+  table: b_orders_api
+
+layer: bronze
+mode: scd0_append
+schema_policy: additive_only</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Raw payload mode</h2>
+    <p>Use raw mode when the response is a document, when the payload is deeply nested or when the API shape may evolve. This is the preferred pattern for APIs such as NASA EONET where a top-level document contains arrays of domain objects.</p>
+    <pre><code>source:
   type: connector
   connector: rest_api
   request:
+    method: GET
     url: https://eonet.gsfc.nasa.gov/api/v3/events
+    query:
+      status: open
+      days: "30"
   response:
     mode: raw
     raw_column: raw_response
   limits:
+    max_pages: 1
     max_page_bytes: 10485760
+    timeout_seconds: 60
 
-transform:
+target:
+  catalog: main
+  schema: bronze_public
+  table: b_nasa_eonet_raw
+
+layer: bronze
+mode: scd0_overwrite</code></pre>
+    <p>Then use <code>transform.shape</code> in the next contract or the same contract, depending on the layer design.</p>
+    <pre><code>transform:
   shape:
     parse_json:
       - column: raw_response
         alias: payload
-        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Always set page, byte, timeout and retry limits.</li><li>Use secrets for tokens and API keys.</li><li>Use explicit schemas for heterogeneous payloads.</li></ul></section><section class="section"><h2>Raw JSON plus transform.shape</h2><p>Real API examples showed that connectors should not flatten domain payloads. Capture raw JSON when the response is a document, then parse and explode it declaratively.</p><pre><code>response:
-  mode: raw
-  raw_column: raw_response
-transform:
-  shape:
-    parse_json:
-      - column: raw_response
-        alias: payload
-        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"
+        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING,geometry:ARRAY&lt;STRUCT&lt;date:STRING,type:STRING,coordinates:ARRAY&lt;DOUBLE&gt;&gt;&gt;&gt;&gt;"
     arrays:
       - path: payload.events
         mode: explode_outer
-        alias: event</code></pre><p>Use <code>limits.max_pages</code>, <code>limits.max_records</code> and <code>limits.max_page_bytes</code> to keep driver-side API extraction predictable.</p></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+        alias: event
+      - path: event.geometry
+        mode: explode_outer
+        alias: geometry
+    columns:
+      event.id: event_id
+      event.title: title
+      geometry.date:
+        alias: event_ts
+        cast: TIMESTAMP
+      geometry.type: geometry_type
+      geometry.coordinates[0]:
+        alias: longitude
+        cast: DOUBLE
+      geometry.coordinates[1]:
+        alias: latitude
+        cast: DOUBLE</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Pagination strategies</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Strategy</th><th>Use when</th><th>Typical fields</th></tr>
+        <tr><td><code>none</code></td><td>The endpoint returns the complete bounded response in one call.</td><td><code>max_pages: 1</code></td></tr>
+        <tr><td><code>cursor</code></td><td>The response returns a token for the next page.</td><td><code>cursor_param</code>, <code>next_cursor_path</code></td></tr>
+        <tr><td><code>page</code></td><td>The API accepts page numbers.</td><td><code>page_param</code>, <code>start_page</code>, <code>max_pages</code></td></tr>
+        <tr><td><code>offset</code></td><td>The API uses offset/limit semantics.</td><td><code>offset_param</code>, <code>limit_param</code>, <code>page_size</code></td></tr>
+      </table>
+    </div>
+    <pre><code>pagination:
+  type: offset
+  offset_param: offset
+  limit_param: limit
+  page_size: 1000
+  start_offset: 0
+limits:
+  max_pages: 100
+  max_records: 100000</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Authentication and secrets</h2>
+    <p>Keep credentials in Databricks Secrets or another supported secret source. Secret values are redacted from result payloads, source metadata and persisted control tables.</p>
+    <pre><code>request:
+  url: https://api.example.com/v1/customers
+  headers:
+    Authorization: "Bearer {{ secret:crm-api/token }}"
+    x-api-key: "{{ secret:crm-api/key }}"
+  query:
+    tenant: "{{ secret:crm-api/tenant }}"</code></pre>
+    <div class="note warning"><strong>Do not log raw headers</strong><p>Use the source metadata fields in control tables for diagnostics. They are designed to store redacted options and request details.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Limits and failure behavior</h2>
+    <p>REST extraction is intentionally bounded. Do not leave API jobs open-ended.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Limit</th><th>Why it matters</th></tr>
+        <tr><td><code>timeout_seconds</code></td><td>Prevents hung requests from blocking a job indefinitely.</td></tr>
+        <tr><td><code>retry_attempts</code></td><td>Handles transient API failures without hiding persistent errors.</td></tr>
+        <tr><td><code>retry_backoff_seconds</code></td><td>Reduces pressure on rate-limited APIs.</td></tr>
+        <tr><td><code>max_pages</code></td><td>Protects the driver from unbounded pagination loops.</td></tr>
+        <tr><td><code>max_records</code></td><td>Caps the materialized record set.</td></tr>
+        <tr><td><code>max_page_bytes</code></td><td>Prevents unexpectedly large response pages.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Incremental API pattern</h2>
+    <p>If the API supports a time filter, combine ContractForge watermark state with request query parameters. Keep the API's filter semantics explicit and test late-arriving data behavior.</p>
+    <pre><code>source:
+  type: connector
+  connector: rest_api
+  request:
+    url: https://api.example.com/v1/orders
+    query:
+      updated_after: "{{ watermark:updated_at }}"
+  response:
+    records_path: $.orders
+  incremental:
+    watermark_column: updated_at
+
+watermark_columns: [updated_at]
+mode: scd1_upsert
+merge_keys: [order_id]
+transform:
+  deduplicate:
+    keys: [order_id]
+    order_by: updated_at DESC NULLS LAST</code></pre>
+    <div class="note"><strong>Late updates</strong><p>Watermark-based APIs assume that the source update column is suitable for incremental extraction. If the API can mutate old records without updating the watermark column, use periodic reconciliation or snapshot patterns.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Operational metadata</h2>
+    <p>REST runs record connector, URL, redacted request metadata, pagination details and source metrics for troubleshooting.</p>
+    <pre><code>SELECT
+  run_id,
+  source_connector,
+  source_request_redacted_json,
+  source_pagination_redacted_json,
+  source_response_redacted_json,
+  source_limits_redacted_json,
+  source_metrics_json
+FROM main.ops.ctrl_ingestion_runs
+WHERE source_connector = 'rest_api'
+ORDER BY start_ts_utc DESC;</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Common issues</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
+        <tr><td>DNS or connection timeout</td><td>Runtime cannot reach the API endpoint.</td><td>Fix workspace network, egress, allowlist, proxy or private endpoint.</td></tr>
+        <tr><td>401 or 403</td><td>Invalid token, expired secret or missing scope.</td><td>Verify secret value and API permissions.</td></tr>
+        <tr><td>Payload too large</td><td>Endpoint returned more data than expected.</td><td>Use pagination, filters or land files externally.</td></tr>
+        <tr><td>Incorrect rows after parsing</td><td>Payload was nested and flattened in notebook code.</td><td>Move structure handling into <code>transform.shape</code> with explicit schema.</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+</div>
+</body>
+</html>

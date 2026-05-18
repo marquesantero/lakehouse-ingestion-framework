@@ -1,10 +1,79 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S3 connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>S3</h1><p class="lead">Use Unity Catalog External Locations on Databricks serverless. Use direct S3A credentials only on classic/job cluster/local runtimes that allow Hadoop configuration.</p></header><section class="section"><h2>Serverless pattern</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge S3 connector documentation for Databricks serverless External Locations and classic S3A credential access.">
+  <title>S3 connector | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>S3</h1>
+    <p class="lead">Use the S3 connector for files stored in Amazon S3. On Databricks serverless, prefer Unity Catalog External Locations or Volumes. On classic/job clusters or local Spark, direct S3A credentials can be configured when the runtime allows Hadoop filesystem settings.</p>
+  </header>
+
+  <section class="section">
+    <h2>Access patterns</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Runtime</th><th>Recommended access</th><th>Why</th></tr>
+        <tr><td>Databricks serverless on AWS</td><td>Unity Catalog External Location or Volume</td><td>Governed storage access is managed by the platform.</td></tr>
+        <tr><td>Databricks serverless from another cloud</td><td>External Location when available, otherwise network policy/egress setup</td><td>Direct S3A configuration may be blocked by Spark Connect/serverless controls.</td></tr>
+        <tr><td>Classic/job cluster</td><td>S3A credentials, instance profile or cluster IAM role</td><td>Cluster can usually accept Hadoop filesystem configuration.</td></tr>
+        <tr><td>Local Spark</td><td>S3A credentials or default AWS chain</td><td>Useful for development and compatibility testing.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Serverless External Location pattern</h2>
+    <p>When the workspace already exposes S3 through Unity Catalog, the contract should simply reference the governed path.</p>
+    <pre><code>source:
   type: connector
   connector: s3
   path: s3://contractforge-s3/blob_teste/json/
   format: json
   read:
-    schema: "id STRING, event_ts TIMESTAMP, payload STRING"</code></pre><p>In serverless, the path should be backed by an External Location or Volume configured by the platform administrator.</p></section><section class="section"><h2>Classic/local direct credentials</h2><pre><code>source:
+    schema: "id STRING, event_ts TIMESTAMP, payload STRING"
+    recursiveFileLookup: true
+
+target:
+  catalog: contractforge
+  schema: bronze_examples
+  table: b_s3_json
+
+layer: bronze
+mode: scd0_append</code></pre>
+    <div class="note"><strong>Serverless rule</strong><p>If the path is not reachable through workspace governance, fix External Location, network policy or workspace storage access. Do not expect the connector to bypass platform restrictions.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Classic cluster direct credentials</h2>
+    <p>Use direct credentials only on runtimes where setting S3A filesystem configuration is allowed. Store secrets outside the contract.</p>
+    <pre><code>source:
   type: connector
   connector: s3
   path: s3a://contractforge-s3/blob_teste/parquet/
@@ -12,10 +81,118 @@
   auth:
     access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
     secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
-    session_token: "{{ secret:contractforge-aws/aws_session_token }}"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Prefer short-lived credentials or platform-managed access.</li><li>Do not expect direct <code>fs.s3a.*</code> configuration to work on Spark Connect/serverless.</li><li>Use explicit schemas for large folders or many small files.</li></ul></section><section class="section"><h2>Cross-cloud testing pattern</h2><p>When Azure Databricks reads AWS S3 from a classic cluster, configure credentials through the connector and runtime Hadoop settings. On Databricks serverless, use a governed External Location when available.</p><pre><code>auth:
-  access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
-  secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
-  session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+  read:
+    schema: "id STRING, event_ts TIMESTAMP, amount DOUBLE"
+    recursiveFileLookup: true
+
+target:
+  catalog: contractforge
+  schema: bronze_examples
+  table: b_s3_parquet
+
+layer: bronze
+mode: scd0_append</code></pre>
+    <div class="note warning"><strong>Temporary credentials</strong><p>If you use a session token, ensure it is valid for the full job duration. Folder reads and regex filters require list permission.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Minimum IAM permissions</h2>
+    <p>For read-only ingestion, the principal generally needs object read and bucket listing on the relevant prefix.</p>
+    <pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::contractforge-s3",
+      "Condition": {"StringLike": {"s3:prefix": ["blob_teste/*"]}}
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::contractforge-s3/blob_teste/*"
+    }
+  ]
+}</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Multi-format folder examples</h2>
+    <div class="info-grid">
+      <article class="info-card"><span>CSV</span><h3>Delimited files</h3><pre><code>connector: s3
+path: s3://bucket/blob_teste/csv/
+format: csv
+options:
+  header: true
 read:
-  schema: "id STRING, event_ts TIMESTAMP, payload STRING"
-  recursiveFileLookup: true</code></pre><div class="note"><strong>Credential model</strong><p>Use short-lived credentials when possible. Session tokens require <code>s3:ListBucket</code> for folder reads and listing-based features.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+  schema: "id STRING, amount DOUBLE"</code></pre></article>
+      <article class="info-card"><span>JSON</span><h3>Nested records</h3><pre><code>connector: s3
+path: s3://bucket/blob_teste/json/
+format: json
+read:
+  schema: "id STRING, payload STRUCT&lt;a:STRING&gt;"</code></pre></article>
+      <article class="info-card"><span>Parquet</span><h3>Typed columnar</h3><pre><code>connector: s3
+path: s3://bucket/blob_teste/parquet/
+format: parquet
+read:
+  recursiveFileLookup: true</code></pre></article>
+      <article class="info-card"><span>Avro</span><h3>Schema-based files</h3><pre><code>connector: s3
+path: s3://bucket/blob_teste/avro/
+format: avro
+read:
+  recursiveFileLookup: true</code></pre></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Many files and regex selection</h2>
+    <pre><code>source:
+  type: connector
+  connector: s3
+  path: s3a://contractforge-s3/blob_teste/small_files/
+  format: json
+  auth:
+    access_key_id: "{{ secret:contractforge-aws/aws_access_key_id }}"
+    secret_access_key: "{{ secret:contractforge-aws/aws_secret_access_key }}"
+    session_token: "{{ secret:contractforge-aws/aws_session_token }}"
+  read:
+    schema: "id STRING, event_ts TIMESTAMP, amount DOUBLE"
+    recursiveFileLookup: true
+    pathGlobFilter: "*.json"
+    file_regex: "^partition_date=2026-05-[0-9]{2}/part-[0-9]+\\.json$"
+    file_regex_scope: relative_path
+    file_regex_max_listed: 100000</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Operational metadata</h2>
+    <pre><code>SELECT
+  run_id,
+  source_connector,
+  source_path,
+  source_auth_redacted_json,
+  source_read_redacted_json,
+  source_metrics_json
+FROM main.ops.ctrl_ingestion_runs
+WHERE source_connector = 's3'
+ORDER BY start_ts_utc DESC;</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Common issues</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
+        <tr><td>Access denied on folder</td><td>Missing <code>s3:ListBucket</code>.</td><td>Add list permission for the prefix.</td></tr>
+        <tr><td>Access denied on file</td><td>Missing <code>s3:GetObject</code>.</td><td>Add object read permission for the path.</td></tr>
+        <tr><td>Works on classic, fails on serverless</td><td>Direct S3A config blocked.</td><td>Use External Location/Volume or workspace network policy.</td></tr>
+        <tr><td>Temporary token expires</td><td>STS session shorter than job.</td><td>Issue longer token or use platform-managed identity.</td></tr>
+        <tr><td>Slow file discovery</td><td>Large prefix listing.</td><td>Use narrower paths, glob filters or Auto Loader.</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+</div>
+</body>
+</html>

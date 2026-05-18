@@ -1,4 +1,57 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>JDBC connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>JDBC</h1><p class="lead">Use JDBC for relational databases when the runtime has network reachability and the correct driver installed.</p></header><section class="section"><h2>Basic auth</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge JDBC connector documentation with partitioning, pushdown, watermarks, basic auth and Amazon RDS IAM examples.">
+  <title>JDBC connector | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>JDBC</h1>
+    <p class="lead">Use JDBC for relational databases when the Spark runtime has the driver, network route and credentials required to read from the source. ContractForge builds the reader contract, records safe metadata and lets write modes handle target semantics.</p>
+  </header>
+
+  <section class="section">
+    <h2>Supported aliases</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Connector</th><th>Typical driver</th><th>Notes</th></tr>
+        <tr><td><code>jdbc</code></td><td>User-provided</td><td>Generic Spark JDBC reader.</td></tr>
+        <tr><td><code>postgres</code></td><td><code>org.postgresql.Driver</code></td><td>Postgres, Supabase, Aurora PostgreSQL and RDS PostgreSQL.</td></tr>
+        <tr><td><code>mysql</code></td><td>MySQL Connector/J</td><td>Requires matching runtime driver.</td></tr>
+        <tr><td><code>sqlserver</code></td><td>Microsoft JDBC Driver</td><td>Use encrypted connection options as required.</td></tr>
+        <tr><td><code>oracle</code></td><td>Oracle JDBC Driver</td><td>Driver licensing/distribution is usually handled by the platform.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Basic authentication</h2>
+    <pre><code>source:
   type: connector
   connector: postgres
   options:
@@ -7,26 +60,190 @@
     driver: org.postgresql.Driver
   auth:
     type: basic
-    username: "{{ secret:crm/user }}"
-    password: "{{ secret:crm/password }}"
+    username: "{{ secret:crm/postgres_user }}"
+    password: "{{ secret:crm/postgres_password }}"
+  read:
+    fetchsize: 10000
+
+target:
+  catalog: main
+  schema: bronze_crm
+  table: b_orders_jdbc
+
+layer: bronze
+mode: scd0_append
+schema_policy: additive_only</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Incremental SCD1 pattern</h2>
+    <p>For current-state tables, combine source watermarking, deterministic deduplication and key quality gates before MERGE.</p>
+    <pre><code>source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:crm/postgres_url }}"
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: basic
+    username: "{{ secret:crm/postgres_user }}"
+    password: "{{ secret:crm/postgres_password }}"
   incremental:
     watermark_column: updated_at
   read:
     fetchsize: 10000
-    partition_column: order_id
+    predicate: "updated_at &gt;= timestamp '2026-01-01'"
+
+target:
+  catalog: main
+  schema: silver_sales
+  table: s_orders
+
+layer: silver
+mode: scd1_upsert
+merge_keys: [order_id]
+watermark_columns: [updated_at]
+transform:
+  deduplicate:
+    keys: [order_id]
+    order_by: updated_at DESC NULLS LAST
+quality_rules:
+  not_null: [order_id]
+  unique_key: [order_id]</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Partitioned reads</h2>
+    <p>Use JDBC partitioning for large tables. Partitioning only works well when the partition column is numeric/date-like, reasonably distributed and bounded correctly.</p>
+    <pre><code>source:
+  type: connector
+  connector: postgres
+  options:
+    url: "{{ secret:crm/postgres_url }}"
+    dbtable: public.order_items
+    driver: org.postgresql.Driver
+  auth:
+    type: basic
+    username: "{{ secret:crm/postgres_user }}"
+    password: "{{ secret:crm/postgres_password }}"
+  read:
+    partition_column: order_item_id
     lower_bound: 1
-    upper_bound: 1000000
-    num_partitions: 8</code></pre></section><section class="section"><h2>Amazon RDS/Aurora IAM</h2><pre><code>auth:
-  type: rds_iam
-  username: "{{ secret:contractforge-aws/rds_username }}"
-  region: us-east-1
-  credential_provider: default_chain
-  sslmode: require</code></pre><p>RDS IAM token generation requires <code>botocore</code> in the Python driver. Install <code>contractforge[aws]</code> or provide <code>botocore</code> in the runtime.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Install the JDBC driver on the cluster or serverless environment.</li><li>Partition large reads; avoid pulling entire database tables through one connection.</li><li>Network connectivity is outside the library: VPC routing, firewall, PrivateLink and security groups must be solved by the platform.</li></ul></section><section class="section"><h2>Incremental and partitioned reads</h2><p>Use watermarks for incremental extraction and JDBC partitioning for large tables. Pushdown should narrow the source before Spark reads it.</p><pre><code>incremental:
-  watermark_column: updated_at
-read:
-  predicate: "updated_at &gt;= timestamp '2026-01-01'"
-  partition_column: id
-  lower_bound: 1
-  upper_bound: 10000000
-  num_partitions: 16
-  fetchsize: 10000</code></pre><div class="note warning"><strong>Network first</strong><p>The library can build JDBC options and generate RDS IAM tokens, but routing, firewalls, PrivateLink, VPC peering and security groups are platform prerequisites.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+    upper_bound: 50000000
+    num_partitions: 16
+    fetchsize: 20000</code></pre>
+    <div class="note warning"><strong>Bounds are not filters</strong><p>Spark JDBC bounds define partition stride. They do not necessarily restrict the result set by themselves. Use predicates or subqueries when you need source-side filtering.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Query and pushdown pattern</h2>
+    <p>Use <code>query</code> or a subquery-style <code>dbtable</code> when the extraction needs a reviewed predicate or a join that belongs to the source system. Keep heavy business transformation outside the connector.</p>
+    <pre><code>source:
+  type: connector
+  connector: jdbc
+  options:
+    url: "{{ secret:erp/jdbc_url }}"
+    query: |
+      SELECT id, updated_at, status, total_amount
+      FROM sales.orders
+      WHERE updated_at &gt;= TIMESTAMP '2026-01-01'
+        AND status IN ('closed', 'cancelled')
+    driver: org.postgresql.Driver
+  auth:
+    type: basic
+    username: "{{ secret:erp/user }}"
+    password: "{{ secret:erp/password }}"</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>SCD1 hash diff pattern</h2>
+    <p>Use hash diff when the target should append only rows whose business content changed compared with the latest target state.</p>
+    <pre><code>target:
+  catalog: main
+  schema: silver_sales
+  table: s_product_prices
+
+layer: silver
+mode: scd1_hash_diff
+hash_keys: [product_id]
+dedup_order_expr: updated_at DESC NULLS LAST
+quality_rules:
+  not_null: [product_id]
+  unique_key: [product_id]</code></pre>
+    <div class="note"><strong>Deterministic latest state</strong><p>Hash diff depends on a reliable latest-state comparison. Use explicit dedup ordering when the source can contain multiple versions per key.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Amazon RDS/Aurora IAM</h2>
+    <p>For RDS/Aurora PostgreSQL with IAM authentication, ContractForge can generate an auth token in the Python driver. The runtime still needs network reachability and a compatible JDBC driver.</p>
+    <pre><code>source:
+  type: connector
+  connector: postgres
+  options:
+    host: mydb.abc123.us-east-1.rds.amazonaws.com
+    port: 5432
+    database: app
+    dbtable: public.orders
+    driver: org.postgresql.Driver
+  auth:
+    type: rds_iam
+    username: "{{ secret:contractforge-aws/rds_username }}"
+    region: us-east-1
+    credential_provider: default_chain
+    sslmode: require</code></pre>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Credential provider</th><th>Use</th></tr>
+        <tr><td><code>explicit</code></td><td>Use access key, secret key and optional session token from secrets.</td></tr>
+        <tr><td><code>env</code></td><td>Use AWS credentials already available as environment variables.</td></tr>
+        <tr><td><code>default_chain</code></td><td>Use botocore's default credential chain. Requires <code>contractforge[aws]</code> or runtime-provided <code>botocore</code>.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Network prerequisites</h2>
+    <p>JDBC failures are often platform/network issues, not contract issues. Validate the path before tuning the contract.</p>
+    <ul class="check-list">
+      <li>The database hostname must resolve from the Databricks runtime.</li>
+      <li>Security groups, firewalls and database allowlists must permit the runtime source IP or private route.</li>
+      <li>Private databases usually need VPC peering, PrivateLink, VPN or same-cloud networking.</li>
+      <li>The JDBC driver must be installed or available in the runtime classpath.</li>
+      <li>Serverless runtimes may restrict custom drivers or network routes depending on workspace configuration.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2>Operational metadata</h2>
+    <p>JDBC source metadata is redacted before persistence. Use it to verify connector, auth type, partitioning and source options without exposing credentials.</p>
+    <pre><code>SELECT
+  run_id,
+  source_connector,
+  source_provider,
+  source_options_redacted_json,
+  source_auth_redacted_json,
+  source_read_redacted_json,
+  source_metrics_json
+FROM main.ops.ctrl_ingestion_runs
+WHERE source_connector IN ('jdbc', 'postgres', 'mysql', 'sqlserver', 'oracle')
+ORDER BY start_ts_utc DESC;</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Common issues</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
+        <tr><td>No suitable driver</td><td>JDBC jar is not installed.</td><td>Install the matching driver on cluster/serverless environment.</td></tr>
+        <tr><td>Connection timeout</td><td>No network route to database.</td><td>Fix VPC, peering, PrivateLink, firewall or public access rules.</td></tr>
+        <tr><td>Authentication failed</td><td>Wrong secret, expired password/token or IAM policy issue.</td><td>Validate credentials outside ContractForge first.</td></tr>
+        <tr><td>Slow extraction</td><td>Single JDBC partition or no predicate pushdown.</td><td>Add partitioning, fetch size and source predicates.</td></tr>
+        <tr><td>MERGE duplicate key error</td><td>Source has multiple records per key.</td><td>Add <code>transform.deduplicate</code> and quality key rules.</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+</div>
+</body>
+</html>

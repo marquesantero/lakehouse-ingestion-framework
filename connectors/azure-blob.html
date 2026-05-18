@@ -1,10 +1,80 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Azure Blob connector | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>Azure Blob and ADLS</h1><p class="lead">On Databricks serverless, use Unity Catalog External Location or Volumes. SAS-token configuration is for runtimes that allow Spark/Hadoop filesystem settings.</p></header><section class="section"><h2>External Location / Volume</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge Azure Blob and ADLS connector documentation for External Locations, Volumes and SAS-token classic cluster access.">
+  <title>Azure Blob and ADLS connector | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>Azure Blob and ADLS</h1>
+    <p class="lead">Use the Azure Blob/ADLS connector for files in Azure Storage. On Databricks serverless, prefer Unity Catalog External Locations or Volumes. Use SAS-token configuration on classic/job clusters when runtime filesystem settings are allowed.</p>
+  </header>
+
+  <section class="section">
+    <h2>Access patterns</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Runtime</th><th>Recommended access</th><th>Notes</th></tr>
+        <tr><td>Databricks serverless</td><td>External Location or Volume</td><td>Direct SAS/Hadoop config can be blocked by Spark Connect/serverless.</td></tr>
+        <tr><td>Classic/job cluster</td><td>SAS token or platform identity</td><td>Cluster can usually receive storage account filesystem configuration.</td></tr>
+        <tr><td>Azure Databricks with Unity Catalog</td><td>Storage Credential + External Location</td><td>Best governance model for shared teams.</td></tr>
+        <tr><td>Local Spark</td><td>ABFS/SAS configuration</td><td>Useful for development when Hadoop Azure libraries exist.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>External Location / Volume pattern</h2>
+    <p>When the path is already governed by Unity Catalog, the contract should reference the readable ABFS path or Volume path. Credential setup belongs to the platform.</p>
+    <pre><code>source:
   type: connector
   connector: azure_blob
   path: abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste/csv/
   format: csv
   options:
-    header: true</code></pre></section><section class="section"><h2>SAS on classic/job cluster</h2><pre><code>source:
+    header: true
+  read:
+    schema: "id STRING, event_ts TIMESTAMP, amount DOUBLE"
+    source_complete: true
+
+target:
+  catalog: contractforge
+  schema: bronze_examples
+  table: b_blob_csv
+
+layer: bronze
+mode: scd0_overwrite</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>SAS-token classic cluster pattern</h2>
+    <p>Use this pattern when a classic/job cluster can configure Azure filesystem access and a SAS token is stored in a secret scope.</p>
+    <pre><code>source:
   type: connector
   connector: azure_blob
   account_url: https://generalcafe.blob.core.windows.net/
@@ -12,11 +82,88 @@
   path: blob_teste/json/
   format: json
   auth:
-    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Serverless can block runtime filesystem credential configuration; ContractForge fails early with guidance.</li><li>Store only the SAS token in secrets; keep account/container/path in the contract.</li><li>For recurring landing folders, consider Auto Loader with checkpoint and schema location.</li></ul></section><section class="section"><h2>Serverless versus classic behavior</h2><p>Real Azure Blob tests showed a useful split: serverless should use External Location or network policy; classic/job clusters can use SAS tokens when filesystem configuration is permitted.</p><pre><code>source:
-  connector: azure_blob
-  account_url: https://generalcafe.blob.core.windows.net/
-  container: databricksdata
-  path: blob_teste/json/
-  format: json
-  auth:
-    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"</code></pre><div class="note warning"><strong>No silent fallback</strong><p>If the runtime blocks direct credential configuration, the connector should fail clearly instead of trying an unsafe fallback.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"
+  read:
+    schema: "id STRING, event_ts TIMESTAMP, payload STRUCT&lt;kind:STRING,value:DOUBLE&gt;"
+    recursiveFileLookup: true
+
+target:
+  catalog: contractforge
+  schema: bronze_examples
+  table: b_blob_json
+
+layer: bronze
+mode: scd0_append</code></pre>
+    <div class="note warning"><strong>SAS permissions</strong><p>Folder reads require list permission. Reading individual files may work with read-only SAS, but directory discovery, recursive reads and regex selection need list permission.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Creating an External Location</h2>
+    <p>The exact SQL depends on how the storage credential is configured. The storage credential is a Unity Catalog object, not a Databricks secret scope.</p>
+    <pre><code>CREATE EXTERNAL LOCATION IF NOT EXISTS contractforge_blob_teste
+URL 'abfss://databricksdata@generalcafe.dfs.core.windows.net/blob_teste'
+WITH (STORAGE CREDENTIAL my_storage_credential);
+
+GRANT READ FILES ON EXTERNAL LOCATION contractforge_blob_teste TO `data-engineers`;</code></pre>
+    <div class="note"><strong>Credential validation</strong><p>Unity Catalog validates the location by trying to read and often create a validation marker. Read-only credentials can fail location creation even when file reads would work.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Multi-format examples</h2>
+    <div class="info-grid">
+      <article class="info-card"><span>CSV</span><h3>Headered extracts</h3><pre><code>connector: azure_blob
+path: abfss://container@account.dfs.core.windows.net/blob_teste/csv/
+format: csv
+options:
+  header: true
+read:
+  schema: "id STRING, amount DOUBLE"</code></pre></article>
+      <article class="info-card"><span>JSON</span><h3>Nested payloads</h3><pre><code>connector: azure_blob
+path: abfss://container@account.dfs.core.windows.net/blob_teste/json/
+format: json
+read:
+  schema: "id STRING, payload STRUCT&lt;a:STRING&gt;"</code></pre></article>
+      <article class="info-card"><span>Parquet</span><h3>Columnar folders</h3><pre><code>connector: azure_blob
+path: abfss://container@account.dfs.core.windows.net/blob_teste/parquet/
+format: parquet
+read:
+  recursiveFileLookup: true</code></pre></article>
+      <article class="info-card"><span>XML</span><h3>Legacy files</h3><pre><code>connector: azure_blob
+path: abfss://container@account.dfs.core.windows.net/blob_teste/xml/
+format: xml
+options:
+  rowTag: item</code></pre></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Serverless limitation handling</h2>
+    <p>ContractForge should fail clearly when a serverless/Spark Connect runtime blocks direct filesystem credential configuration. Do not depend on a hidden fallback that only works in one workspace.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
+        <tr><td>Cloud storage access failure during External Location creation</td><td>Storage credential cannot validate read/write/list behavior.</td><td>Grant the service principal the required Azure Storage role and verify the URL prefix.</td></tr>
+        <tr><td>SAS works on classic but fails on serverless</td><td>Serverless blocks runtime Hadoop credential configuration.</td><td>Use External Location, Volume or workspace network/storage policy.</td></tr>
+        <tr><td>Directory read fails but single file works</td><td>SAS lacks list permission.</td><td>Regenerate SAS with list permission for folder reads.</td></tr>
+        <tr><td>DNS/egress errors</td><td>Workspace network cannot reach the storage endpoint.</td><td>Fix firewall, public network access, private endpoint or network policy.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Operational metadata</h2>
+    <pre><code>SELECT
+  run_id,
+  source_connector,
+  source_path,
+  source_auth_redacted_json,
+  source_read_redacted_json,
+  source_metrics_json
+FROM main.ops.ctrl_ingestion_runs
+WHERE source_connector = 'azure_blob'
+ORDER BY start_ts_utc DESC;</code></pre>
+  </section>
+</main>
+</div>
+</body>
+</html>
