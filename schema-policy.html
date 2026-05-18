@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Schema policy, type widening and schema change audit in ContractForge.">
+  <title>Schema policy | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+  <link rel="apple-touch-icon" href="assets/logo/contractforge-mark.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script defer src="js/vendor/highlight.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/python.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/bash.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/json.min.js"></script>
+  <script defer src="js/vendor/mermaid.min.js"></script>
+  <script defer src="js/main.js"></script>
+</head>
+<body data-page="schema-policy">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+  <div class="site-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="brand-panel">
+        <a class="brand" href="index.html" aria-label="ContractForge home">
+          <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
+          <span class="brand-text">ContractForge</span>
+        </a>
+        <span class="brand-meta">Contract-first ingestion for Delta Lake</span>
+      </div>
+      <nav class="side-nav" aria-label="Documentation">
+  <span class="nav-label">Start</span>
+  <a href="index.html" data-nav="home">Overview</a>
+  <a href="quickstart.html" data-nav="quickstart">Quick start</a>
+  <a href="concepts.html" data-nav="concepts">Core concepts</a>
+  <span class="nav-label">Contracts</span>
+  <a href="contracts.html" data-nav="contracts">Contract overview</a>
+  <a href="full-contract.html" data-nav="full-contract">Full contract example</a>
+  <a href="contract-ingestion.html">Ingestion</a>
+  <a href="contract-annotations.html">Annotations</a>
+  <a href="contract-operations.html">Operations</a>
+  <a href="contract-access.html">Access</a>
+  <span class="nav-label">Core behavior</span>
+  <a href="write-modes.html" data-nav="write-modes">Write modes</a>
+  <a href="merge-strategies.html" data-nav="merge-strategies">Merge strategies</a>
+  <a href="transformations.html" data-nav="transformations">Transformations</a>
+  <a href="quality.html" data-nav="quality">Quality gates</a>
+  <a href="schema-policy.html" data-nav="schema-policy">Schema policy</a>
+  <a href="watermarks.html" data-nav="watermarks">Watermarks & backfill</a>
+  <a href="idempotency.html" data-nav="idempotency">Idempotency & retry</a>
+  <span class="nav-label">Connectors</span>
+  <a href="connectors/index.html" data-nav="connectors">Connector overview</a>
+  <a href="connectors/table-sql.html">Table and SQL</a>
+  <a href="connectors/files.html">Files</a>
+  <a href="connectors/http-file.html">HTTP file</a>
+  <a href="connectors/object-storage.html">Object storage</a>
+  <a href="connectors/s3.html">S3</a>
+  <a href="connectors/azure-blob.html">Azure Blob</a>
+  <a href="connectors/jdbc.html">JDBC</a>
+  <a href="connectors/rest-api.html">REST API</a>
+  <a href="connectors/autoloader.html">Auto Loader</a>
+  <a href="connectors/external-spark.html">Snowflake and BigQuery</a>
+  <span class="nav-label">Operations</span>
+  <a href="governance.html" data-nav="governance">Governance</a>
+  <a href="operations.html" data-nav="operations">Operations</a>
+  <a href="compatibility.html" data-nav="compatibility">Runtime compatibility</a>
+  <a href="troubleshooting.html" data-nav="troubleshooting">Troubleshooting</a>
+  <a href="examples.html" data-nav="examples">Examples</a>
+  <span class="nav-label">Develop</span>
+  <a href="api-result.html" data-nav="api-result">API & result payload</a>
+  <a href="extending.html" data-nav="extending">Extending</a>
+  <a href="reference.html" data-nav="reference">Reference</a>
+  </nav>
+      <div class="sidebar-footer">
+        <a href="pt/index.html">Português</a>
+        <a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </aside>
+    <main class="content" id="content">
+
+      <header class="page-header"><p class="eyebrow">Core behavior</p><h1>Schema policy.</h1><p class="lead">Schema policy controls how much drift is acceptable before a target write. It should become stricter as data moves from raw capture to curated consumption.</p></header>
+      <section class="section"><h2>Policies</h2><div class="table-wrap"><table><thead><tr><th>Policy</th><th>Behavior</th><th>Typical use</th></tr></thead><tbody><tr><td><code>permissive</code></td><td>Allows broad schema movement.</td><td>Raw landing and early exploration.</td></tr><tr><td><code>additive_only</code></td><td>Allows new columns, blocks removals and unsafe type changes.</td><td>Silver curated tables.</td></tr><tr><td><code>strict</code></td><td>Requires source and target schema alignment.</td><td>Gold consumption models.</td></tr></tbody></table></div></section>
+      <section class="section"><h2>Examples</h2><div class="code-tabs">
+  <div class="code-tab-list" role="tablist">
+    <button class="code-tab active" type="button" data-code-tab="yaml">YAML</button>
+    <button class="code-tab" type="button" data-code-tab="python">Python</button>
+  </div>
+  <div class="code-panel active" data-code-panel="yaml"><pre><code class="language-yaml">schema_policy: additive_only
+allow_type_widening: true
+
+delta_properties:
+  delta.enableChangeDataFeed: &quot;true&quot;
+  delta.autoOptimize.optimizeWrite: &quot;true&quot;</code></pre></div>
+  <div class="code-panel" data-code-panel="python" hidden><pre><code class="language-python">result = ingest(
+    ...,
+    schema_policy=&quot;additive_only&quot;,
+    allow_type_widening=True,
+    delta_properties={
+        &quot;delta.enableChangeDataFeed&quot;: &quot;true&quot;,
+        &quot;delta.autoOptimize.optimizeWrite&quot;: &quot;true&quot;,
+    },
+)</code></pre></div>
+</div></section>
+      <section class="section"><h2>Change handling</h2><div class="page-grid"><article class="page-card"><h3>New columns</h3><p>Allowed by <code>permissive</code> and <code>additive_only</code>; recorded in schema-change evidence.</p></article><article class="page-card"><h3>Removed columns</h3><p>Blocked by curated policies. ContractForge does not automatically drop columns.</p></article><article class="page-card"><h3>Type changes</h3><p>Blocked unless the change is explicitly considered safe widening and <code>allow_type_widening</code> is enabled.</p></article><article class="page-card"><h3>Control columns</h3><p>Framework technical columns are ignored when comparing source business schema.</p></article></div></section>
+      <section class="section"><h2>Audit</h2><pre><code class="language-sql">SELECT target_table, change_type, column_name, previous_type, new_type, changed_at_utc
+FROM ops.ctrl_ingestion_schema_changes
+ORDER BY changed_at_utc DESC;</code></pre></section>
+
+    </main>
+  </div>
+</body>
+</html>

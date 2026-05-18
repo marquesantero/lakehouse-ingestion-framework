@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A complete ContractForge ingestion contract with YAML and Python equivalents.">
+  <title>Full contract example | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+  <link rel="apple-touch-icon" href="assets/logo/contractforge-mark.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script defer src="js/vendor/highlight.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/python.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/bash.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/json.min.js"></script>
+  <script defer src="js/vendor/mermaid.min.js"></script>
+  <script defer src="js/main.js"></script>
+</head>
+<body data-page="full-contract">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+  <div class="site-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="brand-panel">
+        <a class="brand" href="index.html" aria-label="ContractForge home">
+          <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
+          <span class="brand-text">ContractForge</span>
+        </a>
+        <span class="brand-meta">Contract-first ingestion for Delta Lake</span>
+      </div>
+      <nav class="side-nav" aria-label="Documentation">
+  <span class="nav-label">Start</span>
+  <a href="index.html" data-nav="home">Overview</a>
+  <a href="quickstart.html" data-nav="quickstart">Quick start</a>
+  <a href="concepts.html" data-nav="concepts">Core concepts</a>
+  <span class="nav-label">Contracts</span>
+  <a href="contracts.html" data-nav="contracts">Contract overview</a>
+  <a href="full-contract.html" data-nav="full-contract">Full contract example</a>
+  <a href="contract-ingestion.html">Ingestion</a>
+  <a href="contract-annotations.html">Annotations</a>
+  <a href="contract-operations.html">Operations</a>
+  <a href="contract-access.html">Access</a>
+  <span class="nav-label">Core behavior</span>
+  <a href="write-modes.html" data-nav="write-modes">Write modes</a>
+  <a href="merge-strategies.html" data-nav="merge-strategies">Merge strategies</a>
+  <a href="transformations.html" data-nav="transformations">Transformations</a>
+  <a href="quality.html" data-nav="quality">Quality gates</a>
+  <a href="schema-policy.html" data-nav="schema-policy">Schema policy</a>
+  <a href="watermarks.html" data-nav="watermarks">Watermarks & backfill</a>
+  <a href="idempotency.html" data-nav="idempotency">Idempotency & retry</a>
+  <span class="nav-label">Connectors</span>
+  <a href="connectors/index.html" data-nav="connectors">Connector overview</a>
+  <a href="connectors/table-sql.html">Table and SQL</a>
+  <a href="connectors/files.html">Files</a>
+  <a href="connectors/http-file.html">HTTP file</a>
+  <a href="connectors/object-storage.html">Object storage</a>
+  <a href="connectors/s3.html">S3</a>
+  <a href="connectors/azure-blob.html">Azure Blob</a>
+  <a href="connectors/jdbc.html">JDBC</a>
+  <a href="connectors/rest-api.html">REST API</a>
+  <a href="connectors/autoloader.html">Auto Loader</a>
+  <a href="connectors/external-spark.html">Snowflake and BigQuery</a>
+  <span class="nav-label">Operations</span>
+  <a href="governance.html" data-nav="governance">Governance</a>
+  <a href="operations.html" data-nav="operations">Operations</a>
+  <a href="compatibility.html" data-nav="compatibility">Runtime compatibility</a>
+  <a href="troubleshooting.html" data-nav="troubleshooting">Troubleshooting</a>
+  <a href="examples.html" data-nav="examples">Examples</a>
+  <span class="nav-label">Develop</span>
+  <a href="api-result.html" data-nav="api-result">API & result payload</a>
+  <a href="extending.html" data-nav="extending">Extending</a>
+  <a href="reference.html" data-nav="reference">Reference</a>
+  </nav>
+      <div class="sidebar-footer">
+        <a href="pt/index.html">Português</a>
+        <a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </aside>
+    <main class="content" id="content">
+
+      <header class="page-header">
+        <p class="eyebrow">Contracts</p>
+        <h1>Full contract example.</h1>
+        <p class="lead">Use this page as a map for the ingestion contract surface. The example is intentionally broad, but production contracts should only include fields that express a real decision.</p>
+      </header>
+      <section class="section">
+        <div class="section-heading"><h2>Silver SCD1 from JDBC</h2><p>This contract reads a database table, applies deterministic deduplication, validates quality, evolves schema additively, writes current-state rows and records operations metadata.</p></div>
+<div class="code-tabs">
+  <div class="code-tab-list" role="tablist">
+    <button class="code-tab active" type="button" data-code-tab="yaml">YAML</button>
+    <button class="code-tab" type="button" data-code-tab="python">Python</button>
+  </div>
+  <div class="code-panel active" data-code-panel="yaml"><pre><code class="language-yaml">preset: silver_scd1_upsert
+
+source:
+  type: connector
+  connector: postgres
+  options:
+    url: &quot;{{ secret:erp/postgres_url }}&quot;
+    dbtable: public.orders
+  auth:
+    type: basic
+    username: &quot;{{ secret:erp/user }}&quot;
+    password: &quot;{{ secret:erp/password }}&quot;
+  read:
+    partitionColumn: order_id
+    lowerBound: 1
+    upperBound: 5000000
+    numPartitions: 8
+    fetchsize: 10000
+
+target:
+  catalog: main
+  schema: sales_curated
+  table: s_orders
+
+layer: silver
+source_system: erp
+mode: scd1_upsert
+merge_keys: [order_id]
+watermark_columns: [updated_at]
+dedup_order_expr: &quot;updated_at DESC NULLS LAST, order_id DESC NULLS LAST&quot;
+
+column_mapping:
+  id: order_id
+  customer: customer_id
+
+transform:
+  shape:
+    columns:
+      order_id:
+        source: order_id
+        cast: string
+      customer_id:
+        source: customer_id
+        cast: string
+      order_total:
+        source: total_amount
+        cast: decimal(18,2)
+      updated_at:
+        source: updated_at
+        cast: timestamp
+
+schema_policy: additive_only
+allow_type_widening: true
+
+delta_properties:
+  delta.enableChangeDataFeed: &quot;true&quot;
+  delta.autoOptimize.optimizeWrite: &quot;true&quot;
+cluster_columns: [customer_id, updated_at]
+optimize_after_write: true
+
+quality_rules:
+  required_columns: [order_id, customer_id, updated_at]
+  not_null: [order_id, updated_at]
+  unique_key: [order_id]
+  min_rows: 1
+  expressions:
+    - name: non_negative_total
+      expression: &quot;order_total &gt;= 0&quot;
+      severity: quarantine
+      message: &quot;Order total must not be negative.&quot;
+
+on_quality_fail: quarantine
+idempotency_key: &quot;orders:${run_date}&quot;
+idempotency_policy: skip_if_success
+retry_attempts: 5
+retry_backoff_seconds: 10
+lock_enabled: true
+
+operations:
+  business_owner: sales-ops
+  technical_owner: data-platform
+  support_group: data-platform
+  criticality: high
+  expected_frequency: daily
+  freshness_sla_minutes: 180
+  runbook_url: https://wiki.example.com/runbooks/orders
+
+annotations:
+  table:
+    description: Curated current-state orders table.
+    tags:
+      domain: sales
+      layer: silver
+  columns:
+    customer_id:
+      description: Business customer identifier.
+      tags:
+        entity: customer</code></pre></div>
+  <div class="code-panel" data-code-panel="python" hidden><pre><code class="language-python">from contractforge import ingest
+
+result = ingest(
+    preset=&quot;silver_scd1_upsert&quot;,
+    source={
+        &quot;type&quot;: &quot;connector&quot;,
+        &quot;connector&quot;: &quot;postgres&quot;,
+        &quot;options&quot;: {
+            &quot;url&quot;: &quot;{{ secret:erp/postgres_url }}&quot;,
+            &quot;dbtable&quot;: &quot;public.orders&quot;,
+        },
+        &quot;auth&quot;: {
+            &quot;type&quot;: &quot;basic&quot;,
+            &quot;username&quot;: &quot;{{ secret:erp/user }}&quot;,
+            &quot;password&quot;: &quot;{{ secret:erp/password }}&quot;,
+        },
+        &quot;read&quot;: {
+            &quot;partitionColumn&quot;: &quot;order_id&quot;,
+            &quot;lowerBound&quot;: 1,
+            &quot;upperBound&quot;: 5_000_000,
+            &quot;numPartitions&quot;: 8,
+            &quot;fetchsize&quot;: 10_000,
+        },
+    },
+    target={&quot;catalog&quot;: &quot;main&quot;, &quot;schema&quot;: &quot;sales_curated&quot;, &quot;table&quot;: &quot;s_orders&quot;},
+    layer=&quot;silver&quot;,
+    source_system=&quot;erp&quot;,
+    mode=&quot;scd1_upsert&quot;,
+    merge_keys=[&quot;order_id&quot;],
+    watermark_columns=[&quot;updated_at&quot;],
+    dedup_order_expr=&quot;updated_at DESC NULLS LAST, order_id DESC NULLS LAST&quot;,
+    column_mapping={&quot;id&quot;: &quot;order_id&quot;, &quot;customer&quot;: &quot;customer_id&quot;},
+    transform={&quot;shape&quot;: {&quot;columns&quot;: {&quot;order_total&quot;: {&quot;source&quot;: &quot;total_amount&quot;, &quot;cast&quot;: &quot;decimal(18,2)&quot;}}}},
+    schema_policy=&quot;additive_only&quot;,
+    allow_type_widening=True,
+    quality_rules={&quot;not_null&quot;: [&quot;order_id&quot;, &quot;updated_at&quot;], &quot;unique_key&quot;: [&quot;order_id&quot;]},
+    on_quality_fail=&quot;quarantine&quot;,
+    idempotency_key=&quot;orders:${run_date}&quot;,
+    idempotency_policy=&quot;skip_if_success&quot;,
+)</code></pre></div>
+</div>
+      </section>
+      <section class="section"><h2>How to read this example</h2><div class="table-wrap"><table><thead><tr><th>Block</th><th>Purpose</th></tr></thead><tbody><tr><td><code>source</code></td><td>Defines only how data is read. Business shaping happens later.</td></tr><tr><td><code>target</code></td><td>Defines the physical destination. <code>layer</code> remains operational metadata.</td></tr><tr><td><code>transform.shape</code></td><td>Projects and normalizes nested or renamed fields before quality and write.</td></tr><tr><td><code>quality_rules</code></td><td>Defines gates for safe writes and quarantine-capable expressions.</td></tr><tr><td><code>operations</code></td><td>Supplies ownership and SLA metadata for dashboards and alerts.</td></tr><tr><td><code>annotations</code></td><td>Documents the resulting table and fields in the catalog.</td></tr></tbody></table></div></section>
+      <section class="section"><h2>Keep contracts intentional</h2><p>Do not copy every field into every contract. Use presets and templates for defaults, then keep only fields that communicate a decision reviewers should understand.</p></section>
+
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Databricks and connector runtime compatibility for ContractForge.">
+  <title>Runtime compatibility | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="assets/logo/contractforge-mark.png">
+  <link rel="apple-touch-icon" href="assets/logo/contractforge-mark.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script defer src="js/vendor/highlight.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/python.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/bash.min.js"></script>
+  <script defer src="js/vendor/highlight-languages/json.min.js"></script>
+  <script defer src="js/vendor/mermaid.min.js"></script>
+  <script defer src="js/main.js"></script>
+</head>
+<body data-page="compatibility">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+  <div class="site-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="brand-panel">
+        <a class="brand" href="index.html" aria-label="ContractForge home">
+          <img src="assets/logo/contractforge-mark.png" alt="" class="brand-mark">
+          <span class="brand-text">ContractForge</span>
+        </a>
+        <span class="brand-meta">Contract-first ingestion for Delta Lake</span>
+      </div>
+      <nav class="side-nav" aria-label="Documentation">
+  <span class="nav-label">Start</span>
+  <a href="index.html" data-nav="home">Overview</a>
+  <a href="quickstart.html" data-nav="quickstart">Quick start</a>
+  <a href="concepts.html" data-nav="concepts">Core concepts</a>
+  <span class="nav-label">Contracts</span>
+  <a href="contracts.html" data-nav="contracts">Contract overview</a>
+  <a href="full-contract.html" data-nav="full-contract">Full contract example</a>
+  <a href="contract-ingestion.html">Ingestion</a>
+  <a href="contract-annotations.html">Annotations</a>
+  <a href="contract-operations.html">Operations</a>
+  <a href="contract-access.html">Access</a>
+  <span class="nav-label">Core behavior</span>
+  <a href="write-modes.html" data-nav="write-modes">Write modes</a>
+  <a href="merge-strategies.html" data-nav="merge-strategies">Merge strategies</a>
+  <a href="transformations.html" data-nav="transformations">Transformations</a>
+  <a href="quality.html" data-nav="quality">Quality gates</a>
+  <a href="schema-policy.html" data-nav="schema-policy">Schema policy</a>
+  <a href="watermarks.html" data-nav="watermarks">Watermarks & backfill</a>
+  <a href="idempotency.html" data-nav="idempotency">Idempotency & retry</a>
+  <span class="nav-label">Connectors</span>
+  <a href="connectors/index.html" data-nav="connectors">Connector overview</a>
+  <a href="connectors/table-sql.html">Table and SQL</a>
+  <a href="connectors/files.html">Files</a>
+  <a href="connectors/http-file.html">HTTP file</a>
+  <a href="connectors/object-storage.html">Object storage</a>
+  <a href="connectors/s3.html">S3</a>
+  <a href="connectors/azure-blob.html">Azure Blob</a>
+  <a href="connectors/jdbc.html">JDBC</a>
+  <a href="connectors/rest-api.html">REST API</a>
+  <a href="connectors/autoloader.html">Auto Loader</a>
+  <a href="connectors/external-spark.html">Snowflake and BigQuery</a>
+  <span class="nav-label">Operations</span>
+  <a href="governance.html" data-nav="governance">Governance</a>
+  <a href="operations.html" data-nav="operations">Operations</a>
+  <a href="compatibility.html" data-nav="compatibility">Runtime compatibility</a>
+  <a href="troubleshooting.html" data-nav="troubleshooting">Troubleshooting</a>
+  <a href="examples.html" data-nav="examples">Examples</a>
+  <span class="nav-label">Develop</span>
+  <a href="api-result.html" data-nav="api-result">API & result payload</a>
+  <a href="extending.html" data-nav="extending">Extending</a>
+  <a href="reference.html" data-nav="reference">Reference</a>
+  </nav>
+      <div class="sidebar-footer">
+        <a href="pt/index.html">Português</a>
+        <a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </aside>
+    <main class="content" id="content">
+
+      <header class="page-header"><p class="eyebrow">Operations</p><h1>Runtime compatibility.</h1><p class="lead">ContractForge is runtime-aware, but storage access, connector dependencies and Unity Catalog features still depend on where the code runs.</p></header>
+      <section class="section"><h2>Runtime matrix</h2><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Classic cluster</th><th>Serverless / Spark Connect</th><th>Local Spark</th></tr></thead><tbody><tr><td>Delta batch writes</td><td>Supported</td><td>Supported</td><td>Supported with Delta dependencies</td></tr><tr><td>Python DeltaTable APIs</td><td>Usually supported</td><td>Limited</td><td>Depends on dependencies</td></tr><tr><td>SQL MERGE</td><td>Supported</td><td>Supported</td><td>Supported with Delta</td></tr><tr><td>Auto Loader</td><td>Databricks only</td><td>Databricks only</td><td>Not available</td></tr><tr><td>Unity Catalog annotations</td><td>Depends on permissions</td><td>Depends on permissions</td><td>Not available</td></tr><tr><td>Direct object-storage credentials</td><td>Common pattern</td><td>Prefer External Location</td><td>Environment-dependent</td></tr><tr><td>JDBC</td><td>Requires driver/network</td><td>Requires driver/network support</td><td>Requires driver/network</td></tr></tbody></table></div></section>
+      <section class="section"><h2>Connector dependency model</h2><div class="page-grid"><article class="page-card"><h3>Built-in Spark formats</h3><p>CSV, JSON, Parquet, Delta, ORC and text usually work when Spark supports them.</p></article><article class="page-card"><h3>Extra Spark packages</h3><p>XML, Excel and some external systems require libraries installed on the cluster.</p></article><article class="page-card"><h3>Cloud object stores</h3><p>Serverless should use external locations; classic clusters can use Spark/Hadoop credentials when allowed.</p></article><article class="page-card"><h3>Driver-side HTTP</h3><p>REST and HTTP file connectors depend on driver network egress and API limits.</p></article></div></section>
+      <section class="section"><h2>Compatibility rule</h2><p>If a feature depends on a platform capability, document it in the connector page and expose a clear error. Do not silently fall back to a weaker behavior that may hide runtime misconfiguration.</p></section>
+
+    </main>
+  </div>
+</body>
+</html>
