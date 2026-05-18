@@ -1,22 +1,386 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>File connectors | ContractForge</title><link rel="stylesheet" href="../css/style.css"><link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png"><script defer src="../js/vendor/highlight.min.js"></script><script defer src="../js/vendor/highlight-languages/yaml.min.js"></script><script defer src="../js/main.js"></script></head><body data-page="connectors"><button class="nav-toggle" type="button" data-nav-toggle>☰</button><div class="site-shell"><aside class="sidebar" data-sidebar><div class="brand-panel"><a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a><span class="brand-meta">Contract-first ingestion for Delta Lake</span></div><nav class="side-nav"><span class="nav-label">Start</span><a href="../index.html">Overview</a><a href="../quickstart.html">Quick start</a><a href="../concepts.html">Core concepts</a><a href="../contracts.html">Contracts</a><a href="../write-modes.html">Write modes</a><a href="../transformations.html">Transformations</a><span class="nav-label">Connectors</span><a href="index.html" data-nav="connectors">Connector overview</a><a href="table-sql.html">Table and SQL</a><a href="files.html">Files</a><a href="http-file.html">HTTP file</a><a href="object-storage.html">Object storage</a><a href="s3.html">S3</a><a href="azure-blob.html">Azure Blob</a><a href="jdbc.html">JDBC</a><a href="rest-api.html">REST API</a><a href="autoloader.html">Auto Loader</a><a href="external-spark.html">Snowflake and BigQuery</a><span class="nav-label">Operate</span><a href="../governance.html">Governance</a><a href="../operations.html">Operations</a><a href="../examples.html">Examples</a><a href="../reference.html">Reference</a></nav><div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge">GitHub</a></div></aside><main class="content"><header class="page-header"><p class="eyebrow">Connector</p><h1>Files</h1><p class="lead">Use Spark file readers for data already reachable by the runtime filesystem: Parquet, Delta path, JSON, CSV, ORC, text, Avro and XML.</p></header><section class="section"><h2>Example</h2><pre><code>source:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ContractForge file connector documentation with CSV, JSON, Parquet, Delta, ORC, Avro, XML and text examples.">
+  <title>File connectors | ContractForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="icon" type="image/png" href="../assets/logo/contractforge-mark.png">
+  <script defer src="../js/vendor/highlight.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/yaml.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/sql.min.js"></script>
+  <script defer src="../js/vendor/highlight-languages/bash.min.js"></script>
+  <script defer src="../js/main.js"></script>
+</head>
+<body data-page="connectors">
+<button class="nav-toggle" type="button" aria-label="Open navigation" data-nav-toggle>☰</button>
+<div class="site-shell">
+<aside class="sidebar" data-sidebar>
+  <div class="brand-panel">
+    <a class="brand" href="../index.html"><img src="../assets/logo/contractforge-mark.png" alt="" class="brand-mark"><span class="brand-text">ContractForge</span></a>
+    <span class="brand-meta">Contract-first ingestion for Delta Lake</span>
+  </div>
+  <nav class="side-nav" aria-label="Documentation">
+    <span class="nav-label">Start</span>
+    <a href="../index.html">Overview</a>
+    <a href="../quickstart.html">Quick start</a>
+    <a href="../concepts.html">Core concepts</a>
+    <a href="../contracts.html">Contracts</a>
+    <a href="../write-modes.html">Write modes</a>
+    <a href="../transformations.html">Transformations</a>
+    <span class="nav-label">Connectors</span>
+    <a href="index.html" data-nav="connectors">Connector overview</a>
+    <a href="table-sql.html">Table and SQL</a>
+    <a href="files.html">Files</a>
+    <a href="http-file.html">HTTP file</a>
+    <a href="object-storage.html">Object storage</a>
+    <a href="s3.html">S3</a>
+    <a href="azure-blob.html">Azure Blob</a>
+    <a href="jdbc.html">JDBC</a>
+    <a href="rest-api.html">REST API</a>
+    <a href="autoloader.html">Auto Loader</a>
+    <a href="external-spark.html">Snowflake and BigQuery</a>
+    <span class="nav-label">Operate</span>
+    <a href="../governance.html">Governance</a>
+    <a href="../operations.html">Operations</a>
+    <a href="../examples.html">Examples</a>
+    <a href="../reference.html">Reference</a>
+  </nav>
+  <div class="sidebar-footer"><a href="../pt/index.html">Português</a><a href="https://github.com/marquesantero/contractforge" target="_blank" rel="noopener">GitHub</a></div>
+</aside>
+
+<main class="content">
+  <header class="page-header">
+    <p class="eyebrow">Connector</p>
+    <h1>Files</h1>
+    <p class="lead">Use file connectors when the runtime can already read the path through Spark: Workspace files, Volumes, DBFS, mounted storage, local paths, External Locations or cloud storage paths configured by the platform.</p>
+  </header>
+
+  <section class="section">
+    <h2>Supported formats</h2>
+    <p>ContractForge delegates file parsing to Spark readers and adds contract validation, source metadata, regex file selection and consistent operational logging.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Format</th><th>Connector value</th><th>Typical use</th><th>Notes</th></tr>
+        <tr><td>CSV</td><td><code>csv</code></td><td>Delimited extracts, public datasets, SaaS exports.</td><td>Always declare delimiter/header/schema for repeatability.</td></tr>
+        <tr><td>JSON</td><td><code>json</code></td><td>One JSON object per line or Spark-readable JSON files.</td><td>For nested documents, combine with <code>transform.shape</code>.</td></tr>
+        <tr><td>JSONL / NDJSON</td><td><code>jsonl</code>, <code>ndjson</code></td><td>Line-delimited API dumps and event logs.</td><td>Aliases normalize to Spark JSON reading behavior.</td></tr>
+        <tr><td>Parquet</td><td><code>parquet</code></td><td>Columnar landing data and internal lakehouse exchange.</td><td>Preferred for typed high-volume file ingestion.</td></tr>
+        <tr><td>Delta path</td><td><code>delta</code></td><td>Path-based Delta tables outside catalog registration.</td><td>Use catalog table connector when the table is registered.</td></tr>
+        <tr><td>ORC</td><td><code>orc</code></td><td>Hive-compatible columnar datasets.</td><td>Runtime must support ORC.</td></tr>
+        <tr><td>Avro</td><td><code>avro</code></td><td>Schema-driven event or messaging extracts.</td><td>Requires Spark Avro support in the runtime.</td></tr>
+        <tr><td>XML</td><td><code>xml</code></td><td>Legacy systems and regulatory files.</td><td>Requires a Spark XML reader package in many runtimes.</td></tr>
+        <tr><td>Text</td><td><code>text</code></td><td>Logs, fixed-width staging or raw capture.</td><td>Often followed by explicit parsing in a downstream step.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Common file options</h2>
+    <p>Options under <code>source.read</code> are validated by ContractForge when they affect framework behavior. Other reader options under <code>source.options</code> are passed to Spark.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Option</th><th>Use</th></tr>
+        <tr><td><code>schema</code></td><td>Explicit Spark DDL schema. Recommended for most production contracts.</td></tr>
+        <tr><td><code>recursiveFileLookup</code></td><td>Read files recursively from nested folders.</td></tr>
+        <tr><td><code>pathGlobFilter</code></td><td>Spark-native glob filtering, for example <code>*.json</code>.</td></tr>
+        <tr><td><code>file_regex</code></td><td>ContractForge regex filtering over filename or relative path after listing.</td></tr>
+        <tr><td><code>file_regex_scope</code></td><td><code>filename</code> or <code>relative_path</code>.</td></tr>
+        <tr><td><code>file_regex_max_listed</code></td><td>Safety limit for listing-based regex selection.</td></tr>
+        <tr><td><code>source_complete</code></td><td>Evidence that a read represents the full expected source slice, required by some modes.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>CSV</h2>
+    <p>CSV is common but ambiguous. Declare header, delimiter, quote/escape behavior and schema instead of relying on inference.</p>
+    <pre><code>source:
   type: connector
-  connector: parquet
-  path: /Volumes/main/landing/orders/
+  connector: csv
+  path: /Volumes/main/landing/cdc/covid/*.csv
+  options:
+    header: true
+    delimiter: ","
+    quote: "\""
+    escape: "\""
+    mode: PERMISSIVE
+    dateFormat: yyyy-MM-dd
+    timestampFormat: yyyy-MM-dd'T'HH:mm:ssX
   read:
-    schema: "order_id STRING, updated_at TIMESTAMP, amount DOUBLE"
-    recursiveFileLookup: true
-    pathGlobFilter: "*.parquet"
+    schema: "submission_date DATE, state STRING, tot_cases BIGINT, new_case BIGINT"
+    source_complete: true
 
 target:
   catalog: main
-  schema: bronze
-  table: b_orders</code></pre></section><section class="section"><h2>File selection</h2><p>Prefer Spark-native options such as <code>pathGlobFilter</code>. Use <code>source.read.file_regex</code> when real regex over file name or relative path is required.</p><pre><code>read:
-  file_regex: "^orders_2026_[0-9]{2}\\.json$"
-  file_regex_scope: filename
-  file_regex_max_listed: 50000</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Declare schemas for many small files to avoid repeated inference cost.</li><li>XML and Avro support depends on runtime libraries.</li><li>For continuously arriving files on Databricks, prefer Auto Loader.</li></ul></section><section class="section"><h2>Many-file ingestion</h2><p>Validated file examples use explicit schemas, folder reads, recursive lookup and both Spark glob filters and ContractForge regex filters.</p><pre><code>read:
-  schema: "id STRING, event_ts TIMESTAMP, amount DOUBLE"
-  recursiveFileLookup: true
-  pathGlobFilter: "*.json"
-  file_regex: "^orders_[0-9]{8}.*\\.json$"
-  file_regex_scope: filename
-  file_regex_max_listed: 50000</code></pre><p>Use regex filters for advanced selection, not as a replacement for Spark-native <code>pathGlobFilter</code>.</p></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
+  schema: bronze_health
+  table: b_cdc_covid
+
+layer: bronze
+mode: scd0_overwrite
+schema_policy: additive_only</code></pre>
+    <div class="note"><strong>Validated pattern</strong><p>The public COVID example uses HTTP/file CSV ingestion with explicit schema and full overwrite semantics for a complete public dataset slice.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>JSON</h2>
+    <p>Use Spark JSON for files that are already line-oriented or Spark-readable. If the file contains a raw document that needs domain modeling, read it as text or REST raw payload and parse with <code>transform.shape.parse_json</code>.</p>
+    <pre><code>source:
+  type: connector
+  connector: json
+  path: /Volumes/main/landing/events/date=2026-05-17/
+  read:
+    schema: "event_id STRING, event_ts TIMESTAMP, properties STRUCT&lt;country:STRING,amount:DOUBLE&gt;"
+    recursiveFileLookup: true
+    pathGlobFilter: "*.json"
+
+target:
+  catalog: main
+  schema: bronze_events
+  table: b_events
+
+layer: bronze
+mode: scd0_append
+quality_rules:
+  not_null: [event_id]</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>JSONL and NDJSON</h2>
+    <p>Use <code>jsonl</code> or <code>ndjson</code> aliases when the naming helps reviewers understand that each line is an independent record.</p>
+    <pre><code>source:
+  type: connector
+  connector: ndjson
+  path: /Volumes/main/landing/api/orders/orders_20260517.ndjson
+  read:
+    schema: "order_id STRING, updated_at TIMESTAMP, customer_id STRING, amount DOUBLE"
+
+target:
+  catalog: main
+  schema: bronze_sales
+  table: b_orders_api
+
+layer: bronze
+mode: scd0_append
+watermark_columns: [updated_at]</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Parquet</h2>
+    <p>Parquet is the safest default for large typed file ingestion. It preserves schema and is efficient for column pruning and partitioned folders.</p>
+    <pre><code>source:
+  type: connector
+  connector: parquet
+  path: s3://company-landing/orders/year=2026/month=05/
+  read:
+    recursiveFileLookup: true
+    schema: "order_id STRING, updated_at TIMESTAMP, amount DOUBLE, status STRING"
+
+target:
+  catalog: main
+  schema: silver_sales
+  table: s_orders
+
+layer: silver
+mode: scd1_upsert
+merge_keys: [order_id]
+transform:
+  deduplicate:
+    keys: [order_id]
+    order_by: updated_at DESC NULLS LAST
+quality_rules:
+  not_null: [order_id]
+  unique_key: [order_id]</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Delta path</h2>
+    <p>Use the Delta path connector when data is stored as Delta but not registered as a table in the catalog. If it is registered, prefer <a href="table-sql.html">Table and SQL</a>.</p>
+    <pre><code>source:
+  type: connector
+  connector: delta
+  path: /mnt/legacy/delta/customers
+  read:
+    source_complete: true
+
+target:
+  catalog: main
+  schema: silver_crm
+  table: s_customers
+
+layer: silver
+mode: snapshot_soft_delete
+merge_keys: [customer_id]</code></pre>
+    <div class="note warning"><strong>Snapshot requirement</strong><p><code>snapshot_soft_delete</code> requires a complete source. Do not combine this pattern with watermark filters or partial folder slices.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>ORC</h2>
+    <p>ORC is useful for Hive-compatible systems and historical Hadoop datasets. ContractForge passes the read to Spark, so runtime ORC support is required.</p>
+    <pre><code>source:
+  type: connector
+  connector: orc
+  path: /Volumes/main/landing/hive/orders_orc/
+  read:
+    schema: "order_id STRING, updated_at TIMESTAMP, amount DECIMAL(18,2)"
+    recursiveFileLookup: true
+
+target:
+  catalog: main
+  schema: bronze_legacy
+  table: b_orders_orc
+
+layer: bronze
+mode: scd0_append</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Avro</h2>
+    <p>Avro support depends on the runtime. Databricks runtimes commonly include Avro support; local Spark may need the Spark Avro package.</p>
+    <pre><code>source:
+  type: connector
+  connector: avro
+  path: /Volumes/main/landing/kafka/orders_avro/
+  read:
+    recursiveFileLookup: true
+
+target:
+  catalog: main
+  schema: bronze_streams
+  table: b_orders_avro
+
+layer: bronze
+mode: scd0_append
+quality_rules:
+  expressions:
+    - name: has_event_id
+      expression: event_id IS NOT NULL
+      severity: abort</code></pre>
+    <div class="note"><strong>Testing note</strong><p>Avro was included in the Azure Blob multi-format validation set. If your runtime lacks Spark Avro, install the matching Spark package before using the connector.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>XML</h2>
+    <p>XML is usually not built into Apache Spark by default. Use it when the runtime has a compatible Spark XML reader installed, and always declare row tag and schema.</p>
+    <pre><code>source:
+  type: connector
+  connector: xml
+  path: /Volumes/main/landing/regulatory/invoices/*.xml
+  options:
+    rowTag: invoice
+    attributePrefix: "_"
+    valueTag: "_value"
+  read:
+    schema: "invoice_id STRING, issued_at TIMESTAMP, total DOUBLE, customer STRUCT&lt;id:STRING,name:STRING&gt;"
+
+target:
+  catalog: main
+  schema: bronze_regulatory
+  table: b_invoices_xml
+
+layer: bronze
+mode: scd0_append</code></pre>
+    <div class="note warning"><strong>Dependency requirement</strong><p>Install the XML Spark datasource on classic clusters, or use a runtime where the XML reader is already available. If the library is missing, the connector should fail with the underlying Spark reader error.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Text</h2>
+    <p>Use text for raw line capture, logs, fixed-width staging or files that will be parsed later. The output contains Spark's standard <code>value</code> column unless a downstream transformation changes it.</p>
+    <pre><code>source:
+  type: connector
+  connector: text
+  path: /Volumes/main/landing/logs/app/*.log
+  read:
+    recursiveFileLookup: true
+    file_regex: "^app-[0-9]{8}.*\\.log$"
+    file_regex_scope: filename
+
+target:
+  catalog: main
+  schema: bronze_logs
+  table: b_app_logs
+
+layer: bronze
+mode: scd0_append
+column_mapping:
+  value: raw_line</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Partitioned folders and many small files</h2>
+    <p>Folder reads should be explicit about recursion, schema and filtering. Spark glob filters are cheap and should be preferred for simple suffix/prefix matching. ContractForge regex filtering is useful when the selection logic cannot be represented as a glob.</p>
+    <pre><code>source:
+  type: connector
+  connector: json
+  path: abfss://landing@account.dfs.core.windows.net/orders/
+  read:
+    schema: "order_id STRING, event_date DATE, updated_at TIMESTAMP, amount DOUBLE"
+    recursiveFileLookup: true
+    pathGlobFilter: "*.json"
+    file_regex: "^year=2026/month=05/day=[0-9]{2}/orders_.*\\.json$"
+    file_regex_scope: relative_path
+    file_regex_max_listed: 100000
+
+target:
+  catalog: main
+  schema: bronze_sales
+  table: b_orders_files
+
+layer: bronze
+mode: scd0_append</code></pre>
+    <div class="note"><strong>Operational metric</strong><p>Regex selection records listing and match metrics in <code>source_metrics_json</code>, including <code>files_listed</code>, <code>files_matched</code> and whether regex filtering was applied.</p></div>
+  </section>
+
+  <section class="section">
+    <h2>Compression and reader options</h2>
+    <p>Compression is usually inferred by Spark from file extension. When a format requires additional reader behavior, keep those values in <code>source.options</code>.</p>
+    <pre><code>source:
+  type: connector
+  connector: csv
+  path: /Volumes/main/landing/orders/orders_20260517.csv.gz
+  options:
+    header: true
+    compression: gzip
+    multiLine: false
+  read:
+    schema: "order_id STRING, updated_at TIMESTAMP, amount DOUBLE"</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>File connector versus Auto Loader</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Use file connector when...</th><th>Use Auto Loader when...</th></tr>
+        <tr><td>The file set is finite and known for the run.</td><td>Files arrive continuously or in repeated drops.</td></tr>
+        <tr><td>You want one batch read with deterministic folder filters.</td><td>You need checkpointed discovery and schema tracking.</td></tr>
+        <tr><td>The source is small enough that file listing is not a bottleneck.</td><td>The source has many arriving files and needs cloudFiles semantics.</td></tr>
+        <tr><td>You are backfilling fixed folders or validating static datasets.</td><td>You need <code>available_now</code> micro-batches and stream metrics.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Operational guidance</h2>
+    <ul class="check-list">
+      <li>Declare schemas for CSV, JSON, XML and large folder reads to avoid repeated inference cost and schema drift.</li>
+      <li>Use <code>source_complete: true</code> only when the loaded folder really represents the complete source slice required by the mode.</li>
+      <li>Use <code>transform.shape</code> for nested JSON, structs and arrays; do not embed business flattening in connector behavior.</li>
+      <li>Use <code>transform.deduplicate</code> before merge modes when the source can contain multiple records per key.</li>
+      <li>Prefer governed paths such as Volumes or External Locations on Databricks serverless.</li>
+      <li>Keep direct cloud credentials for classic/job clusters or local Spark runtimes that allow Hadoop filesystem configuration.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2>How this connector fits the contract</h2>
+    <p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p>
+    <div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div>
+  </section>
+</main>
+</div>
+</body>
+</html>

@@ -36,6 +36,23 @@ contractforge connectors doctor rest_api jdbc s3 azure_blob</code></pre>
     <p><code>connectors doctor</code> does not open network connections. It documents expected runtime capabilities so reviewers can catch missing drivers, cloud access or platform constraints early.</p>
   </section>
   <section class="section">
+    <h2>Connector matrix</h2>
+    <p>Use this matrix to choose the first connector to test. The detailed page for each connector contains contract examples, runtime constraints and operational notes.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Source type</th><th>Connectors</th><th>Best fit</th><th>Common follow-up</th></tr>
+        <tr><td>Catalog data</td><td><code>table</code>, <code>delta_table</code>, <code>view</code>, <code>sql</code></td><td>Data already registered in Spark or Unity Catalog.</td><td>Use write modes and quality gates directly.</td></tr>
+        <tr><td>Files</td><td><code>csv</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code>, <code>parquet</code>, <code>delta</code>, <code>orc</code>, <code>avro</code>, <code>xml</code>, <code>text</code></td><td>Static folders, backfills and finite file sets reachable by Spark.</td><td>Declare schema, use folder filters and apply <code>transform.shape</code> when nested.</td></tr>
+        <tr><td>HTTP files</td><td><code>http_file</code>, <code>http_csv</code>, <code>http_json</code>, <code>http_text</code></td><td>Bounded public/authenticated files when Spark cannot read HTTPS directly.</td><td>Protect with byte/time limits; move high-volume feeds to storage.</td></tr>
+        <tr><td>Object storage</td><td><code>object_storage</code>, <code>blob</code>, <code>s3</code>, <code>azure_blob</code></td><td>S3, ADLS, Blob or governed storage paths.</td><td>Choose External Location/Volume for serverless or direct credentials on classic clusters.</td></tr>
+        <tr><td>Relational databases</td><td><code>jdbc</code>, <code>postgres</code>, <code>mysql</code>, <code>sqlserver</code>, <code>oracle</code></td><td>Database extraction with partitioning, predicates and watermarks.</td><td>Install drivers, validate network, deduplicate before MERGE.</td></tr>
+        <tr><td>APIs</td><td><code>rest_api</code></td><td>Bounded API extraction, pagination and raw payload capture.</td><td>Use <code>transform.shape.parse_json</code> for nested documents.</td></tr>
+        <tr><td>File streams</td><td><code>autoloader</code></td><td>Databricks cloudFiles <code>available_now</code> with checkpoints.</td><td>Inspect <code>ctrl_ingestion_streams</code> and child run metrics.</td></tr>
+        <tr><td>External systems</td><td><code>snowflake</code>, <code>bigquery</code></td><td>Sources supported by installed Spark connector packages.</td><td>Keep provider credentials outside contracts and validate installed libraries.</td></tr>
+      </table>
+    </div>
+  </section>
+  <section class="section">
     <h2>Connector responsibility boundary</h2>
     <p>A connector is responsible for retrieving bytes or records and exposing safe source metadata. It should not contain business transformations. Use <code>transform.shape</code>, <code>column_mapping</code>, quality rules and write modes for the contract-specific behavior.</p>
     <div class="info-grid">
