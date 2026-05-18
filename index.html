@@ -194,6 +194,19 @@ flowchart TB
         </div>
         <a class="button primary" href="quickstart.html">Open quick start</a>
       </section>
+      <section class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Validated patterns</p>
+          <h2>Documentation is grounded in real ingestion tests.</h2>
+          <p>The examples behind the framework cover public HTTP CSV, raw REST JSON, Azure Blob/ADLS, S3, JDBC/Postgres, RDS IAM, Auto Loader and many-file folders. Those runs shaped connector behavior, transform patterns, stream metrics and failure handling.</p>
+        </div>
+        <div class="info-grid">
+          <article class="info-card"><span>APIs</span><h3>Raw payloads stay raw</h3><p>REST connectors retrieve payloads; <code>transform.shape</code> parses and explodes documents declaratively.</p></article>
+          <article class="info-card"><span>Storage</span><h3>Runtime-aware access</h3><p>Serverless favors External Locations and Volumes; classic clusters can use direct credentials when allowed.</p></article>
+          <article class="info-card"><span>Operations</span><h3>Failed runs raise by default</h3><p>Control tables are written first, then <code>ContractForgeExecutionError</code> fails the caller naturally.</p></article>
+          <article class="info-card"><span>Templates</span><h3>Known-good starts</h3><p>Validated examples were promoted into templates for common connector, transform and write-mode combinations.</p></article>
+        </div>
+      </section>
     </main>
   </div>
 </body>

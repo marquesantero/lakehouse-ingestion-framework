@@ -27,4 +27,16 @@ transform:
     parse_json:
       - column: raw_response
         alias: payload
-        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Always set page, byte, timeout and retry limits.</li><li>Use secrets for tokens and API keys.</li><li>Use explicit schemas for heterogeneous payloads.</li></ul></section></main></div></body></html>
+        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Always set page, byte, timeout and retry limits.</li><li>Use secrets for tokens and API keys.</li><li>Use explicit schemas for heterogeneous payloads.</li></ul></section><section class="section"><h2>Raw JSON plus transform.shape</h2><p>Real API examples showed that connectors should not flatten domain payloads. Capture raw JSON when the response is a document, then parse and explode it declaratively.</p><pre><code>response:
+  mode: raw
+  raw_column: raw_response
+transform:
+  shape:
+    parse_json:
+      - column: raw_response
+        alias: payload
+        schema: "STRUCT&lt;events:ARRAY&lt;STRUCT&lt;id:STRING,title:STRING&gt;&gt;&gt;"
+    arrays:
+      - path: payload.events
+        mode: explode_outer
+        alias: event</code></pre><p>Use <code>limits.max_pages</code>, <code>limits.max_records</code> and <code>limits.max_page_bytes</code> to keep driver-side API extraction predictable.</p></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

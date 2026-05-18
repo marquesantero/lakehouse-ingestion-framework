@@ -10,4 +10,17 @@
   limits:
     timeout_seconds: 60
     retry_attempts: 3
-    retry_backoff_seconds: 2</code></pre></section><section class="section"><h2>Formats</h2><p>Supported formats are <code>csv</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code> and <code>text</code>. Aliases <code>http_csv</code>, <code>http_json</code> and <code>http_text</code> are available.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Use for small and medium files, not bulk API extraction.</li><li>The driver downloads the file before Spark materialization; protect it with byte/time limits.</li><li>For recurring high-volume files, land them in storage and use Auto Loader.</li></ul></section></main></div></body></html>
+    retry_backoff_seconds: 2</code></pre></section><section class="section"><h2>Formats</h2><p>Supported formats are <code>csv</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code> and <code>text</code>. Aliases <code>http_csv</code>, <code>http_json</code> and <code>http_text</code> are available.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Use for small and medium files, not bulk API extraction.</li><li>The driver downloads the file before Spark materialization; protect it with byte/time limits.</li><li>For recurring high-volume files, land them in storage and use Auto Loader.</li></ul></section><section class="section"><h2>Validated use case</h2><p>The CDC public CSV example uses <code>http_file</code> because some Spark/serverless runtimes cannot read arbitrary HTTPS CSV paths directly. The connector handles bounded download and Spark materialization while preserving source metadata.</p><pre><code>source:
+  type: connector
+  connector: http_file
+  path: https://example.org/public/covid.csv
+  format: csv
+  options:
+    header: true
+    inferSchema: false
+  read:
+    schema: "submission_date DATE, state STRING, tot_cases BIGINT"
+    source_complete: true
+limits:
+  timeout_seconds: 60
+  max_bytes: 104857600</code></pre><div class="note warning"><strong>Use bounded files only</strong><p>For high-volume recurring feeds, land files in object storage and use Auto Loader or a file connector.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

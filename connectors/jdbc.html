@@ -21,4 +21,12 @@
   username: "{{ secret:contractforge-aws/rds_username }}"
   region: us-east-1
   credential_provider: default_chain
-  sslmode: require</code></pre><p>RDS IAM token generation requires <code>botocore</code> in the Python driver. Install <code>contractforge[aws]</code> or provide <code>botocore</code> in the runtime.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Install the JDBC driver on the cluster or serverless environment.</li><li>Partition large reads; avoid pulling entire database tables through one connection.</li><li>Network connectivity is outside the library: VPC routing, firewall, PrivateLink and security groups must be solved by the platform.</li></ul></section></main></div></body></html>
+  sslmode: require</code></pre><p>RDS IAM token generation requires <code>botocore</code> in the Python driver. Install <code>contractforge[aws]</code> or provide <code>botocore</code> in the runtime.</p></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Install the JDBC driver on the cluster or serverless environment.</li><li>Partition large reads; avoid pulling entire database tables through one connection.</li><li>Network connectivity is outside the library: VPC routing, firewall, PrivateLink and security groups must be solved by the platform.</li></ul></section><section class="section"><h2>Incremental and partitioned reads</h2><p>Use watermarks for incremental extraction and JDBC partitioning for large tables. Pushdown should narrow the source before Spark reads it.</p><pre><code>incremental:
+  watermark_column: updated_at
+read:
+  predicate: "updated_at &gt;= timestamp '2026-01-01'"
+  partition_column: id
+  lower_bound: 1
+  upper_bound: 10000000
+  num_partitions: 16
+  fetchsize: 10000</code></pre><div class="note warning"><strong>Network first</strong><p>The library can build JDBC options and generate RDS IAM tokens, but routing, firewalls, PrivateLink, VPC peering and security groups are platform prerequisites.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

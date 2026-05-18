@@ -6,4 +6,11 @@
   format: json
   read:
     schema: "order_id STRING, updated_at TIMESTAMP, amount DOUBLE"
-    recursiveFileLookup: true</code></pre></section><section class="section"><h2>Provider-specific pages</h2><div class="connector-tiles"><a href="s3.html"><strong>S3</strong><span>AWS S3 with External Location or S3A credentials.</span></a><a href="azure-blob.html"><strong>Azure Blob</strong><span>Azure Blob/ADLS with UC External Location, Volume or SAS on allowed runtimes.</span></a></div></section></main></div></body></html>
+    recursiveFileLookup: true</code></pre></section><section class="section"><h2>Provider-specific pages</h2><div class="connector-tiles"><a href="s3.html"><strong>S3</strong><span>AWS S3 with External Location or S3A credentials.</span></a><a href="azure-blob.html"><strong>Azure Blob</strong><span>Azure Blob/ADLS with UC External Location, Volume or SAS on allowed runtimes.</span></a></div></section><section class="section"><h2>Provider-neutral pattern</h2><p>Use this connector when the path is already readable by the runtime and the contract should not care whether access is provided by IAM, Unity Catalog, mounted storage or local filesystem configuration.</p><pre><code>source:
+  type: connector
+  connector: object_storage
+  provider: s3
+  path: s3://company-landing/orders/
+  format: parquet
+  read:
+    schema: "order_id STRING, updated_at TIMESTAMP, amount DOUBLE"</code></pre></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

@@ -35,6 +35,33 @@ contractforge connectors show rest_api jdbc s3 azure_blob
 contractforge connectors doctor rest_api jdbc s3 azure_blob</code></pre>
     <p><code>connectors doctor</code> does not open network connections. It documents expected runtime capabilities so reviewers can catch missing drivers, cloud access or platform constraints early.</p>
   </section>
+  <section class="section">
+    <h2>Connector responsibility boundary</h2>
+    <p>A connector is responsible for retrieving bytes or records and exposing safe source metadata. It should not contain business transformations. Use <code>transform.shape</code>, <code>column_mapping</code>, quality rules and write modes for the contract-specific behavior.</p>
+    <div class="info-grid">
+      <article class="info-card"><span>Connector</span><h3>Read the source</h3><p>URL, path, table, SQL, API request, pagination, credentials, driver options and runtime-specific access setup.</p></article>
+      <article class="info-card"><span>Transform</span><h3>Shape the data</h3><p>Parse JSON strings, flatten structs, explode arrays, zip parallel arrays, project fields, cast columns and deduplicate.</p></article>
+      <article class="info-card"><span>Quality</span><h3>Validate intent</h3><p>Required keys, accepted values, expressions, uniqueness and row-level quarantine decisions.</p></article>
+      <article class="info-card"><span>Writer</span><h3>Commit semantics</h3><p>Append, overwrite, SCD1, hash diff, SCD2 or snapshot soft delete with metrics and control-table evidence.</p></article>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Runtime compatibility guide</h2>
+    <div class="table-wrap"><table><tr><th>Connector</th><th>Serverless preference</th><th>Classic/local preference</th></tr><tr><td>Files on workspace/Volumes</td><td>Use governed paths and explicit schema.</td><td>Use Spark-readable paths and installed format libraries.</td></tr><tr><td>S3/Azure Blob</td><td>Use External Location or Volume when direct Hadoop credentials are blocked.</td><td>Use S3A/ABFS/SAS configuration when credentials are available.</td></tr><tr><td>HTTP file</td><td>Good fallback when Spark cannot read HTTPS directly.</td><td>Also useful for public datasets and small/medium static files.</td></tr><tr><td>REST API</td><td>Python driver retrieves payloads; keep payload size limits explicit.</td><td>Same, but cluster networking may be easier to control.</td></tr><tr><td>JDBC</td><td>Requires driver and route support in the runtime.</td><td>Install driver and configure network/security groups.</td></tr><tr><td>Auto Loader</td><td>Use supported cloudFiles access paths.</td><td>Use cluster/cloud IAM and checkpoint locations.</td></tr></table></div>
+  </section>
+  <section class="section">
+    <h2>Source metadata</h2>
+    <p>Every connector contributes source metadata to the run payload and <code>ctrl_ingestion_runs</code>. Secrets are redacted before persistence.</p>
+    <pre><code>SELECT
+  source_connector,
+  source_format,
+  source_path,
+  source_options_redacted_json,
+  source_metrics_json
+FROM main.ops.ctrl_ingestion_runs
+ORDER BY start_ts_utc DESC
+LIMIT 20;</code></pre>
+  </section>
 </main>
 </div>
 </body>

@@ -7,4 +7,11 @@
   query: |
     SELECT id, updated_at, amount
     FROM main.raw.orders
-    WHERE status = 'closed'</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Use fully qualified names in shared workspaces.</li><li>Keep SQL short enough to review; complex transformations usually belong in views or Silver tables.</li><li>Permissions are runtime/catalog concerns, not connector behavior.</li></ul></section></main></div></body></html>
+    WHERE status = 'closed'</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Use fully qualified names in shared workspaces.</li><li>Keep SQL short enough to review; complex transformations usually belong in views or Silver tables.</li><li>Permissions are runtime/catalog concerns, not connector behavior.</li></ul></section><section class="section"><h2>SQL source design</h2><p>Use SQL sources for small, reviewed extraction predicates. If the SQL becomes a business transformation, promote it to a view, notebook step or a Silver/Gold contract.</p><pre><code>source:
+  type: connector
+  connector: sql
+  query: |
+    SELECT order_id, updated_at, amount
+    FROM main.raw.orders
+    WHERE updated_at &gt;= timestamp '2026-01-01'
+watermark_columns: [updated_at]</code></pre></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

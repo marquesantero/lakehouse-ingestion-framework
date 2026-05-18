@@ -153,6 +153,42 @@ pre code {
   padding: .95rem;
 }
 
+.nav-group {
+  border-bottom: 1px solid rgba(222, 217, 207, .72);
+  padding: .18rem 0 .42rem;
+}
+.nav-group:last-child { border-bottom: 0; }
+.nav-group-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  font: 800 .68rem/1 var(--font-sans);
+  justify-content: space-between;
+  letter-spacing: .12em;
+  margin: .5rem 0 .16rem;
+  padding: .55rem .62rem;
+  text-align: left;
+  text-transform: uppercase;
+  width: 100%;
+}
+.nav-group-toggle::after {
+  color: var(--brand-amber);
+  content: "›";
+  font-size: 1rem;
+  transform: rotate(0deg);
+  transition: transform .16s ease;
+}
+.nav-group.open .nav-group-toggle::after { transform: rotate(90deg); }
+.nav-group-links {
+  display: none;
+  flex-direction: column;
+  gap: .12rem;
+}
+.nav-group.open .nav-group-links { display: flex; }
+
 .side-nav a {
   border-radius: 10px;
   color: #3e4c58;
@@ -349,7 +385,7 @@ h3 {
   line-height: 1.72;
 }
 
-.feature-grid, .contract-grid, .connector-tiles, .mode-grid {
+.feature-grid, .contract-grid, .connector-tiles, .mode-grid, .info-grid {
   display: grid;
   gap: 1rem;
 }
@@ -365,20 +401,23 @@ h3 {
 .mode-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.info-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
-.feature-card, .contract-grid article, .connector-tiles a, .doc-card, .mode-card, .note, .page-card {
+.feature-card, .contract-grid article, .connector-tiles a, .doc-card, .mode-card, .note, .page-card, .info-card {
   background: rgba(255,255,255,.82);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 1.1rem;
 }
-.feature-card p, .contract-grid p, .connector-tiles span, .doc-card p, .mode-card p, .note p, .page-card p {
+.feature-card p, .contract-grid p, .connector-tiles span, .doc-card p, .mode-card p, .note p, .page-card p, .info-card p {
   color: var(--muted);
   line-height: 1.62;
   margin: 0;
 }
-.contract-grid span, .mode-card span, .doc-card span {
+.contract-grid span, .mode-card span, .doc-card span, .info-card span {
   color: var(--accent-dark);
   display: block;
   font-family: var(--font-mono);
@@ -514,7 +553,56 @@ th {
 }
 .note.warning { border-left-color: var(--warn); }
 .note.danger { border-left-color: var(--danger); }
+.note.success { border-left-color: var(--ok); }
 .note strong { display: block; margin-bottom: .35rem; }
+
+.step-list {
+  counter-reset: steps;
+  display: grid;
+  gap: .85rem;
+  margin: 1.2rem 0;
+  padding: 0;
+}
+.step-list li {
+  background: rgba(255,255,255,.76);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  counter-increment: steps;
+  list-style: none;
+  padding: 1rem 1rem 1rem 3.2rem;
+  position: relative;
+}
+.step-list li::before {
+  align-items: center;
+  background: var(--brand-blue);
+  border-radius: 999px;
+  color: white;
+  content: counter(steps);
+  display: flex;
+  font-weight: 800;
+  height: 1.75rem;
+  justify-content: center;
+  left: .85rem;
+  position: absolute;
+  top: .9rem;
+  width: 1.75rem;
+}
+.muted { color: var(--muted); }
+.kbd-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin: .9rem 0 0;
+}
+.kbd-row span {
+  background: #f1ece3;
+  border: 1px solid #e4d9ca;
+  border-radius: 999px;
+  color: #6f3d13;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  padding: .28rem .52rem;
+}
 
 .copy-btn {
   background: rgba(255,255,255,.10);
@@ -546,7 +634,7 @@ th {
 }
 
 @media (max-width: 1120px) {
-  .feature-grid, .contract-grid, .connector-tiles, .mode-grid {
+  .feature-grid, .contract-grid, .connector-tiles, .mode-grid, .info-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .hero, .split, .doc-layout {
@@ -568,7 +656,7 @@ th {
     padding-top: 4.8rem;
   }
   .hero { min-height: auto; padding-top: 0; }
-  .feature-grid, .contract-grid, .connector-tiles, .mode-grid, .page-grid {
+  .feature-grid, .contract-grid, .connector-tiles, .mode-grid, .page-grid, .info-grid {
     grid-template-columns: 1fr;
   }
   .cta-panel {

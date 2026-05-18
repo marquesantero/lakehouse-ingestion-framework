@@ -45,6 +45,35 @@ source:
     source_complete: true</code></pre>
     <div class="note warning"><strong>Operational note</strong><p>Use incremental modes for partial sources. A snapshot with watermark is a contradiction and should fail before data is touched.</p></div>
   </section>
+  <section class="section">
+    <h2>Merge safety</h2>
+    <p>MERGE-based modes fail before writing when the source contains null or duplicate keys that would make the target update ambiguous. This behavior came from real ingestion tests and is intentionally generic, not tailored to one dataset.</p>
+    <pre><code>mode: scd1_upsert
+merge_keys: [customer_id]
+quality_rules:
+  not_null: [customer_id]
+  unique_key: [customer_id]
+transform:
+  deduplicate:
+    keys: [customer_id]
+    order_by: updated_at DESC NULLS LAST</code></pre>
+  </section>
+  <section class="section">
+    <h2>Metrics by mode</h2>
+    <p>Each mode returns logical metrics even when Delta history does not expose the same operation counters across runtimes. Use <code>metrics_source</code> to understand whether values came from logical calculations, Delta operation metrics or a mix.</p>
+    <div class="table-wrap"><table><tr><th>Mode</th><th>Important metrics</th><th>Dashboard interpretation</th></tr><tr><td><code>scd0_append</code></td><td><code>rows_inserted</code>, <code>rows_written</code></td><td>Batch size and ingestion throughput.</td></tr><tr><td><code>scd1_upsert</code></td><td><code>rows_inserted</code>, <code>rows_updated</code></td><td>Change ratio in current-state tables.</td></tr><tr><td><code>scd1_hash_diff</code></td><td><code>rows_written</code>, hash-change counts when available</td><td>Whether source batches are actually changing target state.</td></tr><tr><td><code>scd2_historical</code></td><td>expired versions and inserted versions</td><td>Historical churn and slowly changing dimension behavior.</td></tr><tr><td><code>snapshot_soft_delete</code></td><td>inserted, updated, soft-deleted rows</td><td>Completeness and unexpected disappearance monitoring.</td></tr></table></div>
+  </section>
+  <section class="section">
+    <h2>Raise-on-failure behavior</h2>
+    <p>Failed writes are not silent payloads by default. The API writes run evidence and then raises <code>ContractForgeExecutionError</code>, so Databricks Jobs and notebooks fail naturally.</p>
+    <pre><code>from contractforge import ContractForgeExecutionError, ingest
+
+try:
+    result = ingest(...)
+except ContractForgeExecutionError as exc:
+    display(exc.result)
+    raise</code></pre>
+  </section>
 </main>
 </div>
 </body>

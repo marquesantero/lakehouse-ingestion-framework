@@ -27,6 +27,28 @@
     <pre><code>contractforge init --bundle --layer bronze --target-schema raw --table b_orders --mode scd0_append
 contractforge validate-project contracts/</code></pre>
   </section>
+  <section class="section">
+    <h2>Validated scenarios and what they prove</h2>
+    <div class="table-wrap"><table><tr><th>Scenario</th><th>Runtime</th><th>What it exercised</th></tr><tr><td>CDC public CSV over HTTP</td><td>Databricks serverless</td><td><code>http_file</code>, explicit CSV options, overwrite, source metadata, serverless-safe download path.</td></tr><tr><td>Azure Blob SAS files</td><td>Azure Databricks single-node classic</td><td>Direct object storage credentials, recursive folders, schemas, multiple file formats and cluster-level storage configuration.</td></tr><tr><td>Auto Loader on Blob/ADLS</td><td>Databricks</td><td><code>cloudFiles</code>, checkpoints, <code>available_now</code>, child run metrics and stream aggregation.</td></tr><tr><td>Supabase/Postgres JDBC</td><td>Databricks</td><td>JDBC driver, pushdown, partitioned reads, watermarking, SCD1/hash diff patterns.</td></tr><tr><td>AWS S3 from Azure Databricks</td><td>Classic single-node</td><td>S3A credential setup, explicit region/session token behavior and cross-cloud object storage constraints.</td></tr><tr><td>RDS/Aurora IAM</td><td>Classic cluster</td><td>JDBC <code>auth.type=rds_iam</code>, botocore/default credential chain and network prerequisite diagnosis.</td></tr></table></div>
+  </section>
+  <section class="section">
+    <h2>Template families</h2>
+    <p>The validated examples were converted into reusable templates so new contracts can start from known-good patterns instead of blank YAML files.</p>
+    <pre><code>contractforge templates list
+contractforge templates wizard --layer silver --source jdbc --mode scd1_hash_diff
+contractforge templates write jdbc_hash_diff --output contracts/silver/s_orders</code></pre>
+    <div class="info-grid">
+      <article class="info-card"><span>Files</span><h3>Small files and partitioned object storage</h3><p>Use explicit schemas, recursive lookup and optional regex filters for advanced file selection.</p></article>
+      <article class="info-card"><span>APIs</span><h3>REST raw payloads</h3><p>Keep API retrieval in the connector and model nested payloads through <code>transform.shape</code>.</p></article>
+      <article class="info-card"><span>Databases</span><h3>JDBC incremental</h3><p>Combine watermark, pushdown, partitioned reads, quality gates and deterministic merge semantics.</p></article>
+      <article class="info-card"><span>Streaming</span><h3>Auto Loader available-now</h3><p>Use stream control tables to verify micro-batch counts and row totals.</p></article>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Example design rule</h2>
+    <p>Examples are not allowed to hide framework gaps with ad-hoc Spark code. If a real source requires common behavior, prefer improving the library or documenting a reusable pattern.</p>
+    <div class="note success"><strong>Outcome from real tests</strong><p>Validated examples already drove improvements in HTTP file ingestion, raw REST JSON handling, stream metric aggregation, JDBC/RDS auth, source schema aliases, merge safety and error summarization.</p></div>
+  </section>
 </main>
 </div>
 </body>

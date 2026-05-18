@@ -12,4 +12,11 @@
   path: blob_teste/json/
   format: json
   auth:
-    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Serverless can block runtime filesystem credential configuration; ContractForge fails early with guidance.</li><li>Store only the SAS token in secrets; keep account/container/path in the contract.</li><li>For recurring landing folders, consider Auto Loader with checkpoint and schema location.</li></ul></section></main></div></body></html>
+    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Serverless can block runtime filesystem credential configuration; ContractForge fails early with guidance.</li><li>Store only the SAS token in secrets; keep account/container/path in the contract.</li><li>For recurring landing folders, consider Auto Loader with checkpoint and schema location.</li></ul></section><section class="section"><h2>Serverless versus classic behavior</h2><p>Real Azure Blob tests showed a useful split: serverless should use External Location or network policy; classic/job clusters can use SAS tokens when filesystem configuration is permitted.</p><pre><code>source:
+  connector: azure_blob
+  account_url: https://generalcafe.blob.core.windows.net/
+  container: databricksdata
+  path: blob_teste/json/
+  format: json
+  auth:
+    sas_token: "{{ secret:contractforge-azure/blob_sas_token }}"</code></pre><div class="note warning"><strong>No silent fallback</strong><p>If the runtime blocks direct credential configuration, the connector should fail clearly instead of trying an unsafe fallback.</p></div></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>

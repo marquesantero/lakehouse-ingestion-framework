@@ -38,10 +38,11 @@
       <div class="doc-layout">
         <article>
           <section class="section">
-            <h2>1. Install</h2>
+            <h2>1. Install the runtime package</h2>
             <pre><code>pip install contractforge</code></pre>
-            <p>On Databricks, install the released wheel on the job/serverless task. Spark and Delta are provided by the runtime; local development can install the optional Spark extra.</p>
+            <p>On Databricks, install the released wheel on the job, cluster or notebook environment. Spark and Delta are provided by the runtime; local development can install the optional Spark extra.</p>
             <pre><code>pip install "contractforge[spark]"</code></pre>
+            <div class="note"><strong>Databricks recommendation</strong><p>Pin a released wheel version in jobs. Serverless can install from PyPI or workspace files when allowed by the environment; classic clusters can also use cluster libraries.</p></div>
           </section>
           <section class="section">
             <h2>2. Create a minimal YAML contract</h2>
@@ -59,7 +60,12 @@ layer: bronze
 mode: scd0_append
 source_system: crm
 quality_rules:
-  not_null: [order_id]</code></pre>
+  not_null: [order_id]
+  expressions:
+    - name: positive_amount
+      expression: amount >= 0
+      severity: abort
+schema_policy: additive_only</code></pre>
           </section>
           <section class="section">
             <h2>3. Validate before running</h2>
@@ -73,18 +79,33 @@ quality_rules:
 bundle = load_contract_bundle("/Workspace/Shared/contracts/bronze/b_orders")
 result = ingest_bundle(bundle)
 
-if result["status"] != "SUCCESS":
-    raise RuntimeError(result["error_message"])
-
 display(result)</code></pre>
+            <p>Execution APIs raise <code>ContractForgeExecutionError</code> by default when the final status is <code>FAILED</code> or <code>ABORTED</code>. The run is still written to control tables first. Use <code>raise_on_failure=False</code> only when a test or diagnostic notebook needs to inspect the failed payload directly.</p>
           </section>
           <section class="section">
             <h2>5. Inspect evidence</h2>
-            <pre><code>SELECT status, target_table, rows_read, rows_written, duration_seconds
+            <pre><code>SELECT
+  status,
+  target_table,
+  mode,
+  rows_read,
+  rows_written,
+  quality_status,
+  framework_version,
+  error_message
 FROM main.ops.ctrl_ingestion_runs
 ORDER BY start_ts_utc DESC
 LIMIT 20;</code></pre>
             <div class="note"><strong>What to check first</strong><p>Look at run status, row counts, quality status, source metadata, framework version and error summaries. Those fields are the first layer of operational diagnosis.</p></div>
+          </section>
+          <section class="section">
+            <h2>6. Evolve the first contract</h2>
+            <div class="info-grid">
+              <article class="info-card"><span>Incremental</span><h3>Add watermarking</h3><p>Use <code>watermark_columns</code> for append or upsert patterns where the source exposes a monotonic update timestamp.</p></article>
+              <article class="info-card"><span>Structure</span><h3>Add transform.shape</h3><p>Parse raw JSON payloads, flatten structs, zip parallel arrays and project target columns without custom notebook code.</p></article>
+              <article class="info-card"><span>Governance</span><h3>Split annotations</h3><p>Add descriptions, tags and PII classification after the data table exists and the schema is stable.</p></article>
+              <article class="info-card"><span>Operations</span><h3>Add ownership</h3><p>Record owner, support group, criticality, SLA and runbook so dashboards can identify the right response path.</p></article>
+            </div>
           </section>
         </article>
         <aside class="toc">

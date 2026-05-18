@@ -60,11 +60,79 @@ quality_rules:
   unique_key: [customer_id]</code></pre>
       </section>
       <section class="section">
+        <h2>Annotations example</h2>
+        <p>Use annotations for catalog-facing information: descriptions, aliases, tags, PII classification and field lifecycle. This keeps table knowledge near the ingestion contract without mixing it into read/write mechanics.</p>
+        <pre><code>policy: warn
+table:
+  description: Curated customer dimension used by CRM analytics.
+  aliases: [clients, account holders]
+  tags:
+    domain: crm
+    data_product: customer360
+    contains_pii: "true"
+columns:
+  customer_id:
+    description: Stable customer business key.
+    tags:
+      key: "true"
+      required: "true"
+  email:
+    description: Customer email used for contactability analysis.
+    pii:
+      enabled: true
+      type: email
+      sensitivity: restricted
+  legacy_code:
+    description: Legacy identifier kept for migration reconciliation.
+    deprecated:
+      since: "2026-05-01"
+      replacement: customer_id</code></pre>
+      </section>
+      <section class="section">
+        <h2>Operations example</h2>
+        <pre><code>business_owner: crm-analytics
+technical_owner: data-engineering
+steward: data-governance
+support_group: data-platform
+escalation_group: data-platform-oncall
+criticality: high
+expected_frequency: daily
+freshness_sla_minutes: 180
+runbook_url: https://example.com/runbooks/s_customers
+tags:
+  domain: crm
+  example: public-datasets</code></pre>
+      </section>
+      <section class="section">
+        <h2>Access example</h2>
+        <p>Access is intentionally separate because it may require elevated privileges and a different approval workflow.</p>
+        <pre><code>mode: validate_only
+on_drift: warn
+grants:
+  - principal: account users
+    privileges: [SELECT]
+  - principal: data-platform
+    privileges: [SELECT, MODIFY]
+column_masks:
+  - column: email
+    function: main.security.mask_email
+    using_columns: [email]
+row_filters:
+  - name: region_filter
+    function: main.security.filter_region
+    columns: [region]</code></pre>
+      </section>
+      <section class="section">
         <h2>Validation workflow</h2>
         <pre><code>contractforge validate contracts/silver/s_customers.ingestion.yaml
 contractforge validate-bundle contracts/silver/s_customers
 contractforge governance-check contracts/silver/s_customers</code></pre>
         <p>Use validation in CI before Databricks jobs run. The goal is to detect broken contracts while reviewing code, not while the cluster is already processing data.</p>
+      </section>
+      <section class="section">
+        <h2>When to keep a single file</h2>
+        <p>Small internal projects can start with only <code>*.ingestion.yaml</code>. Split files become valuable when metadata, operations and access rules need independent reviewers or when the same table is maintained by multiple roles.</p>
+        <div class="note"><strong>Practical rule</strong><p>If changing a value should not require a data reload, it probably belongs in <code>annotations.yaml</code>, <code>operations.yaml</code> or <code>access.yaml</code>, not in transformation logic.</p></div>
       </section>
     </main>
   </div>

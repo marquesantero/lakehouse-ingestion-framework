@@ -72,6 +72,19 @@ sequenceDiagram
 
 layer: silver</code></pre>
       </section>
+      <section class="section">
+        <h2>Failure model</h2>
+        <p>ContractForge distinguishes between a thrown Python exception and the persisted operational state of a run. When an ingestion fails, the framework writes the failed run, the short error message and the full traceback to control tables, then raises <code>ContractForgeExecutionError</code> to the caller by default.</p>
+        <div class="info-grid">
+          <article class="info-card"><span>Default</span><h3>Fail fast to the caller</h3><p>Notebook and job tasks stop naturally when the contract returns <code>FAILED</code> or <code>ABORTED</code>.</p></article>
+          <article class="info-card"><span>Diagnostics</span><h3>Inspect payloads explicitly</h3><p>Use <code>raise_on_failure=False</code> in tests or exploratory notebooks when the failed result itself is the assertion target.</p></article>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Runtime model</h2>
+        <p>The same contract should be explicit about runtime-sensitive behavior. Some capabilities depend on Databricks serverless, classic clusters, Unity Catalog external locations or installed Spark connector libraries.</p>
+        <div class="table-wrap"><table><tr><th>Area</th><th>Serverless guidance</th><th>Classic cluster guidance</th></tr><tr><td>Object storage</td><td>Prefer Volumes or External Locations.</td><td>Can use direct Hadoop/S3A/ABFS configuration when credentials are allowed.</td></tr><tr><td>Auto Loader</td><td>Use checkpoint/schema locations available to the workspace.</td><td>Use cloudFiles with cluster-level storage access.</td></tr><tr><td>JDBC</td><td>Requires driver availability and network route.</td><td>Install driver and configure VPC/firewall/peering as needed.</td></tr><tr><td>External Spark connectors</td><td>Depends on serverless library support.</td><td>Install connector jars/packages on the cluster.</td></tr></table></div>
+      </section>
     </main>
   </div>
 </body>

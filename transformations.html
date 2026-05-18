@@ -67,6 +67,41 @@
         mode: explode_outer
         alias: observation</code></pre>
   </section>
+  <section class="section">
+    <h2>Validated example patterns</h2>
+    <div class="info-grid">
+      <article class="info-card"><span>NASA EONET</span><h3>Raw REST JSON to rows</h3><p>The REST connector captures raw JSON, <code>parse_json</code> applies an explicit DDL schema, and array explosion turns events into silver records.</p></article>
+      <article class="info-card"><span>Open-Meteo</span><h3>Parallel arrays</h3><p>Hourly weather responses return aligned arrays. <code>zip_arrays</code> preserves positional meaning before exploding.</p></article>
+      <article class="info-card"><span>USGS earthquakes</span><h3>Nested structs and coordinates</h3><p>Struct fields and array indexes can be projected declaratively, keeping notebooks free of Spark column plumbing.</p></article>
+      <article class="info-card"><span>Blob/S3 files</span><h3>Schema first</h3><p>Explicit file schemas plus <code>transform.deduplicate</code> make object storage examples deterministic and reviewable.</p></article>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Column mapping versus shape</h2>
+    <p>Use <code>column_mapping</code> for simple source-to-target renames before technical columns are added. Use <code>transform.shape.columns</code> when the target projection needs casts, nested paths, expressions, array indexes or a complete structural rewrite.</p>
+    <pre><code>column_mapping:
+  id: customer_id
+  ingestion_date: source_ingestion_date
+
+transform:
+  shape:
+    columns:
+      properties.mag:
+        alias: magnitude
+        cast: DOUBLE
+      geometry.coordinates[0]:
+        alias: longitude
+        cast: DOUBLE</code></pre>
+  </section>
+  <section class="section">
+    <h2>Guardrails</h2>
+    <ul class="check-list">
+      <li>JSON parsing requires a declared Spark DDL schema; this avoids accidental inference drift.</li>
+      <li>Changing cardinality in Bronze is blocked by default because raw layers should normally preserve source records.</li>
+      <li>Sibling arrays are not exploded independently unless the contract avoids accidental Cartesian products.</li>
+      <li>Deduplication order must be deterministic for merge and hash-diff modes.</li>
+    </ul>
+  </section>
 </main>
 </div>
 </body>

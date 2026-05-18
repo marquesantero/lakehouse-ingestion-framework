@@ -52,6 +52,34 @@ contractforge governance-check contracts/silver/s_customers
 contractforge apply-access contracts/silver/s_customers</code></pre>
     <div class="note"><strong>Why this matters</strong><p>A data writer can load a table without becoming the principal responsible for grants, row filters or column masks.</p></div>
   </section>
+  <section class="section">
+    <h2>Governance lifecycle</h2>
+    <ol class="step-list">
+      <li><strong>Validate the bundle.</strong> Check that annotations, operations and access rules reference fields that exist in the ingestion target.</li>
+      <li><strong>Run ingestion.</strong> Data is written first so the table and columns physically exist.</li>
+      <li><strong>Apply annotations and operations.</strong> Comments, tags and ownership records are applied and logged.</li>
+      <li><strong>Apply access separately.</strong> Security changes are previewed, validated and executed through the dedicated access workflow.</li>
+    </ol>
+  </section>
+  <section class="section">
+    <h2>PII as annotation, not transformation</h2>
+    <p>PII classification describes the data. It should not automatically mask or mutate values during ingestion. Masking belongs in catalog access policies or downstream security functions.</p>
+    <pre><code>columns:
+  national_id:
+    description: Government-issued identifier.
+    pii:
+      enabled: true
+      type: national_id
+      sensitivity: confidential
+    tags:
+      retention_policy: restricted
+      masking_candidate: "true"</code></pre>
+  </section>
+  <section class="section">
+    <h2>Drift and audit tables</h2>
+    <p>Governance actions are written to control tables so teams can answer what metadata was applied, what failed and what was intentionally deferred.</p>
+    <div class="table-wrap"><table><tr><th>Table</th><th>Use</th></tr><tr><td><code>ctrl_ingestion_annotations</code></td><td>Applied, warned, ignored or failed table/column annotations.</td></tr><tr><td><code>ctrl_ingestion_operations</code></td><td>Ownership, criticality, SLA and support metadata snapshots.</td></tr><tr><td><code>ctrl_ingestion_access</code></td><td>Access validation/application evidence, including drift status.</td></tr></table></div>
+  </section>
 </main>
 </div>
 </body>

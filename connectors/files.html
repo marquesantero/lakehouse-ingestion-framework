@@ -13,4 +13,10 @@ target:
   table: b_orders</code></pre></section><section class="section"><h2>File selection</h2><p>Prefer Spark-native options such as <code>pathGlobFilter</code>. Use <code>source.read.file_regex</code> when real regex over file name or relative path is required.</p><pre><code>read:
   file_regex: "^orders_2026_[0-9]{2}\\.json$"
   file_regex_scope: filename
-  file_regex_max_listed: 50000</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Declare schemas for many small files to avoid repeated inference cost.</li><li>XML and Avro support depends on runtime libraries.</li><li>For continuously arriving files on Databricks, prefer Auto Loader.</li></ul></section></main></div></body></html>
+  file_regex_max_listed: 50000</code></pre></section><section class="section"><h2>Operational guidance</h2><ul class="check-list"><li>Declare schemas for many small files to avoid repeated inference cost.</li><li>XML and Avro support depends on runtime libraries.</li><li>For continuously arriving files on Databricks, prefer Auto Loader.</li></ul></section><section class="section"><h2>Many-file ingestion</h2><p>Validated file examples use explicit schemas, folder reads, recursive lookup and both Spark glob filters and ContractForge regex filters.</p><pre><code>read:
+  schema: "id STRING, event_ts TIMESTAMP, amount DOUBLE"
+  recursiveFileLookup: true
+  pathGlobFilter: "*.json"
+  file_regex: "^orders_[0-9]{8}.*\\.json$"
+  file_regex_scope: filename
+  file_regex_max_listed: 50000</code></pre><p>Use regex filters for advanced selection, not as a replacement for Spark-native <code>pathGlobFilter</code>.</p></section><section class="section doc-depth-marker"><h2>How this connector fits the contract</h2><p>Keep extraction concerns in <code>source</code>, structural normalization in <code>transform</code>, validation in <code>quality_rules</code> and target semantics in <code>mode</code>. This separation keeps examples portable and prevents connector-specific workarounds from becoming hidden business logic.</p><div class="kbd-row"><span>source</span><span>transform</span><span>quality_rules</span><span>mode</span><span>control tables</span></div></section></main></div></body></html>
