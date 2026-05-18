@@ -15,11 +15,13 @@ It is designed for teams that want the governance discipline of declarative pipe
 - **Web documentation:** https://marquesantero.github.io/contractforge/
 - **Quick start:** [docs/quickstart.md](docs/quickstart.md)
 - **Documentation map:** [docs/README.md](docs/README.md)
-- **Complete reference:** [docs/oficial.md](docs/oficial.md)
+- **Usage guide:** [docs/usage-guide.md](docs/usage-guide.md)
+- **Architecture:** [docs/architecture.md](docs/architecture.md)
+- **Reference map:** [docs/reference.md](docs/reference.md)
 - **Project template:** [examples/project_template](examples/project_template)
 - **Example playground:** [examples/playground](examples/playground)
 - **Templates:** [docs/templates.md](docs/templates.md)
-- **Connector compatibility:** [docs/compatibilidade_conectores.md](docs/compatibilidade_conectores.md)
+- **Connector compatibility:** [docs/connector-compatibility.md](docs/connector-compatibility.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 
 ## Why ContractForge

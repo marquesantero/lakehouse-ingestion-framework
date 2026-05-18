@@ -7,26 +7,26 @@ https://marquesantero.github.io/contractforge/
 ## Start Here
 
 - [Quick start](quickstart.md): minimal flow to validate the installation, run an ingestion and inspect control tables.
-- [Official reference](oficial.md): complete reference for contracts, write modes, connectors, shape, governance and observability.
-- [Usage guide](guia_de_uso.md): operational walkthrough for packages, notebooks, YAML contracts and Databricks Workflows.
+- [Reference documentation](reference.md): source-of-truth map and website content backlog. The website is the official product manual.
+- [Usage guide](usage-guide.md): operational walkthrough for packages, notebooks, YAML contracts and Databricks Workflows.
 - [Contract templates](templates.md): ready-to-copy scenarios for REST, JDBC, Auto Loader, SCD, snapshot and gold tables.
 
 ## Technical Reference
 
-- [Architecture](arquitetura.md): internal modules, execution flow, edge cases and design decisions.
+- [Architecture](architecture.md): detailed contributor-oriented architecture, module boundaries, execution flow and design principles.
 - [ADRs](adrs/README.md): formal architecture decision records.
 - [Changelog](../CHANGELOG.md): release history and versioning policy.
 
 ## Topic Guides
 
-- [Connector compatibility](compatibilidade_conectores.md): connector matrix, dependencies and runtime support.
+- [Connector compatibility](connector-compatibility.md): connector matrix, dependencies and runtime support.
 - [RDS/Aurora JDBC with IAM Auth](rds_iam_jdbc.md): complete setup for `source.auth.type=rds_iam`, grants, IAM policy, secrets and troubleshooting.
-- [Operations and maintenance](operacao.md): control table retention, cleanup/VACUUM and operational practices.
+- [Operations and maintenance](operations.md): control table retention, cleanup/VACUUM and operational practices.
 - [Operational dashboards](dashboards/README.md): Databricks SQL/Lakeview blueprint and queries for runs, quality, failures, streams, SLA, connectors and governance.
 - [Performance](performance.md): guidelines for write modes, cache, JDBC, REST, Delta layout and metrics.
-- [Security](seguranca.md): practices for secrets, explain plans, lineage, control tables and quarantine.
-- [Anti-patterns](antipadroes.md): risky configurations and recommended alternatives.
-- [Project template](template_projeto.md): recommended structure with contracts, notebooks and Databricks Asset Bundles.
+- [Security](security.md): practices for secrets, explain plans, lineage, control tables and quarantine.
+- [Anti-patterns](anti-patterns.md): risky configurations and recommended alternatives.
+- [Project template](project-template.md): recommended structure with contracts, notebooks and Databricks Asset Bundles.
 - [Playground](../examples/playground/README.md): example project with complete contracts that can be validated by CLI.
 
 ## Website

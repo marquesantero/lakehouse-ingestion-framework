@@ -1,50 +1,50 @@
-# Dashboard Operacional das Ctrl Tables
+# Control Tables Dashboard
 
-Este pacote documenta um dashboard Databricks SQL para operar pipelines ContractForge em produção ou homologação. Ele não é um export JSON do Lakeview de propósito: o formato interno do dashboard pode mudar entre versões do Databricks. O repositório entrega o desenho visual, as queries e a hierarquia; a publicação final fica no workspace.
+This directory documents a Databricks SQL / Lakeview dashboard for operating ContractForge pipelines. It intentionally provides SQL, layout guidance and visual structure instead of a Lakeview JSON export, because Databricks dashboard internals may change between runtime versions.
 
-## Arquivos
+## Files
 
-- `control_tables_dashboard.sql`: consultas nomeadas para cards, gráficos, tabelas de drill-down e visões de qualidade.
-- `control_tables_dashboard_blueprint.yaml`: organização recomendada de páginas, filtros, widgets e tipos de visualização.
+- `control_tables_dashboard.sql`: named queries for KPI cards, charts, drill-down tables and quality views.
+- `control_tables_dashboard_blueprint.yaml`: recommended page hierarchy, filters, widgets and visualization types.
 
-## Objetivo Visual
+## Goal
 
-O dashboard deve funcionar como um centro operacional, não como uma lista de queries. A primeira tela responde rapidamente:
+The dashboard should behave like an operations command center, not like a loose collection of SQL snippets. The first page should quickly answer:
 
-- O ambiente está saudável agora?
-- Quais targets falharam ou estão com SLA vencido?
-- Qual volume foi processado e qual parte foi quarantinada?
-- Onde está o gargalo: leitura, qualidade, escrita, lineage ou estado?
-- Quais conectores/runtimes estão causando mais falhas?
+- Is the ingestion environment healthy?
+- Which targets failed or breached SLA?
+- How much data was read, written and quarantined?
+- Which stage is the bottleneck: read, quality, write, lineage or state update?
+- Which connectors and runtimes are producing most failures?
 
-## Parâmetros
+## Required Placeholders
 
-Antes de criar as queries, substitua os placeholders:
+Before saving the queries in Databricks SQL, replace these placeholders:
 
-| Placeholder | Exemplo | Descrição |
-|-------------|---------|-----------|
-| `{{catalog}}` | `main` | Catálogo onde ficam as ctrl tables |
-| `{{ctrl_schema}}` | `ops` | Schema das ctrl tables |
-| `{{lookback_days}}` | `7` | Janela padrão para gráficos históricos |
+| Placeholder | Example | Meaning |
+| --- | --- | --- |
+| `{{catalog}}` | `main` | Catalog that stores the control tables. |
+| `{{ctrl_schema}}` | `ops` | Schema that stores the control tables. |
+| `{{lookback_days}}` | `7` | Default historical window for charts. |
 
-O Databricks SQL não parametriza identificadores como catálogo/schema em query parameters nativos. Por isso, substitua esses valores no SQL antes de salvar as queries.
+Databricks SQL query parameters do not parameterize identifiers such as catalog and schema names. Replace them in the SQL text before publishing the dashboard.
 
-## Estrutura Recomendada
+## Recommended Dashboard Pages
 
-Crie um dashboard chamado **ContractForge Operations Command Center** com as páginas abaixo.
+Create a dashboard named **ContractForge Operations Command Center**.
 
-| Página | Propósito | Visualizações principais |
-|--------|-----------|--------------------------|
-| Overview | Estado executivo do ambiente | KPI cards, trend de status, falhas recentes |
-| Reliability | Saúde por target e SLA | matriz target/status, freshness, runbooks |
-| Performance | Custo operacional indireto | duração, throughput, gargalos por etapa |
-| Quality | Governança de qualidade | regras, severidade, quarentena, effective rows |
-| Streaming | Auto Loader e foreachBatch | streams, microbatches, reconciliação filho/pai |
-| Connectors & Governance | Adoção e cobertura operacional | conectores, runtimes, annotations/operations |
+| Page | Purpose | Main views |
+| --- | --- | --- |
+| Overview | Executive health of the environment. | KPI cards, status trend, recent failures. |
+| Reliability | Target health and SLA. | Target/status matrix, freshness, runbooks. |
+| Performance | Runtime and throughput analysis. | Duration, rows per second, stage bottlenecks. |
+| Quality | Quality governance. | Rule failures, severities, quarantine and effective rows. |
+| Streaming | Auto Loader and foreachBatch evidence. | Parent streams, micro-batches and parent/child reconciliation. |
+| Connectors & Governance | Source and governance adoption. | Connectors, runtimes, annotations and operations coverage. |
 
-## Filtros Globais
+## Global Filters
 
-Configure filtros no dashboard, quando possível:
+Use these filters when the dashboard tool allows it:
 
 - `run_date`
 - `layer`
@@ -55,36 +55,36 @@ Configure filtros no dashboard, quando possível:
 - `runtime_type`
 - `criticality`
 
-Para páginas executivas, mantenha `lookback_days` em 7 ou 14. Para troubleshooting, use 30 ou 90.
+For executive pages, use a 7 or 14 day lookback. For troubleshooting, use 30 or 90 days.
 
-## Padrão Visual
+## Visual Standards
 
-Use cores consistentes:
+Use consistent colors:
 
-| Status | Cor sugerida |
-|--------|--------------|
-| `SUCCESS` | Verde |
-| `FAILED` | Vermelho |
-| `SKIPPED` | Cinza |
-| `DRY_RUN` | Azul |
-| `WARN` / `WARNING` | Amarelo |
-| `BREACHED` | Vermelho |
-| `NO_SUCCESS` | Laranja |
+| Status | Suggested color |
+| --- | --- |
+| `SUCCESS` | Green |
+| `FAILED` | Red |
+| `SKIPPED` | Gray |
+| `DRY_RUN` | Blue |
+| `WARN` / `WARNING` | Yellow |
+| `BREACHED` | Red |
+| `NO_SUCCESS` | Orange |
 
-Evite páginas com muitos gráficos pequenos. O blueprint prioriza poucos gráficos grandes, com tabelas de drill-down abaixo.
+Avoid pages with many tiny charts. Prefer a small number of readable charts with drill-down tables below them.
 
-## Publicação no Databricks SQL
+## Publishing Steps
 
-1. Abra `control_tables_dashboard.sql`.
-2. Substitua `{{catalog}}`, `{{ctrl_schema}}` e `{{lookback_days}}`.
-3. Crie uma query por bloco nomeado.
-4. Monte as páginas conforme `control_tables_dashboard_blueprint.yaml`.
-5. Valide com um período curto primeiro, por exemplo 7 dias.
-6. Compartilhe o dashboard com os grupos operacionais que têm permissão de leitura nas ctrl tables.
+1. Open `control_tables_dashboard.sql`.
+2. Replace `{{catalog}}`, `{{ctrl_schema}}` and `{{lookback_days}}`.
+3. Create one query per named SQL block.
+4. Build pages following `control_tables_dashboard_blueprint.yaml`.
+5. Validate first with a short period, for example 7 days.
+6. Share the dashboard only with groups allowed to read the control tables.
 
-## Permissões
+## Permissions
 
-O dashboard precisa de `SELECT` nas ctrl tables usadas:
+The dashboard requires `SELECT` on the control tables used by its queries:
 
 - `ctrl_ingestion_runs`
 - `ctrl_ingestion_errors`
@@ -93,14 +93,26 @@ O dashboard precisa de `SELECT` nas ctrl tables usadas:
 - `ctrl_ingestion_streams`
 - `ctrl_ingestion_operations`
 
-Se governance estiver habilitado, também é útil liberar:
+If governance is enabled, these tables are also useful:
 
 - `ctrl_ingestion_annotations`
 - `ctrl_ingestion_access`
 - `ctrl_ingestion_schema_changes`
 
-## O Que Não Fazer
+## Security Notes
 
-- Não dê acesso amplo a `ctrl_ingestion_quarantine` sem revisar a política de dados sensíveis. A coluna `record_payload` pode conter dados rejeitados da origem.
-- Não use `explain_mode=True` em produção contínua só para alimentar dashboard. `ctrl_ingestion_explain` é diagnóstico, não métrica operacional.
-- Não trate `FAILED=0` como saúde suficiente. Verifique também SLA, quarentena e queda de volume.
+- Do not grant broad access to `ctrl_ingestion_quarantine` without reviewing sensitive-data policy. The `record_payload` field can contain rejected source records.
+- Do not enable `explain_mode=True` in continuous production runs just to feed the dashboard. Explain records are diagnostic evidence, not routine metrics.
+- Do not treat `FAILED = 0` as the only health signal. Review SLA, quarantine, row-volume drops and stream reconciliation.
+
+## Useful Operating Questions
+
+Use the dashboard to answer:
+
+- Which targets have no successful run in the last expected interval?
+- Which runs are repeatedly skipped by idempotency?
+- Which connector has the highest failure rate?
+- Which tables have increasing quarantine volume?
+- Which stage dominates runtime?
+- Are streaming parent runs consistent with their child batch runs?
+- Are high-criticality tables missing operations metadata?
